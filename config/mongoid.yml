@@ -1,0 +1,6 @@
+development:
+  clients:
+    default:
+      uri: mongodb+srv://kayjee:ilovegodandmygranny@cluster0.68wmv.mongodb.net/tracker?retryWrites=true&w=majority
+      options:
+        server_selection_timeout: 5

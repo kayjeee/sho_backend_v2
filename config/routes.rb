@@ -1,38 +1,42 @@
 Rails.application.routes.draw do
   namespace :api do
     namespace :v1 do
-      # User routes
-      resources :users, only: [:index, :show, :create] do
+      # User Routes
+      resources :users, only: [:index, :show, :create, :update] do
         member do
-          get :roles  # For fetching user roles
-          post :add_role # For adding a role (e.g., admin)
-          patch :update_roles  # For updating a user's roles
-          get :schools    # Route to fetch schools associated with a specific userget :schools # Route to fetch schools associated with a specific user
+          get :roles
+          post :add_role
+          patch :update_roles
+          get :schools
         end
       end
 
-      # School routes
-      resources :schools, only: [:index, :show, :create,:destroy,:update] do
+      # School Routes
+      resources :schools, only: [:index, :show, :create, :update, :destroy] do
         member do
-          get :admin_access # Check if a user has admin access to the school
-          patch :update_roles # Update roles for a school user
+          get :admin_access
+          patch :update_roles
         end
-      
         collection do
-          get :search # Custom route for searching schools
+          get :search
         end
       end
 
-      # Public and private endpoints
-      get 'public' => 'public#public'
-      get 'private' => 'private#private'
-      get 'private-scoped' => 'private#private_scoped'
+      # Request Access Routes
+      resources :request_accesses, only: [:index, :show, :create, :update, :destroy] do
+        collection do
+          get 'school/:school_id', action: :by_school
+          get :pending_requests # Keep for backward compatibility
+          get :approved_schools # Keep for backward compatibility
+          post :approve             # Approve access requests via request body
+          post :reject              # Reject access requests via request body
+        end
+      end
+
+      # Conversation Routes
+      resources :conversations, only: [:index, :show, :create] do
+        resources :messages, only: [:create, :index]
+      end
     end
   end
-
-  # Health check endpoint
-  get "up" => "rails/health#show", as: :rails_health_check
-
-  # Defines the root path route ("/")
-  # root "posts#index"
 end
