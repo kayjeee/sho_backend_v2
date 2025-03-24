@@ -32,6 +32,8 @@ end
         # Assign the user_email and user_id to the school object
         school.user_email = params[:user_email]
         school.user_id = params[:user_id]
+        school.school_created_by = params[:school_created_by]
+
 
         # Populate null fields with default values from the payload
         populate_null_fields(school)
@@ -42,6 +44,8 @@ end
           render json: { success: false, errors: school.errors.full_messages }, status: 422
         end
       end
+
+
       def show
         school = School.find(params[:id])
         if school
@@ -51,15 +55,7 @@ end
         end
       end
 
-      # PATCH/PUT /api/v1/schools/:id
-      def update
-        school = School.find_by(id: params[:id])
-        if school&.update(school_params)
-          render json: { success: true, school: school, message: "School updated successfully." }, status: 200
-        else
-          render json: { success: false, errors: school&.errors&.full_messages || ["School not found."] }, status: 422
-        end
-      end
+      
 
       # DELETE /api/v1/schools/:id]]
     # when testing with postman isert the id into the body
