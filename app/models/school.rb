@@ -23,11 +23,13 @@ class School
   field :cash_account, type: Float, default: 0.0 # Add cash account
   field :payment_history, type: Array, default: [] # Add payment history
 
+  # Associations
+  has_many :user_school_roles, class_name: 'UserSchoolRole', inverse_of: :school
   # Relationships
   has_many :access_requests, class_name: 'RequestAccess', inverse_of: :school
   has_many :admin_users, class_name: 'AdminUser', inverse_of: :school
-  # Define the inverse association
   has_many :conversations, class_name: 'Conversation', inverse_of: :school
+
   # Validations
   validates :schoolName, presence: true
   validates :schoolEmail, presence: true, format: { with: URI::MailTo::EMAIL_REGEXP }
@@ -44,4 +46,20 @@ class School
   def set_school_created_by
     self.school_created_by = user_email
   end
+end
+
+class UserSchoolRole
+  include Mongoid::Document
+
+  # Fields
+  field :user_id, type: String
+  field :role, type: String # Define role of the user
+
+  # Associations
+  belongs_to :school
+  belongs_to :user # Assuming a User model exists
+
+  # Validations
+  validates :user_id, presence: true
+  validates :role, presence: true
 end

@@ -23,16 +23,15 @@ Rails.application.routes.draw do
       end
 
       # Request Access Routes
-      resources :request_accesses do
+      resources :request_accesses, only: [:index, :show, :create, :update, :destroy] do
         collection do
           get 'school/:school_id', action: :by_school
           get :pending_requests # Keep for backward compatibility
           get :approved_schools # Keep for backward compatibility
+          post :approve             # Approve access requests via request body
+          post :reject              # Reject access requests via request body
         end
       end
-
-      # Fetch all requests for a specific school
-      get 'request_accesses/school/:school_id', to: 'request_accesses#by_school'
 
       # Conversation Routes
       resources :conversations, only: [:index, :show, :create] do

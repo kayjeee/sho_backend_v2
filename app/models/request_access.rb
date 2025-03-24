@@ -4,16 +4,18 @@ class RequestAccess
 
   # Constants
   STATUSES = %w[Pending Approved Rejected].freeze
+  ROLES = %w[Admin Teacher Student Viewer].freeze # Define valid roles
 
   # Fields
   field :school_id, type: BSON::ObjectId
-  field :logged_in_user_email, type: String
   field :user_id, type: BSON::ObjectId
+  field :logged_in_user_email, type: String
   field :reason, type: String
   field :requested_at, type: DateTime, default: -> { Time.now }
   field :accepted_by, type: String
   field :status, type: String, default: 'Pending'
   field :rejected_by, type: String
+  field :role, type: String # Stores the approved user's role
 
   # Relationships
   belongs_to :school, class_name: 'School', inverse_of: :access_requests
@@ -24,4 +26,5 @@ class RequestAccess
   validates :reason, presence: true
   validates :user_id, presence: true
   validates :status, inclusion: { in: STATUSES }
+  validates :role, inclusion: { in: ROLES }, allow_nil: true # Role must be valid if present
 end
