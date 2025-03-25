@@ -14,8 +14,11 @@ Rails.application.routes.draw do
       # School Routes
       resources :schools, only: [:index, :show, :create, :update, :destroy] do
         member do
-          get :admin_access
-          patch :update_roles
+        
+          get :admins
+          get :teachers
+          get :parents
+         
         end
         collection do
           get :search
@@ -24,6 +27,7 @@ Rails.application.routes.draw do
 
       # Request Access Routes
       resources :request_accesses, only: [:index, :show, :create, :update, :destroy] do
+        get 'users_by_roles', to: 'schools#users_by_roles' # Add this line
         collection do
           get 'school/:school_id', action: :by_school
           get :pending_requests # Keep for backward compatibility
