@@ -8,6 +8,7 @@ Rails.application.routes.draw do
           post :add_role
           patch :update_roles
           get :schools
+          patch :add_school
         end
       end
 
