@@ -8,6 +8,35 @@ module Api
         schools = School.all
         render json: { success: true, schools: schools }, status: :ok
       end
+      
+  # GET /api/v1/schools/:school_id/parents/:parent_id
+  def show_parent
+    # Find the user_school_role to verify this parent belongs to the school
+    user_role = UserSchoolRole.find_by(
+      school_id: params[:id],
+      user_id: params[:parent_id],
+      role: 'Parent'
+    )
+    
+    unless user_role
+      return render json: { success: false, message: "Parent not found in this school" }, status: :not_found
+    end
+    
+    parent = User.find(params[:parent_id])
+    
+    render json: { 
+      success: true,
+      parent: {
+        id: parent.id.to_s,
+        name: parent.name,
+        email: parent.email,
+        auth0_id: parent.auth0_id,
+        role: 'Parent'
+      }
+    }, status: :ok
+  rescue Mongoid::Errors::DocumentNotFound
+    render json: { success: false, message: "Parent not found" }, status: :not_found
+  end
 
       # GET /api/v1/schools/:id/admins
       def admins

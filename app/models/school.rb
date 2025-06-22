@@ -50,12 +50,12 @@ class School
   has_many :conversations, class_name: 'Conversation', inverse_of: :school
   
   # New associations for account management
-  has_many :students, class_name: 'Student', inverse_of: :school
-  has_many :accounts, class_name: 'Account', inverse_of: :school
+  
   has_many :transactions, class_name: 'Transaction', inverse_of: :school
   has_many :events, class_name: 'Event', inverse_of: :school
   has_many :trips, class_name: 'Trip', inverse_of: :school
 
+  has_many :accounts, class_name: 'Account', inverse_of: :school
   # Validations (keeping existing)
   validates :schoolName, presence: true
   validates :schoolEmail, presence: true, format: { with: URI::MailTo::EMAIL_REGEXP }

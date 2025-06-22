@@ -17,6 +17,7 @@ Rails.application.routes.draw do
           get :admins
           get :teachers
           get :parents
+          get 'parents/:parent_id', to: 'schools#show_parent'
           
           # Student Management Routes
           resources :students, only: [:index, :show, :create, :update, :destroy]
@@ -28,6 +29,13 @@ Rails.application.routes.draw do
               get :completed
             end
           end
+
+          # Debt Management Routes (NEW)
+          get 'debt_summary', to: 'debt_management#summary'
+          get 'debtors', to: 'debt_management#index'
+          get 'accounts/:account_id', to: 'debt_management#show_account'
+          get 'accounts/:account_id/payments', to: 'debt_management#account_payments'
+          post 'accounts/:account_id/payments', to: 'debt_management#create_payment'
         end
         
         collection do

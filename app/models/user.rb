@@ -15,6 +15,7 @@ class User
   # Association with conversations
   has_many :conversations, foreign_key: :user_id
 
+  has_many :accounts, class_name: 'Account', inverse_of: :user
   # Association for messages sent by the user
   has_many :sent_messages, class_name: 'Message', inverse_of: :sender
   has_many :messages, inverse_of: :user

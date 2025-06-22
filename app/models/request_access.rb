@@ -4,7 +4,7 @@ class RequestAccess
 
   # Constants
   STATUSES = %w[Pending Approved Rejected].freeze
-  ROLES = %w[Admin Teacher Student Viewer].freeze # Define valid roles
+  ROLES = %w[Admin Teacher Student Viewer Parent].freeze # Added "Parent"
 
   # Fields
   field :school_id, type: BSON::ObjectId
