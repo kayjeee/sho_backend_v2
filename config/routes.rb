@@ -1,6 +1,11 @@
+# config/routes.rb
+
 Rails.application.routes.draw do
   namespace :api do
     namespace :v1 do
+      # AdminUser custom route
+      get 'admin_users/schools_for_admin', to: 'admin_users#schools_for_admin'
+
       # User Routes
       resources :users, only: [:index, :show, :create, :update] do
         member do
@@ -19,10 +24,10 @@ Rails.application.routes.draw do
           get :teachers
           get :parents
           get 'parents/:parent_id', to: 'schools#show_parent'
-          
+
           # Student Management Routes
           resources :students, only: [:index, :show, :create, :update, :destroy]
-          
+
           # Transaction Routes
           resources :transactions, only: [:index, :create] do
             collection do
@@ -38,7 +43,7 @@ Rails.application.routes.draw do
           get 'accounts/:account_id/payments', to: 'debt_management#account_payments'
           post 'accounts/:account_id/payments', to: 'debt_management#create_payment'
         end
-        
+
         collection do
           get :search
         end
