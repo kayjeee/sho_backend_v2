@@ -25,18 +25,7 @@ Rails.application.routes.draw do
           get :parents
           get 'parents/:parent_id', to: 'schools#show_parent'
 
-          # Student Management Routes
-          resources :students, only: [:index, :show, :create, :update, :destroy]
-
-          # Transaction Routes
-          resources :transactions, only: [:index, :create] do
-            collection do
-              get :pending
-              get :completed
-            end
-          end
-
-          # Debt Management Routes (NEW)
+          # Debt Management Routes
           get 'debt_summary', to: 'debt_management#summary'
           get 'debtors', to: 'debt_management#index'
           get 'accounts/:account_id', to: 'debt_management#show_account'
@@ -47,9 +36,30 @@ Rails.application.routes.draw do
         collection do
           get :search
         end
+
+        # Nested resources for school-specific operations
+        resources :students, only: [:index, :show, :create, :update, :destroy]
+        
+        resources :transactions, only: [:index, :create] do
+          collection do
+            get :pending
+            get :completed
+          end
+        end
       end
 
-      # Transaction Routes (global)
+      # Learner Routes with Bulk Upload
+      # Direct route approach
+      post 'learners/bulk_upload', to: 'learners#bulk_upload'
+      
+      # Alternative resources syntax (choose one approach)
+      resources :learners, only: [] do
+        collection do
+          post :bulk_upload
+        end
+      end
+
+      # Global Transaction Routes
       resources :transactions, only: [:index, :show, :create, :update, :destroy] do
         member do
           post :process_payment
@@ -58,13 +68,16 @@ Rails.application.routes.draw do
 
       # Request Access Routes
       resources :request_accesses, only: [:index, :show, :create, :update, :destroy] do
-        get 'users_by_roles', to: 'schools#users_by_roles'
         collection do
           get 'school/:school_id', action: :by_school
           get :pending_requests
           get :approved_schools
           post :approve
           post :reject
+        end
+        
+        member do
+          get 'users_by_roles', to: 'schools#users_by_roles'
         end
       end
 

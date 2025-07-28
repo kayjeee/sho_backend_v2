@@ -20,12 +20,23 @@ class Api::V1::UsersController < ApplicationController
     schools = UserServices::FetchSchoolsService.new(user: @user).call
     
     if schools.any?
-      render json: {
-        success: true,
-        data: {
-          schools: schools.map { |school| school.as_json(only: [:id, :school_name, :school_email, :city, :country]) }
-        }
-      }, status: :ok
+render json: {
+  success: true,
+  data: {
+    schools: schools.map do |school|
+      {
+        id: school.id,
+        schoolName: school.schoolName || school[:schoolName],
+        schoolEmail: school.schoolEmail || school[:schoolEmail],
+        city: school.city,
+        country: school.country,
+        province: school.province,
+        userEmail: school.user_email || school[:user_email]
+      }
+    end
+  }
+}, status: :ok
+
     else
       Rails.logger.warn "⚠️ UsersController#schools: No schools found for user #{@user.auth0_id}"
       render json: { success: false, error: "No schools found for this user." }, status: :not_found

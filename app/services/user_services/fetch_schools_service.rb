@@ -1,13 +1,4 @@
-# In app/services/user_services/fetch_schools_service.rb
-def fetch_associated_schools
-  Rails.logger.debug "🏫 User#fetch_associated_schools: Fetching schools for user #{auth0_id}"
-  
-  school_ids = Array(self.school_ids).map(&:to_s)
-  schools = School.where(:_id.in => school_ids.map { |id| BSON::ObjectId.from_string(id) })
-  
-  Rails.logger.info "✅ User#fetch_associated_schools: Found #{schools.count} school(s) for user #{auth0_id}"
-  schools
-end# app/services/user_services/fetch_schools_service.rb
+# app/services/user_services/fetch_schools_service.rb
 module UserServices
   class FetchSchoolsService
     def initialize(user:)
