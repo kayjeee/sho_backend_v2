@@ -52,6 +52,11 @@ SHO_BACKEND
 │   │   │       ├── concerns # For controller-specific concerns
 │   │   │       ├── schools_controller.rb # Smaller, focused controllers
 │   │   │       ├── users_controller.rb
+│   │   │       ├── grades_controller.rb
+│   │   │       ├── learners_controller.rb
+│   │   │       ├── request_access_controller.rb
+│   │   │       ├── admin_users_controller.rb
+│   │   │       ├── accounts_controller.rb
 │   │   │       └── ...
 │   │   ├── concerns
 │   │   ├── application_controller.rb
@@ -65,7 +70,16 @@ SHO_BACKEND
 │   ├── models
 │   │   ├── concerns # For model-specific concerns
 │   │   ├── account.rb
-│   │   ├── admin_user.rb
+│   │   ├── grade.rb
+│   │   ├── learner.rb
+│   │   ├── school.rb
+│   │   ├── user.rb
+│   │   ├── user_school.rb
+│   │   ├── teacher_grade_assignment.rb
+│   │   ├── teacher_invitation.rb
+│   │   ├── learner_invitation.rb
+│   │   ├── request_access.rb
+│   │   ├── message.rb
 │   │   └── ...
 │   ├── forms # New directory for form objects
 │   │   ├── school_forms # Namespace for school-related forms
@@ -80,6 +94,14 @@ SHO_BACKEND
 │   │       ├── create_user_service.rb
 │   │       ├── fetch_schools_service.rb
 │   │       └── update_roles_service.rb
+│   │   └── grade_services/
+│   │       └── create_grade_service.rb
+│   │       └── delete_grade_service.rb
+│   │       └── invite_learner_service.rb
+│   │       └── invite_teacher_service.rb
+│   │       └── update_grade_service.rb
+│   │   └── learner_services/
+│   │       └── bulk_upload_service.rb
 │   │   ├── school_services # Namespace for school-related services
 │   │   │   └── add_student_service.rb
 │   │   │   └── manage_debt_service.rb
