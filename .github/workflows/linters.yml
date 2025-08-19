@@ -4,6 +4,8 @@ on: pull_request
 
 env:
   FORCE_COLOR: 1
+  BUNDLE_WITHOUT: "production"
+  RAILS_ENV: test
 
 jobs:
   rubocop:
@@ -11,15 +13,23 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v3
+
       - uses: actions/setup-ruby@v1
         with:
-          ruby-version: 3.4.x
+          ruby-version: 3.4.4 # Match your local version
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get -yqq install libsqlite3-dev
+          gem install bundler
+          bundle install
+
       - name: Setup Rubocop
         run: |
-          gem install --no-document rubocop -v '>= 1.0, < 2.0' # https://docs.rubocop.org/en/stable/installation/
-          [ -f .rubocop.yml ] || wget https://raw.githubusercontent.com/microverseinc/linters-config/master/ror/.rubocop.yml
+          [ -f .rubocop.yml ] || curl -o .rubocop.yml https://raw.githubusercontent.com/microverseinc/linters-config/master/ror/.rubocop.yml
+
       - name: Rubocop Report
-        run: rubocop --color
+        run: bundle exec rubocop --color
   nodechecker:
     name: node_modules checker
     runs-on: ubuntu-22.04
