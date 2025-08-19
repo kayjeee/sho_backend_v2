@@ -1,7 +1,7 @@
 module Api
   module V1
     class AdminUsersController < ApplicationController
-      before_action :set_school, only: [:create]
+      before_action :set_school, only: [ :create ]
 
       def create
         admin_user = @school.admin_users.new(admin_user_params)
@@ -9,7 +9,7 @@ module Api
         admin_user.date_invited = Time.current
 
         if admin_user.save
-          render json: { message: 'Admin user created successfully', admin_user: admin_user }, status: :created
+          render json: { message: "Admin user created successfully", admin_user: admin_user }, status: :created
         else
           render json: { error: admin_user.errors.full_messages }, status: :unprocessable_entity
         end
@@ -26,7 +26,7 @@ module Api
   # Find schools from AdminUser records
   admin_user_school_ids = AdminUser.where(
     admin_user_email: user_email,
-    :admin_user_roles.in => [user_role]
+    :admin_user_roles.in => [ user_role ]
   ).pluck(:school_id)
 
   # Also include schools where user is creator (fallback if AdminUser not used)
@@ -40,7 +40,7 @@ module Api
   if schools.any?
     render json: { schools: schools }, status: :ok
   else
-    render json: { message: 'No schools found where the user is an admin' }, status: :not_found
+    render json: { message: "No schools found where the user is an admin" }, status: :not_found
   end
   end
 
@@ -48,7 +48,7 @@ module Api
 
       def set_school
         @school = School.find_by(id: params[:school_id])
-        return render json: { error: 'School not found' }, status: :not_found unless @school
+        render json: { error: "School not found" }, status: :not_found unless @school
       end
 
       def admin_user_params

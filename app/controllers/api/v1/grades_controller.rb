@@ -2,20 +2,20 @@
 module Api
   module V1
     class GradesController < ApplicationController
-      before_action :set_school, only: [:index, :create]
-      before_action :set_grade, only: [:show, :update, :destroy, :learners, :teachers, :stats, :invite_learner, :invite_teacher]
+      before_action :set_school, only: [ :index, :create ]
+      before_action :set_grade, only: [ :show, :update, :destroy, :learners, :teachers, :stats, :invite_learner, :invite_teacher ]
 
       def index
         service_result = GradeServices::ListGradesService.new(
           school: @school,
           page: params[:page],
           per_page: params[:per_page],
-        #  filters: params
+          #  filters: params
         ).call
 
         if service_result.success
           render json: {
-            status: 'success',
+            status: "success",
             data: {
               grades: service_result.grades.map(&:to_api_hash),
               pagination: service_result.pagination
@@ -23,19 +23,19 @@ module Api
           }
         else
           render json: {
-            status: 'error',
-            message: 'Failed to fetch grades',
+            status: "error",
+            message: "Failed to fetch grades",
             errors: service_result.errors
           }, status: :unprocessable_entity
         end
       rescue => e
-        handle_exception(e, 'Failed to fetch grades')
+        handle_exception(e, "Failed to fetch grades")
       end
 
       def show
         render_success(data: { grade: @grade.to_api_hash })
       rescue => e
-        handle_exception(e, 'Failed to fetch grade')
+        handle_exception(e, "Failed to fetch grade")
       end
 
       def create
@@ -46,19 +46,19 @@ module Api
 
         if service_result.success
           render json: {
-            status: 'success',
-            message: 'Grade created successfully',
+            status: "success",
+            message: "Grade created successfully",
             data: { grade: service_result.grade.to_api_hash }
           }, status: :created
         else
           render json: {
-            status: 'error',
-            message: 'Failed to create grade',
+            status: "error",
+            message: "Failed to create grade",
             errors: service_result.errors
           }, status: :unprocessable_entity
         end
       rescue => e
-        handle_exception(e, 'Failed to create grade')
+        handle_exception(e, "Failed to create grade")
       end
 
       def update
@@ -69,19 +69,19 @@ module Api
 
         if service_result.success
           render json: {
-            status: 'success',
-            message: 'Grade updated successfully',
+            status: "success",
+            message: "Grade updated successfully",
             data: { grade: @grade.reload.to_api_hash }
           }
         else
           render json: {
-            status: 'error',
-            message: 'Failed to update grade',
+            status: "error",
+            message: "Failed to update grade",
             errors: service_result.errors
           }, status: :unprocessable_entity
         end
       rescue => e
-        handle_exception(e, 'Failed to update grade')
+        handle_exception(e, "Failed to update grade")
       end
 
       def destroy
@@ -91,29 +91,29 @@ module Api
 
         if service_result.success
           render json: {
-            status: 'success',
-            message: 'Grade deleted successfully'
+            status: "success",
+            message: "Grade deleted successfully"
           }
         else
           render json: {
-            status: 'error',
-            message: 'Failed to delete grade',
+            status: "error",
+            message: "Failed to delete grade",
             errors: service_result.errors
           }, status: :unprocessable_entity
         end
       rescue => e
-        handle_exception(e, 'Failed to delete grade')
+        handle_exception(e, "Failed to delete grade")
       end
 
       def learners
         service_result = GradeServices::ListLearnersService.new(
-          grade: @grade, 
+          grade: @grade,
           filters: params
         ).call
 
         if service_result.success
           render json: {
-            status: 'success',
+            status: "success",
             data: {
               learners: service_result.learners.map(&:to_api_hash),
               grade: @grade.to_summary_hash
@@ -121,13 +121,13 @@ module Api
           }
         else
           render json: {
-            status: 'error',
-            message: 'Failed to fetch learners',
+            status: "error",
+            message: "Failed to fetch learners",
             errors: service_result.errors
           }, status: :unprocessable_entity
         end
       rescue => e
-        handle_exception(e, 'Failed to fetch learners')
+        handle_exception(e, "Failed to fetch learners")
       end
 
       def teachers
@@ -135,7 +135,7 @@ module Api
 
         if service_result.success
           render json: {
-            status: 'success',
+            status: "success",
             data: {
               assignments: service_result.assignments.map(&:to_api_hash),
               grade: @grade.to_summary_hash
@@ -143,13 +143,13 @@ module Api
           }
         else
           render json: {
-            status: 'error',
-            message: 'Failed to fetch teachers',
+            status: "error",
+            message: "Failed to fetch teachers",
             errors: service_result.errors
           }, status: :unprocessable_entity
         end
       rescue => e
-        handle_exception(e, 'Failed to fetch teachers')
+        handle_exception(e, "Failed to fetch teachers")
       end
 
       def invite_learner
@@ -160,19 +160,19 @@ module Api
 
         if service_result.success
           render json: {
-            status: 'success',
-            message: 'Learner invitation sent successfully',
+            status: "success",
+            message: "Learner invitation sent successfully",
             data: { invitation: service_result.invitation.to_api_hash }
           }, status: :created
         else
           render json: {
-            status: 'error',
-            message: 'Failed to send learner invitation',
+            status: "error",
+            message: "Failed to send learner invitation",
             errors: service_result.errors
           }, status: :unprocessable_entity
         end
       rescue => e
-        handle_exception(e, 'Failed to send learner invitation')
+        handle_exception(e, "Failed to send learner invitation")
       end
 
       def invite_teacher
@@ -183,19 +183,19 @@ module Api
 
         if service_result.success
           render json: {
-            status: 'success',
-            message: 'Teacher invitation sent successfully',
+            status: "success",
+            message: "Teacher invitation sent successfully",
             data: { invitation: service_result.invitation.to_api_hash }
           }, status: :created
         else
           render json: {
-            status: 'error',
-            message: 'Failed to send teacher invitation',
+            status: "error",
+            message: "Failed to send teacher invitation",
             errors: service_result.errors
           }, status: :unprocessable_entity
         end
       rescue => e
-        handle_exception(e, 'Failed to send teacher invitation')
+        handle_exception(e, "Failed to send teacher invitation")
       end
 
       def stats
@@ -203,7 +203,7 @@ module Api
 
         if service_result.success
           render json: {
-            status: 'success',
+            status: "success",
             data: {
               grade: @grade.to_summary_hash,
               stats: service_result.stats
@@ -211,13 +211,13 @@ module Api
           }
         else
           render json: {
-            status: 'error',
-            message: 'Failed to fetch grade stats',
+            status: "error",
+            message: "Failed to fetch grade stats",
             errors: service_result.errors
           }, status: :unprocessable_entity
         end
       rescue => e
-        handle_exception(e, 'Failed to fetch grade stats')
+        handle_exception(e, "Failed to fetch grade stats")
       end
 
       private
@@ -226,8 +226,8 @@ module Api
         @school = School.find(params[:school_id])
       rescue Mongoid::Errors::DocumentNotFound
         render json: {
-          status: 'error',
-          message: 'School not found'
+          status: "error",
+          message: "School not found"
         }, status: :not_found
       end
 
@@ -235,8 +235,8 @@ module Api
         @grade = Grade.find(params[:id])
       rescue Mongoid::Errors::DocumentNotFound
         render json: {
-          status: 'error',
-          message: 'Grade not found'
+          status: "error",
+          message: "Grade not found"
         }, status: :not_found
       end
 
@@ -259,7 +259,7 @@ module Api
 
       def render_success(message: nil, data: {}, status: :ok)
         render json: {
-          status: 'success',
+          status: "success",
           message: message,
           data: data
         }, status: status
@@ -267,7 +267,7 @@ module Api
 
       def render_error(message, errors = [], status: :unprocessable_entity)
         render json: {
-          status: 'error',
+          status: "error",
           message: message,
           errors: Array(errors)
         }, status: status
@@ -276,9 +276,9 @@ module Api
       def handle_exception(error, fallback_message)
         Rails.logger.error("❌ #{fallback_message}: #{error.message}")
         render json: {
-          status: 'error',
+          status: "error",
           message: fallback_message,
-          errors: [error.message]
+          errors: [ error.message ]
         }, status: :internal_server_error
       end
     end

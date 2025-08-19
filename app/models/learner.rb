@@ -19,16 +19,16 @@ class Learner
   validates :first_name, :last_name, presence: true
   validates :accession_number, uniqueness: { scope: :school_id }, allow_blank: true
 
-  GENDERS  = { 'male' => 0, 'female' => 1, 'other' => 2 }.freeze
-  STATUSES = { 'active' => 0, 'inactive' => 1, 'graduated' => 2 }.freeze
+  GENDERS  = { "male" => 0, "female" => 1, "other" => 2 }.freeze
+  STATUSES = { "active" => 0, "inactive" => 1, "graduated" => 2 }.freeze
 
   validates :gender, inclusion: { in: GENDERS.values }
   validates :status, inclusion: { in: STATUSES.values }
 
   # ===================== ASSOCIATIONS =====================
-  belongs_to :school,     class_name: 'School', optional: true
-  belongs_to :created_by, class_name: 'User',   optional: true
-  belongs_to :grade,      class_name: 'Grade',  optional: true
+  belongs_to :school,     class_name: "School", optional: true
+  belongs_to :created_by, class_name: "User",   optional: true
+  belongs_to :grade,      class_name: "Grade",  optional: true
 
   # ======================== INDEXES ========================
   index({ school_id: 1, accession_number: 1 }, unique: true, sparse: true)
@@ -40,30 +40,30 @@ class Learner
   before_validation :sanitize_phone_numbers
 
   # ========================= SCOPES =========================
-  scope :active,   -> { where(status: STATUSES['active']) }
-  scope :inactive, -> { where(status: STATUSES['inactive']) }
-  scope :graduated,-> { where(status: STATUSES['graduated']) }
-  scope :by_school,->(school_id) { where(school_id: school_id) }
+  scope :active,   -> { where(status: STATUSES["active"]) }
+  scope :inactive, -> { where(status: STATUSES["inactive"]) }
+  scope :graduated, -> { where(status: STATUSES["graduated"]) }
+  scope :by_school, ->(school_id) { where(school_id: school_id) }
   scope :by_grade, ->(grade_id)  { where(grade_id: grade_id) }
 
   # ======================== METHODS =========================
 
   # Gender helpers
-  def male?         = gender == GENDERS['male']
-  def female?       = gender == GENDERS['female']
-  def other_gender? = gender == GENDERS['other']
+  def male?         = gender == GENDERS["male"]
+  def female?       = gender == GENDERS["female"]
+  def other_gender? = gender == GENDERS["other"]
 
   def gender_text
-    GENDERS.key(gender)&.capitalize || 'Unknown'
+    GENDERS.key(gender)&.capitalize || "Unknown"
   end
 
   # Status helpers
-  def active?       = status == STATUSES['active']
-  def inactive?     = status == STATUSES['inactive']
-  def graduated?    = status == STATUSES['graduated']
+  def active?       = status == STATUSES["active"]
+  def inactive?     = status == STATUSES["inactive"]
+  def graduated?    = status == STATUSES["graduated"]
 
   def status_text
-    STATUSES.key(status)&.capitalize || 'Unknown'
+    STATUSES.key(status)&.capitalize || "Unknown"
   end
 
   # Concatenate full name
@@ -84,7 +84,7 @@ class Learner
 
     unless school_to_add
       Rails.logger.warn "⚠️ Learner#add_school: School with ID '#{school_id_string}' not found."
-      errors.add(:school, 'School not found.')
+      errors.add(:school, "School not found.")
       return false
     end
 
@@ -153,7 +153,7 @@ class Learner
   def set_default_accession_number
     timestamp     = Time.now.to_i.to_s.last(6)
     random_suffix = rand(100..999)
-    school_prefix = school_name&.first(3)&.upcase || 'STD'
+    school_prefix = school_name&.first(3)&.upcase || "STD"
 
     self.accession_number = "#{school_prefix}#{timestamp}#{random_suffix}"
   end
@@ -164,7 +164,7 @@ class Learner
       value = send(field)
       next unless value.present?
 
-      sanitized = value.gsub(/[^\d\+\-\(\)\s]/, '')
+      sanitized = value.gsub(/[^\d\+\-\(\)\s]/, "")
       send("#{field}=", sanitized.strip)
     end
   end
@@ -181,7 +181,7 @@ class Learner
     end
   rescue BSON::ObjectId::Invalid => e
     Rails.logger.error "❌ Learner#parse_bson_id: Invalid BSON ID '#{id_string}'. Error: #{e.message}"
-    errors.add(:school, 'Invalid school ID format.')
+    errors.add(:school, "Invalid school ID format.")
     nil
   end
 end

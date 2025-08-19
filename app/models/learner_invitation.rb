@@ -15,11 +15,11 @@ class LearnerInvitation
 
   # ===================== CONSTANTS =======================
   STATUSES = {
-    'pending' => 0,
-    'accepted' => 1,
-    'declined' => 2,
-    'expired' => 3,
-    'cancelled' => 4
+    "pending" => 0,
+    "accepted" => 1,
+    "declined" => 2,
+    "expired" => 3,
+    "cancelled" => 4
   }.freeze
 
   # ===================== VALIDATIONS ======================
@@ -34,9 +34,9 @@ class LearnerInvitation
   validate :expiration_date_future
 
   # ===================== ASSOCIATIONS =====================
-  belongs_to :grade,            class_name: 'Grade'
-  belongs_to :invited_by,       class_name: 'User'
-  belongs_to :learner,          class_name: 'Learner', optional: true
+  belongs_to :grade,            class_name: "Grade"
+  belongs_to :invited_by,       class_name: "User"
+  belongs_to :learner,          class_name: "Learner", optional: true
 
   # ======================== INDEXES =======================
   index({ invitation_token: 1 }, { unique: true })
@@ -50,7 +50,7 @@ class LearnerInvitation
   scope :declined,              -> { where(status: 2) }
   scope :expired,               -> { where(status: 3) }
   scope :cancelled,             -> { where(status: 4) }
-  scope :active,                -> { where(status: [0, 1]) }
+  scope :active,                -> { where(status: [ 0, 1 ]) }
   scope :by_grade,              ->(grade_id) { where(grade_id: grade_id) }
   scope :expiring_soon,         -> { pending.where(:expires_at.lte => 24.hours.from_now) }
 
@@ -84,7 +84,7 @@ class LearnerInvitation
   end
 
   def status_text
-    STATUSES.key(status) || 'unknown'
+    STATUSES.key(status) || "unknown"
   end
 
   # Invitation actions

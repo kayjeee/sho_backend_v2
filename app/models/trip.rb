@@ -23,8 +23,8 @@ class Trip
 
   # Associations
   belongs_to :school
-  has_many :registrations, class_name: 'TripRegistration'
-  has_many :participants, through: :registrations, class_name: 'Student'
+  has_many :registrations, class_name: "TripRegistration"
+  has_many :participants, through: :registrations, class_name: "Student"
   has_many :payments, through: :registrations
 
   # Validations

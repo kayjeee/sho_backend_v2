@@ -3,12 +3,12 @@ module Api
   module V1
     class DebtManagementController < ApplicationController
       before_action :set_school
-      before_action :set_account, only: [:show_account, :account_payments, :create_payment]
+      before_action :set_account, only: [ :show_account, :account_payments, :create_payment ]
 
       # GET /api/v1/schools/:school_id/debt_summary
       def summary
         accounts = @school.accounts.with_balance
-        
+
         render json: {
           total_debt: accounts.sum(:balance),
           total_accounts: accounts.count,
@@ -102,8 +102,8 @@ module Api
 
       def payment_stats(account)
         payments = account.payment_history
-        total_paid = payments.sum { |p| p['amount'].to_f }
-        
+        total_paid = payments.sum { |p| p["amount"].to_f }
+
         {
           count: payments.size,
           total_paid: total_paid,

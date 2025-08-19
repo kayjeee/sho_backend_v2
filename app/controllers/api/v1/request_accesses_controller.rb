@@ -11,7 +11,7 @@ module Api
         user_id = params.dig(:request_access, :user_id)
 
         # Validate required parameters
-        if [school_id, reason, logged_in_user_email, user_id].any?(&:blank?)
+        if [ school_id, reason, logged_in_user_email, user_id ].any?(&:blank?)
           return render json: { error: "Missing required fields" }, status: :bad_request
         end
 
@@ -74,10 +74,10 @@ module Api
       def approve
         accepted_by = params.dig(:request_access, :accepted_by)
         role = params.dig(:request_access, :role) # Role parameter (e.g., admin, teacher, etc.)
-      
+
         return render json: { error: "Accepted by is required" }, status: :unprocessable_entity if accepted_by.blank?
         return render json: { error: "Role is required" }, status: :unprocessable_entity if role.blank?
-      
+
         # Update request access status to approved
         if @request_access.update(status: "Approved", accepted_by: accepted_by)
           # Create the UserSchoolRole to assign the role to the user
@@ -86,7 +86,7 @@ module Api
             school_id: @request_access.school_id,
             role: role
           )
-      
+
           render json: {
             message: "Request approved and role assigned",
             data: @request_access,
@@ -96,7 +96,7 @@ module Api
           render json: { error: "Approval failed", details: @request_access.errors.full_messages }, status: :unprocessable_entity
         end
       end
-      
+
 
       # Reject a request
       def reject

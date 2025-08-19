@@ -8,10 +8,10 @@ module UserServices
 
     def call
       Rails.logger.debug "🛠️ UserServices::UpdateRolesService: Adding roles #{@new_roles.inspect} to user #{@user.auth0_id}"
-      
+
       begin
         @user.roles = (@user.roles + @new_roles).uniq
-        
+
         if @user.save
           Rails.logger.info "✅ UserServices::UpdateRolesService: Roles updated for user #{@user.auth0_id}"
           success(data: { user: @user }, message: "Roles updated successfully")
@@ -21,7 +21,7 @@ module UserServices
         end
       rescue StandardError => e
         Rails.logger.error "🔥 UserServices::UpdateRolesService: Unexpected error - #{e.message}"
-        failure(errors: [e.message], message: "Unexpected error occurred")
+        failure(errors: [ e.message ], message: "Unexpected error occurred")
       end
     end
   end

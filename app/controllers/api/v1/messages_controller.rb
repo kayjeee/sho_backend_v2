@@ -1,7 +1,7 @@
 module Api
   module V1
     class MessagesController < ApplicationController
-      before_action :set_conversation, only: [:index, :create]
+      before_action :set_conversation, only: [ :index, :create ]
 
       # GET /api/v1/conversations/:conversation_id/messages
       def index
@@ -37,16 +37,16 @@ module Api
       def find_sender
         user_id = params.dig(:message, :user_id)
         school_id = params.dig(:message, :school_id)
-      
+
         sender = User.find_by(id: user_id) if user_id.present?
         sender ||= School.find_by(id: school_id) if school_id.present?
-      
+
         return sender if sender.present?
-      
+
         render json: { success: false, error: "Sender information is missing" }, status: :bad_request
         nil
       end
-      
+
 
       def message_params
         params.require(:message).permit(:content, :user_id, :school_id, :name, :schoolName)

@@ -8,14 +8,14 @@ module UserServices
 
     def call
       Rails.logger.debug "➕ UserServices::AddSchoolService: Adding school #{@school_id} to user #{@user.auth0_id}"
-      
+
       if @school_id.blank?
         Rails.logger.warn "⚠️ UserServices::AddSchoolService: Missing schoolId in request."
         return failure(error: "Missing schoolId parameter.")
       end
-      
+
       result = @user.add_school(@school_id)
-      
+
       if result
         Rails.logger.info "✅ UserServices::AddSchoolService: School #{@school_id} added to user #{@user.auth0_id}"
         success(user: @user, message: "School added successfully.")

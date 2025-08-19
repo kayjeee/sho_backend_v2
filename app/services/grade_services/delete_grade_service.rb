@@ -29,14 +29,14 @@ module GradeServices
     end
 
     def can_delete_grade?
-      return true if user.roles.include?('Admin')
+      return true if user.roles.include?("Admin")
       return true if grade.respond_to?(:created_by) && grade.created_by == user
 
       # Check if user is admin in this school
       UserSchoolRole.where(
         user: user,
         school: grade.school,
-        role: 'Admin',
+        role: "Admin",
         status: 0
       ).exists?
     end

@@ -30,12 +30,12 @@ module GradeServices
     end
 
     def can_invite_teacher?
-      return true if user.roles.include?('Admin')
+      return true if user.roles.include?("Admin")
 
       UserSchoolRole.where(
         user: user,
         school: grade.school,
-        role: 'Admin',
+        role: "Admin",
         status: 0
       ).exists?
     end
@@ -83,7 +83,7 @@ module GradeServices
       invitation = TeacherInvitation.new(
         school: grade.school,
         invited_by: user,
-        assigned_grades: invitation_params[:assigned_grades] || [grade.id.to_s],
+        assigned_grades: invitation_params[:assigned_grades] || [ grade.id.to_s ],
         teacher_email: invitation_params[:teacher_email],
         expires_at: invitation_params[:expires_at] || 14.days.from_now,
         invitation_data: invitation_params[:invitation_data] || {}
@@ -102,7 +102,7 @@ module GradeServices
       end
     rescue => e
       Rails.logger.error "❌ Error in InviteTeacherService: #{e.message}"
-      ServiceResult.new(success: false, errors: [e.message])
+      ServiceResult.new(success: false, errors: [ e.message ])
     end
   end
 end

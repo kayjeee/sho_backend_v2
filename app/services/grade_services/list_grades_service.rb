@@ -34,11 +34,11 @@ module GradeServices
 
       # Aggregate to count active learners per grade in a single MongoDB query
       counts = Learner.collection.aggregate([
-        { '$match' => { 'grade_id' => { '$in' => grade_ids }, 'status' => 0 } }, # Active learners only
-        { '$group' => { '_id' => '$grade_id', 'count' => { '$sum' => 1 } } }
+        { "$match" => { "grade_id" => { "$in" => grade_ids }, "status" => 0 } }, # Active learners only
+        { "$group" => { "_id" => "$grade_id", "count" => { "$sum" => 1 } } }
       ]).to_a
 
-      counts_map = counts.each_with_object({}) { |doc, h| h[doc['_id']] = doc['count'] }
+      counts_map = counts.each_with_object({}) { |doc, h| h[doc["_id"]] = doc["count"] }
 
       # Attach learnerCount dynamically to each grade instance (not persisted)
       grades.each do |grade|
@@ -65,7 +65,7 @@ module GradeServices
     end
 
     def create_error_result
-      ServiceResult.new(success: false, errors: ['School must be provided'], grades: [], pagination: {})
+      ServiceResult.new(success: false, errors: [ "School must be provided" ], grades: [], pagination: {})
     end
   end
 end

@@ -1,37 +1,37 @@
 module Api
   module V1
     class SchoolsController < ApplicationController
-      before_action :set_school, only: [:show, :update, :destroy, :admins, :teachers, :parents]
+      before_action :set_school, only: [ :show, :update, :destroy, :admins, :teachers, :parents ]
 
       # GET /api/v1/schools
       def index
         schools = School.all
         render json: { success: true, schools: schools }, status: :ok
       end
-      
+
       # GET /api/v1/schools/:school_id/parents/:parent_id
       def show_parent
         # Find the user_school_role to verify this parent belongs to the school
         user_role = UserSchoolRole.find_by(
           school_id: params[:id],
           user_id: params[:parent_id],
-          role: 'Parent'
+          role: "Parent"
         )
-        
+
         unless user_role
           return render json: { success: false, message: "Parent not found in this school" }, status: :not_found
         end
-        
+
         parent = User.find(params[:parent_id])
-        
-        render json: { 
+
+        render json: {
           success: true,
           parent: {
             id: parent.id.to_s,
             name: parent.name,
             email: parent.email,
             auth0_id: parent.auth0_id,
-            role: 'Parent'
+            role: "Parent"
           }
         }, status: :ok
       rescue Mongoid::Errors::DocumentNotFound
@@ -40,19 +40,19 @@ module Api
 
       # GET /api/v1/schools/:id/admins
       def admins
-        users = fetch_users_by_role('Admin')
+        users = fetch_users_by_role("Admin")
         render json: { success: true, data: users }, status: :ok
       end
 
       # GET /api/v1/schools/:id/teachers
       def teachers
-        users = fetch_users_by_role('Teacher')
+        users = fetch_users_by_role("Teacher")
         render json: { success: true, data: users }, status: :ok
       end
 
       # GET /api/v1/schools/:id/parents
       def parents
-        users = fetch_users_by_role('Parent')
+        users = fetch_users_by_role("Parent")
         render json: { success: true, data: users }, status: :ok
       end
 
@@ -65,9 +65,9 @@ module Api
         end
 
         school_exists = School.where(schoolName: /^#{Regexp.escape(query)}$/i).exists?
-        render json: { 
-          success: true, 
-          isAvailable: !school_exists, 
+        render json: {
+          success: true,
+          isAvailable: !school_exists,
           message: school_exists ? "School name is taken" : "School name available"
         }, status: :ok
 
@@ -79,22 +79,22 @@ module Api
       def create
         # Strong parameters with all permitted fields including user associations
         school_params = params.require(:school).permit(
-          :schoolName, :logo, :schoolEmail, :line1, :line2, :country, 
-          :province, :city, :postalCode, :theme, :latitude, :longitude, 
+          :schoolName, :logo, :schoolEmail, :line1, :line2, :country,
+          :province, :city, :postalCode, :theme, :latitude, :longitude,
           :website, :facebook, :tiktok, :linkedin,
           :user_id, :user_email, :school_created_by
         )
-        
+
         # Check if school name already exists
         if School.where(schoolName: school_params[:schoolName]).exists?
-          return render json: { 
-            success: false, 
-            error: "School name already exists" 
+          return render json: {
+            success: false,
+            error: "School name already exists"
           }, status: :unprocessable_entity
         end
 
         @school = School.new(school_params)
-        
+
         # Set default values
         @school.cash_account ||= 0.0
         @school.payment_history ||= []
@@ -106,21 +106,21 @@ module Api
             user&.add_school(@school.id)
           end
 
-          render json: { 
-            success: true, 
-            data: { school: @school } 
+          render json: {
+            success: true,
+            data: { school: @school }
           }, status: :created
         else
-          render json: { 
-            success: false, 
-            errors: @school.errors.full_messages 
+          render json: {
+            success: false,
+            errors: @school.errors.full_messages
           }, status: :unprocessable_entity
         end
       rescue Mongo::Error::OperationFailure => e
-        render json: { 
-          success: false, 
+        render json: {
+          success: false,
           error: "Database operation failed",
-          details: e.message 
+          details: e.message
         }, status: :internal_server_error
       end
 
@@ -163,7 +163,7 @@ module Api
           school_id: @school.id,
           role: role
         )
-      
+
         # Get the actual users
         users = User.in(id: user_roles.pluck(:user_id)).map do |user|
           {
@@ -174,7 +174,7 @@ module Api
             role: role
           }
         end
-      
+
         users
       end
 
@@ -183,13 +183,13 @@ module Api
           :schoolName, :schoolEmail, :country, :city, :province,
           :latitude, :longitude, :facebook, :linkedin, :tiktok,
           :theme, :website, :logo,
-          schoolAddress: [:line1, :line2, :country, :province, :city, :postalCode]
+          schoolAddress: [ :line1, :line2, :country, :province, :city, :postalCode ]
         )
       end
 
       def populate_null_fields(school)
         payload = params[:school] || {}
-        
+
         # Set default values if fields are blank
         %i[country city province latitude longitude facebook linkedin tiktok theme website logo].each do |field|
           school[field] ||= payload[field]
