@@ -30,12 +30,12 @@ module GradeServices
     end
 
     def can_invite_learner?
-      return true if user.roles.include?('Admin')
+      return true if user.roles.include?("Admin")
 
       UserSchoolRole.where(
         user: user,
         school: grade.school,
-        role: ['Admin', 'Teacher'],
+        role: [ "Admin", "Teacher" ],
         status: 0
       ).exists?
     end
@@ -84,7 +84,7 @@ module GradeServices
       end
     rescue => e
       Rails.logger.error "❌ Error in InviteLearnerService: #{e.message}"
-      ServiceResult.new(success: false, errors: [e.message])
+      ServiceResult.new(success: false, errors: [ e.message ])
     end
   end
 end

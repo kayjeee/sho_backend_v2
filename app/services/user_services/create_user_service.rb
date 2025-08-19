@@ -1,6 +1,6 @@
 # app/services/user_services/create_user_service.rb
 module UserServices
-  class CreateUserService 
+  class CreateUserService
     def initialize(user_params:)
       @user_params = user_params
     end

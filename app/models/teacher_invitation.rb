@@ -15,11 +15,11 @@ class TeacherInvitation
 
   # ===================== CONSTANTS =======================
   STATUSES = {
-    'pending' => 0,
-    'accepted' => 1,
-    'declined' => 2,
-    'expired' => 3,
-    'cancelled' => 4
+    "pending" => 0,
+    "accepted" => 1,
+    "declined" => 2,
+    "expired" => 3,
+    "cancelled" => 4
   }.freeze
 
   # ===================== VALIDATIONS ======================
@@ -34,9 +34,9 @@ class TeacherInvitation
   validate :grades_belong_to_school
 
   # ===================== ASSOCIATIONS =====================
-  belongs_to :school,           class_name: 'School'
-  belongs_to :invited_by,       class_name: 'User'
-  belongs_to :teacher,          class_name: 'User', optional: true
+  belongs_to :school,           class_name: "School"
+  belongs_to :invited_by,       class_name: "User"
+  belongs_to :teacher,          class_name: "User", optional: true
 
   # ======================== INDEXES =======================
   index({ invitation_token: 1 }, { unique: true })
@@ -50,7 +50,7 @@ class TeacherInvitation
   scope :declined,              -> { where(status: 2) }
   scope :expired,               -> { where(status: 3) }
   scope :cancelled,             -> { where(status: 4) }
-  scope :active,                -> { where(status: [0, 1]) }
+  scope :active,                -> { where(status: [ 0, 1 ]) }
   scope :by_school,             ->(school_id) { where(school_id: school_id) }
   scope :expiring_soon,         -> { pending.where(:expires_at.lte => 24.hours.from_now) }
 
@@ -84,7 +84,7 @@ class TeacherInvitation
   end
 
   def status_text
-    STATUSES.key(status) || 'unknown'
+    STATUSES.key(status) || "unknown"
   end
 
   # Invitation actions
@@ -94,12 +94,12 @@ class TeacherInvitation
     transaction do
       # Find or create teacher user
       teacher_user = User.find_by(email: teacher_email)
-      
+
       if teacher_user.nil?
         teacher_user = User.create!({
           email: teacher_email,
-          name: teacher_params[:name] || teacher_email.split('@').first.humanize,
-          roles: ['Teacher'],
+          name: teacher_params[:name] || teacher_email.split("@").first.humanize,
+          roles: [ "Teacher" ],
           **teacher_params
         })
       end
@@ -111,7 +111,7 @@ class TeacherInvitation
       UserSchoolRole.create!(
         user: teacher_user,
         school: school,
-        role: 'Teacher',
+        role: "Teacher",
         status: 0,
         assigned_at: Time.current
       )
@@ -123,7 +123,7 @@ class TeacherInvitation
           grade_id: grade_id,
           school: school,
           assigned_by: invited_by,
-          role_type: 'primary',
+          role_type: "primary",
           status: 0,
           assigned_at: Time.current
         )
@@ -170,7 +170,7 @@ class TeacherInvitation
   # Utility methods
   def assigned_grade_names
     return [] if assigned_grades.empty?
-    
+
     Grade.where(:_id.in => assigned_grades.map { |id| BSON::ObjectId.from_string(id) })
          .pluck(:name)
   end
@@ -246,5 +246,6 @@ class TeacherInvitation
   end
 
   def grades_belong_to_school
-    return if assigned_grades.empty?
-    
+    nil if assigned_grades.empty?
+  end
+end

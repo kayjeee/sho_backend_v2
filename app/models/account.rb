@@ -4,11 +4,11 @@ class Account
   include Mongoid::Timestamps
 
   # Fields
-  field :status, type: String, default: 'active' # 'active', 'inactive', 'suspended', 'overdue'
+  field :status, type: String, default: "active" # 'active', 'inactive', 'suspended', 'overdue'
   field :balance, type: Float, default: 0.0
   field :payment_history, type: Array, default: []
   field :account_type, type: String # 'parent' or 'student'
-  
+
   # New fields for debt management
   field :due_date, type: Date
   field :days_overdue, type: Integer, default: 0
@@ -19,9 +19,9 @@ class Account
   field :last_reminder_sent, type: DateTime
 
   # Associations
-  belongs_to :user, class_name: 'User', inverse_of: :accounts
-  belongs_to :school, class_name: 'School', inverse_of: :accounts
-  has_many :payments, class_name: 'Payment', inverse_of: :account
+  belongs_to :user, class_name: "User", inverse_of: :accounts
+  belongs_to :school, class_name: "School", inverse_of: :accounts
+  has_many :payments, class_name: "Payment", inverse_of: :account
 
   # Validations
   validates :user_id, presence: true
@@ -32,10 +32,10 @@ class Account
   validates :credit_limit, numericality: { greater_than_or_equal_to: 0 }
 
   # Scopes
-  scope :active, -> { where(status: 'active') }
-  scope :parents, -> { where(account_type: 'parent') }
-  scope :students, -> { where(account_type: 'student') }
-  scope :overdue, -> { where(status: 'overdue') }
+  scope :active, -> { where(status: "active") }
+  scope :parents, -> { where(account_type: "parent") }
+  scope :students, -> { where(account_type: "student") }
+  scope :overdue, -> { where(status: "overdue") }
   scope :with_balance, -> { where(:balance.gt => 0) }
   scope :due_this_week, -> { where(due_date: Date.current..(Date.current + 7.days)) }
   scope :by_school, ->(school_id) { where(school_id: school_id) }
@@ -55,7 +55,7 @@ class Account
   # Instance methods
 
   # Add a payment to the account
-  def add_payment(amount, method, description = '')
+  def add_payment(amount, method, description = "")
     self.balance -= amount
     payment_record = {
       id: SecureRandom.uuid,
@@ -72,7 +72,7 @@ class Account
   end
 
   # Add a charge to the account
-  def add_charge(amount, description = '')
+  def add_charge(amount, description = "")
     self.balance += amount
     charge_record = {
       id: SecureRandom.uuid,
@@ -80,7 +80,7 @@ class Account
       date: Time.current,
       description: description,
       balance_after: balance,
-      type: 'charge'
+      type: "charge"
     }
     self.payment_history.unshift(charge_record)
     save
@@ -90,18 +90,18 @@ class Account
   # Update account status based on balance and due date
   def update_status
     if balance <= 0
-      self.status = 'active'
+      self.status = "active"
     elsif due_date.present? && due_date < Date.current
-      self.status = 'overdue'
+      self.status = "overdue"
     else
-      self.status = 'active'
+      self.status = "active"
     end
     save
   end
 
   # Check if account is overdue
   def overdue?
-    status == 'overdue' || (due_date.present? && due_date < Date.current && balance > 0)
+    status == "overdue" || (due_date.present? && due_date < Date.current && balance > 0)
   end
 
   # Calculate days overdue
@@ -112,8 +112,8 @@ class Account
 
   # Get last payment amount
   def last_payment_amount
-    last_payment = payment_history.select { |p| p['amount'].positive? }.first
-    last_payment ? last_payment['amount'] : 0
+    last_payment = payment_history.select { |p| p["amount"].positive? }.first
+    last_payment ? last_payment["amount"] : 0
   end
 
   private
@@ -123,17 +123,17 @@ class Account
   end
 
   def update_last_payment_date
-    last_payment = payment_history.select { |p| p['amount'].positive? }.first
+    last_payment = payment_history.select { |p| p["amount"].positive? }.first
     self.last_payment_date = last_payment[:date] if last_payment
   end
 
   def update_account_status
     self.status = if balance <= 0
-                   'active'
-                 elsif due_date.present? && due_date < Date.current
-                   'overdue'
-                 else
-                   'active'
-                 end
+                   "active"
+    elsif due_date.present? && due_date < Date.current
+                   "overdue"
+    else
+                   "active"
+    end
   end
 end

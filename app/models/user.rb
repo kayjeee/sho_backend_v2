@@ -4,12 +4,12 @@ class User
   include Mongoid::Timestamps
 
   # ======================== FIELDS ========================
-  field :name,             type: String               
-  field :email,            type: String               
-  field :auth0_id,         type: String               
-  field :roles,            type: Array,  default: []   
-  field :cash_account,     type: Float,  default: 0.0  
-  field :payment_history,  type: Array,  default: []   
+  field :name,             type: String
+  field :email,            type: String
+  field :auth0_id,         type: String
+  field :roles,            type: Array,  default: []
+  field :cash_account,     type: Float,  default: 0.0
+  field :payment_history,  type: Array,  default: []
 
   # ===================== VALIDATIONS ======================
   validates :email,        presence: true, uniqueness: true
@@ -17,22 +17,22 @@ class User
 
   # ===================== ASSOCIATIONS =====================
   has_many :conversations,       foreign_key: :user_id
-  has_many :accounts,            class_name: 'Account', inverse_of: :user
-  has_many :sent_messages,       class_name: 'Message', inverse_of: :sender
+  has_many :accounts,            class_name: "Account", inverse_of: :user
+  has_many :sent_messages,       class_name: "Message", inverse_of: :sender
   has_many :messages,            inverse_of: :user
-  has_many :received_messages,   class_name: 'Message', inverse_of: :receiver
-  has_many :user_school_roles,   class_name: 'UserSchoolRole', inverse_of: :user
+  has_many :received_messages,   class_name: "Message", inverse_of: :receiver
+  has_many :user_school_roles,   class_name: "UserSchoolRole", inverse_of: :user
 
   # NEW GRADE-RELATED ASSOCIATIONS
-  has_many :created_grades,      class_name: 'Grade', inverse_of: :created_by
-  has_many :created_learners,    class_name: 'Learner', inverse_of: :created_by
-  has_many :learner_invitations_sent, class_name: 'LearnerInvitation', inverse_of: :invited_by
-  has_many :teacher_invitations_sent, class_name: 'TeacherInvitation', inverse_of: :invited_by
-  has_many :teacher_invitations_received, class_name: 'TeacherInvitation', inverse_of: :teacher
-  has_many :teacher_grade_assignments, class_name: 'TeacherGradeAssignment', inverse_of: :teacher
-  has_many :assigned_teacher_roles, class_name: 'TeacherGradeAssignment', inverse_of: :assigned_by
+  has_many :created_grades,      class_name: "Grade", inverse_of: :created_by
+  has_many :created_learners,    class_name: "Learner", inverse_of: :created_by
+  has_many :learner_invitations_sent, class_name: "LearnerInvitation", inverse_of: :invited_by
+  has_many :teacher_invitations_sent, class_name: "TeacherInvitation", inverse_of: :invited_by
+  has_many :teacher_invitations_received, class_name: "TeacherInvitation", inverse_of: :teacher
+  has_many :teacher_grade_assignments, class_name: "TeacherGradeAssignment", inverse_of: :teacher
+  has_many :assigned_teacher_roles, class_name: "TeacherGradeAssignment", inverse_of: :assigned_by
 
-  has_and_belongs_to_many :schools, class_name: 'School', inverse_of: :users, validate: false
+  has_and_belongs_to_many :schools, class_name: "School", inverse_of: :users, validate: false
 
   # ======================== CALLBACKS =======================
   before_save :log_school_id_changes, if: :school_ids_changed?
@@ -46,33 +46,33 @@ class User
   end
 
   def primary_teaching_grades
-    teaching_grades.where(teacher_grade_assignments: { role_type: 'primary' })
+    teaching_grades.where(teacher_grade_assignments: { role_type: "primary" })
   end
 
   def assistant_teaching_grades
-    teaching_grades.where(teacher_grade_assignments: { role_type: 'assistant' })
+    teaching_grades.where(teacher_grade_assignments: { role_type: "assistant" })
   end
 
   def can_access_grade?(grade)
-    return true if roles.include?('Admin')
+    return true if roles.include?("Admin")
     return true if created_grades.include?(grade)
     return true if teaching_grades.include?(grade)
-    
+
     # Check if user is admin in the grade's school
     user_school_roles.find_by(
       school: grade.school,
-      role: 'Admin',
+      role: "Admin",
       status: 0
     ).present?
   end
 
   def grades_in_school(school)
-    return school.grades if roles.include?('Admin')
-    
+    return school.grades if roles.include?("Admin")
+
     # Return grades user created or teaches in this school
     created_in_school = created_grades.where(school: school)
     teaching_in_school = teaching_grades.where(school: school)
-    
+
     Grade.where(:_id.in => (created_in_school.pluck(:id) + teaching_in_school.pluck(:id)).uniq)
   end
 
@@ -144,7 +144,7 @@ class User
   private
 
   def log_school_id_changes
-    old_school_ids, new_school_ids = changes_to_save['school_ids']
+    old_school_ids, new_school_ids = changes_to_save["school_ids"]
 
     old_school_ids = old_school_ids || []
     new_school_ids = new_school_ids || []
@@ -187,8 +187,8 @@ class Learner
   validates :first_name, :last_name, presence: true
   validates :accession_number, uniqueness: { scope: :school_id }, allow_blank: true
 
-  GENDERS = { 'male' => 0, 'female' => 1, 'other' => 2 }.freeze
-  STATUSES = { 'active' => 0, 'inactive' => 1, 'graduated' => 2, 'transferred' => 3, 'expelled' => 4 }.freeze
+  GENDERS = { "male" => 0, "female" => 1, "other" => 2 }.freeze
+  STATUSES = { "active" => 0, "inactive" => 1, "graduated" => 2, "transferred" => 3, "expelled" => 4 }.freeze
 
   validates :gender, inclusion: { in: GENDERS.values }
   validates :status, inclusion: { in: STATUSES.values }
@@ -198,12 +198,12 @@ class Learner
   validate :grade_belongs_to_school
 
   # ===================== ASSOCIATIONS =====================
-  belongs_to :school, class_name: 'School', optional: true
-  belongs_to :created_by, class_name: 'User', optional: true
-  belongs_to :grade, class_name: 'Grade', optional: true
+  belongs_to :school, class_name: "School", optional: true
+  belongs_to :created_by, class_name: "User", optional: true
+  belongs_to :grade, class_name: "Grade", optional: true
 
   # NEW ASSOCIATIONS
-  has_many :learner_invitations, class_name: 'LearnerInvitation', inverse_of: :learner
+  has_many :learner_invitations, class_name: "LearnerInvitation", inverse_of: :learner
 
   # ======================== INDEXES =======================
   index({ school_id: 1, accession_number: 1 }, { unique: true, sparse: true })
@@ -251,7 +251,7 @@ class Learner
   end
 
   def status_text
-    STATUSES.key(status) || 'unknown'
+    STATUSES.key(status) || "unknown"
   end
 
   # Gender helper methods
@@ -269,10 +269,10 @@ class Learner
 
   def gender_text
     case gender
-    when 0 then 'Male'
-    when 1 then 'Female'
-    when 2 then 'Other'
-    else 'Unknown'
+    when 0 then "Male"
+    when 1 then "Female"
+    when 2 then "Other"
+    else "Unknown"
     end
   end
 
@@ -283,7 +283,7 @@ class Learner
   # NEW GRADE-RELATED METHODS
   def age_in_months
     return nil unless date_of_birth
-    
+
     today = Date.current
     months = (today.year - date_of_birth.year) * 12 + (today.month - date_of_birth.month)
     months -= 1 if today.day < date_of_birth.day
@@ -292,7 +292,7 @@ class Learner
 
   def age_in_years
     return nil unless date_of_birth
-    
+
     today = Date.current
     age = today.year - date_of_birth.year
     age -= 1 if today < date_of_birth + age.years
@@ -301,10 +301,10 @@ class Learner
 
   def meets_grade_age_requirements?
     return true unless grade && date_of_birth
-    
+
     age_months = age_in_months
     return true unless age_months
-    
+
     grade.accepts_age?(age_months)
   end
 
@@ -312,10 +312,10 @@ class Learner
     return false unless new_grade
     return false unless new_grade.can_enroll_learner?
     return false if new_grade.school != school
-    
+
     old_grade = grade
     self.grade = new_grade
-    
+
     if save
       Rails.logger.info "✅ Learner #{full_name} transferred from #{old_grade&.name} to #{new_grade.name}"
       true
@@ -345,13 +345,13 @@ class Learner
 
     begin
       school_bson_id = case school_id_string
-                      when BSON::ObjectId
+      when BSON::ObjectId
                         school_id_string
-                      when String
+      when String
                         BSON::ObjectId.from_string(school_id_string.strip)
-                      else
+      else
                         BSON::ObjectId.from_string(school_id_string.to_s.strip)
-                      end
+      end
     rescue BSON::ObjectId::Invalid => e
       Rails.logger.error "❌ Learner#add_school: Invalid BSON::ObjectId string provided: '#{school_id_string}'. Error: #{e.message}"
       errors.add(:school, "Invalid school ID format.")
@@ -438,8 +438,8 @@ class Learner
   def set_default_accession_number
     timestamp = Time.now.to_i.to_s.last(6)
     random_suffix = rand(100..999)
-    school_prefix = school_name&.first(3)&.upcase || 'STD'
-    
+    school_prefix = school_name&.first(3)&.upcase || "STD"
+
     self.accession_number = "#{school_prefix}#{timestamp}#{random_suffix}"
   end
 
@@ -451,7 +451,7 @@ class Learner
     %w[phone tel_emergency tel_home whatsapp telegram].each do |field|
       value = send(field)
       if value.present?
-        sanitized = value.gsub(/[^\d\+\-\(\)\s]/, '')
+        sanitized = value.gsub(/[^\d\+\-\(\)\s]/, "")
         send("#{field}=", sanitized.strip)
       end
     end
@@ -459,20 +459,20 @@ class Learner
 
   def age_meets_grade_requirements
     return unless grade && date_of_birth
-    
+
     unless meets_grade_age_requirements?
       age_years = age_in_years
-      min_years = grade.min_age ? (grade.min_age / 12.0).round(1) : 'not set'
-      max_years = grade.max_age ? (grade.max_age / 12.0).round(1) : 'not set'
-      
-      errors.add(:date_of_birth, 
+      min_years = grade.min_age ? (grade.min_age / 12.0).round(1) : "not set"
+      max_years = grade.max_age ? (grade.max_age / 12.0).round(1) : "not set"
+
+      errors.add(:date_of_birth,
         "Age (#{age_years} years) doesn't meet grade requirements (#{min_years} - #{max_years} years)")
     end
   end
 
   def grade_belongs_to_school
     return unless grade && school
-    
+
     unless grade.school == school
       errors.add(:grade, "must belong to the same school as the learner")
     end

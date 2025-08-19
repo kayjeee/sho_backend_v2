@@ -44,7 +44,7 @@ account = Account.create!(
   account_type: "parent",
   status: "active",
   balance: 250.50,
-  payment_history: [{ amount: 250.50, date: Time.now, type: "credit" }]
+  payment_history: [ { amount: 250.50, date: Time.now, type: "credit" } ]
 )
 
 puts "✅ Created Parent Account with balance: #{account.balance}"

@@ -87,7 +87,7 @@ module LearnerServices
       else
         @errors << {
           row: row_number,
-          message: learner.errors.full_messages.join(', '),
+          message: learner.errors.full_messages.join(", "),
           details: learner.attributes
         }
       end
@@ -103,7 +103,7 @@ module LearnerServices
         telegram: params[:telegram].to_s.strip,
         accession_number: params[:accessionNumber].presence || generate_accession_number,
         grade_id: @grade_id,
-        status: 'active'
+        status: "active"
       }.compact
     end
 
@@ -116,17 +116,17 @@ module LearnerServices
 
     def normalize_gender(gender)
       return nil if gender.blank?
-      
+
       case gender.to_s.downcase
-      when 'm', 'male' then 'male'
-      when 'f', 'female' then 'female'
-      else 'other'
+      when "m", "male" then "male"
+      when "f", "female" then "female"
+      else "other"
       end
     end
 
     def normalize_phone(phone)
       return nil if phone.blank?
-      phone.to_s.gsub(/[^0-9+]/, '')
+      phone.to_s.gsub(/[^0-9+]/, "")
     end
 
     def generate_accession_number

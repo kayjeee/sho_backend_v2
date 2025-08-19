@@ -4,18 +4,18 @@ class TeacherGradeAssignment
   include Mongoid::Timestamps
 
   # ======================== FIELDS ========================
-  field :role_type,             type: String, default: 'primary'
+  field :role_type,             type: String, default: "primary"
   field :status,                type: Integer, default: 0
   field :assigned_at,           type: DateTime
 
   # ===================== CONSTANTS =======================
   ROLE_TYPES = %w[primary assistant substitute coordinator].freeze
-  
+
   STATUSES = {
-    'active' => 0,
-    'inactive' => 1,
-    'terminated' => 2,
-    'suspended' => 3
+    "active" => 0,
+    "inactive" => 1,
+    "terminated" => 2,
+    "suspended" => 3
   }.freeze
 
   # ===================== VALIDATIONS ======================
@@ -28,13 +28,13 @@ class TeacherGradeAssignment
   validates :assigned_at,       presence: true
 
   # Ensure unique assignment per teacher-grade combination
-  validates :teacher_id, uniqueness: { scope: [:grade_id, :role_type], message: "already assigned to this grade with this role" }
+  validates :teacher_id, uniqueness: { scope: [ :grade_id, :role_type ], message: "already assigned to this grade with this role" }
 
   # ===================== ASSOCIATIONS =====================
-  belongs_to :teacher,          class_name: 'User'
-  belongs_to :grade,            class_name: 'Grade'
-  belongs_to :school,           class_name: 'School'
-  belongs_to :assigned_by,      class_name: 'User'
+  belongs_to :teacher,          class_name: "User"
+  belongs_to :grade,            class_name: "Grade"
+  belongs_to :school,           class_name: "School"
+  belongs_to :assigned_by,      class_name: "User"
 
   # ======================== INDEXES =======================
   index({ teacher_id: 1, grade_id: 1, role_type: 1 }, { unique: true })
@@ -52,8 +52,8 @@ class TeacherGradeAssignment
   scope :by_grade,              ->(grade_id) { where(grade_id: grade_id) }
   scope :by_school,             ->(school_id) { where(school_id: school_id) }
   scope :by_role_type,          ->(role_type) { where(role_type: role_type) }
-  scope :primary_teachers,      -> { where(role_type: 'primary') }
-  scope :assistant_teachers,    -> { where(role_type: 'assistant') }
+  scope :primary_teachers,      -> { where(role_type: "primary") }
+  scope :assistant_teachers,    -> { where(role_type: "assistant") }
 
   # ======================== CALLBACKS =======================
   before_validation :set_assigned_at, if: -> { assigned_at.blank? }
@@ -80,24 +80,24 @@ class TeacherGradeAssignment
   end
 
   def status_text
-    STATUSES.key(status) || 'unknown'
+    STATUSES.key(status) || "unknown"
   end
 
   # Role type helpers
   def primary_teacher?
-    role_type == 'primary'
+    role_type == "primary"
   end
 
   def assistant_teacher?
-    role_type == 'assistant'
+    role_type == "assistant"
   end
 
   def substitute_teacher?
-    role_type == 'substitute'
+    role_type == "substitute"
   end
 
   def coordinator?
-    role_type == 'coordinator'
+    role_type == "coordinator"
   end
 
   # Assignment management
@@ -136,13 +136,13 @@ class TeacherGradeAssignment
   # Duration calculations
   def assignment_duration_days
     return 0 unless assigned_at
-    
+
     end_date = case status
-                when 2 then terminated_at || updated_at
-                when 3 then suspended_at || updated_at
-                else Time.current
-                end
-    
+    when 2 then terminated_at || updated_at
+    when 3 then suspended_at || updated_at
+    else Time.current
+    end
+
     ((end_date - assigned_at) / 1.day).to_i
   end
 
@@ -150,7 +150,7 @@ class TeacherGradeAssignment
     days = assignment_duration_days
     return "Less than a day" if days < 1
     return "#{days} day#{'s' if days != 1}" if days < 30
-    
+
     months = (days / 30.0).round(1)
     "#{months} month#{'s' if months != 1}"
   end

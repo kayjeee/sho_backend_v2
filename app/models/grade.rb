@@ -18,10 +18,10 @@ class Grade
 
   # ===================== CONSTANTS ========================
   STATUSES = {
-    'active' => 0,
-    'inactive' => 1,
-    'archived' => 2,
-    'planning' => 3
+    "active" => 0,
+    "inactive" => 1,
+    "archived" => 2,
+    "planning" => 3
   }.freeze
 
   # ===================== VALIDATIONS ======================
@@ -32,11 +32,11 @@ class Grade
   validates :school_id,   presence: true
 
   # ===================== ASSOCIATIONS =====================
-  belongs_to :school, class_name: 'School', inverse_of: :grades
+  belongs_to :school, class_name: "School", inverse_of: :grades
 
-  has_many :learners, class_name: 'Learner', inverse_of: :grade
-  has_many :learner_invitations, class_name: 'LearnerInvitation', inverse_of: :grade
-  has_many :teacher_grade_assignments, class_name: 'TeacherGradeAssignment', inverse_of: :grade
+  has_many :learners, class_name: "Learner", inverse_of: :grade
+  has_many :learner_invitations, class_name: "LearnerInvitation", inverse_of: :grade
+  has_many :teacher_grade_assignments, class_name: "TeacherGradeAssignment", inverse_of: :grade
 
   # ======================== INDEXES ========================
   index({ school_id: 1, name: 1 }, unique: true)
@@ -53,7 +53,7 @@ class Grade
   scope :by_academic_year,        ->(year) { where(academic_year_start: year.beginning_of_year..year.end_of_year) }
   scope :with_capacity,           -> { where(:capacity.gt => 0) }
   scope :available_for_enrollment, -> {
-    active.where('$expr' => { '$lt' => [{ '$size' => '$learner_ids' }, '$capacity'] })
+    active.where("$expr" => { "$lt" => [ { "$size" => "$learner_ids" }, "$capacity" ] })
   }
 
   # ======================== CALLBACKS ========================
@@ -63,23 +63,23 @@ class Grade
 
   # Status helpers
   def active?
-    status == STATUSES['active']
+    status == STATUSES["active"]
   end
 
   def inactive?
-    status == STATUSES['inactive']
+    status == STATUSES["inactive"]
   end
 
   def archived?
-    status == STATUSES['archived']
+    status == STATUSES["archived"]
   end
 
   def planning?
-    status == STATUSES['planning']
+    status == STATUSES["planning"]
   end
 
   def status_text
-    STATUSES.key(status) || 'unknown'
+    STATUSES.key(status) || "unknown"
   end
 
   # Enrollment management
@@ -88,7 +88,7 @@ class Grade
   end
 
   def available_spots
-    [capacity - current_enrollment_count, 0].max
+    [ capacity - current_enrollment_count, 0 ].max
   end
 
   def full?
@@ -106,12 +106,12 @@ class Grade
   end
 
   def primary_teachers
-    user_ids = teacher_grade_assignments.where(status: 0, role_type: 'primary').pluck(:user_id)
+    user_ids = teacher_grade_assignments.where(status: 0, role_type: "primary").pluck(:user_id)
     User.where(:id.in => user_ids)
   end
 
   def assistant_teachers
-    user_ids = teacher_grade_assignments.where(status: 0, role_type: 'assistant').pluck(:user_id)
+    user_ids = teacher_grade_assignments.where(status: 0, role_type: "assistant").pluck(:user_id)
     User.where(:id.in => user_ids)
   end
 
@@ -124,7 +124,7 @@ class Grade
   end
 
   def academic_year_label
-    return 'Not Set' unless academic_year_start && academic_year_end
+    return "Not Set" unless academic_year_start && academic_year_end
 
     "#{academic_year_start.year}-#{academic_year_end.year}"
   end

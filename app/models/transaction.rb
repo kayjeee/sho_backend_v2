@@ -11,11 +11,11 @@ class Transaction
   field :user_id, type: String
   field :school_id, type: String
   field :amount, type: Float
-  field :status, type: String, default: 'pending' # Can be 'pending', 'completed', 'failed'
+  field :status, type: String, default: "pending" # Can be 'pending', 'completed', 'failed'
   field :payment_gateway_response, type: Hash # Store payment gateway response for auditing
 
   # New Fields (additions)
-  field :transaction_type, type: String, default: 'payment'
+  field :transaction_type, type: String, default: "payment"
   field :reference_number, type: String
   field :description, type: String
   field :payment_method, type: String
@@ -38,7 +38,7 @@ class Transaction
   belongs_to :user
   belongs_to :student, optional: true
   belongs_to :account, optional: true
-  belongs_to :initiated_by, class_name: 'User', foreign_key: :initiated_by_id, optional: true
+  belongs_to :initiated_by, class_name: "User", foreign_key: :initiated_by_id, optional: true
 
   # Callbacks (enhanced existing callback)
   before_create :generate_reference_number
@@ -46,20 +46,20 @@ class Transaction
   after_save :update_account_balance, if: :status_changed_to_completed?
 
   # Scopes (new)
-  scope :completed, -> { where(status: 'completed') }
-  scope :pending, -> { where(status: 'pending') }
-  scope :failed, -> { where(status: 'failed') }
+  scope :completed, -> { where(status: "completed") }
+  scope :pending, -> { where(status: "pending") }
+  scope :failed, -> { where(status: "failed") }
   scope :for_school, ->(school_id) { where(school_id: school_id) }
   scope :for_student, ->(student_id) { where(student_id: student_id) }
   scope :recent, -> { order(created_at: :desc) }
 
   # Methods (new)
   def complete!
-    update(status: 'completed', processed_at: Time.current)
+    update(status: "completed", processed_at: Time.current)
   end
 
   def fail!(error_message = nil)
-    update(status: 'failed', payment_gateway_response: { error: error_message })
+    update(status: "failed", payment_gateway_response: { error: error_message })
   end
 
   def formatted_amount
@@ -70,7 +70,7 @@ class Transaction
 
   # Existing callback (unchanged)
   def update_user_and_school_accounts
-    if status == 'completed'
+    if status == "completed"
       user = User.find(user_id)
       school = School.find(school_id)
 
@@ -98,13 +98,13 @@ class Transaction
       transaction_id: id,
       amount: amount,
       date: processed_at || created_at,
-      type: amount.positive? ? 'credit' : 'debit'
+      type: amount.positive? ? "credit" : "debit"
     }
     account.save
   end
 
   def status_changed_to_completed?
-    status_changed? && status == 'completed'
+    status_changed? && status == "completed"
   end
 
   def generate_reference_number

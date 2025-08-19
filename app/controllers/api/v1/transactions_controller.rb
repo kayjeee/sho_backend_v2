@@ -1,15 +1,15 @@
 class TransactionsController < ApplicationController
-  before_action :set_transaction, only: [:show, :update, :destroy, :process_payment]
-  before_action :set_school, only: [:index, :create]
+  before_action :set_transaction, only: [ :show, :update, :destroy, :process_payment ]
+  before_action :set_school, only: [ :index, :create ]
 
   # GET /transactions
   # GET /api/v1/schools/:school_id/transactions
   def index
     transactions = if params[:school_id]
                      @school.transactions
-                   else
+    else
                      Transaction.all
-                   end
+    end
 
     # Filtering
     transactions = transactions.where(student_id: params[:student_id]) if params[:student_id]
@@ -18,7 +18,7 @@ class TransactionsController < ApplicationController
 
     # Pagination and sorting
     transactions = transactions.order(created_at: :desc)
-    
+
     render json: transactions, each_serializer: TransactionSerializer
   end
 
@@ -32,16 +32,16 @@ class TransactionsController < ApplicationController
   def create
     @transaction = if params[:school_id]
                      @school.transactions.new(transaction_params)
-                   else
+    else
                      Transaction.new(transaction_params)
-                   end
+    end
 
     @transaction.initiated_by_id = current_user.id if current_user
-    @transaction.status ||= 'pending'
-    @transaction.transaction_type ||= 'payment'
+    @transaction.status ||= "pending"
+    @transaction.transaction_type ||= "payment"
 
     if @transaction.save
-      render json: @transaction, 
+      render json: @transaction,
              serializer: TransactionDetailSerializer,
              status: :created
     else
@@ -66,19 +66,19 @@ class TransactionsController < ApplicationController
     payment_successful = true # Replace with actual payment gateway logic
 
     if payment_successful
-      @transaction.update(status: 'completed', processed_at: Time.current)
-      render json: { 
-        message: 'Payment processed successfully', 
-        transaction: TransactionDetailSerializer.new(@transaction) 
+      @transaction.update(status: "completed", processed_at: Time.current)
+      render json: {
+        message: "Payment processed successfully",
+        transaction: TransactionDetailSerializer.new(@transaction)
       }
     else
       @transaction.update(
-        status: 'failed',
-        payment_gateway_response: { error: 'Payment failed' }
+        status: "failed",
+        payment_gateway_response: { error: "Payment failed" }
       )
-      render json: { 
-        error: 'Payment failed', 
-        transaction: TransactionDetailSerializer.new(@transaction) 
+      render json: {
+        error: "Payment failed",
+        transaction: TransactionDetailSerializer.new(@transaction)
       }, status: :unprocessable_entity
     end
   end
@@ -103,10 +103,10 @@ class TransactionsController < ApplicationController
   def transaction_params
     params.require(:transaction).permit(
       # Existing params
-      :user_id, 
-      :school_id, 
+      :user_id,
+      :school_id,
       :amount,
-      
+
       # New params
       :status,
       :transaction_type,

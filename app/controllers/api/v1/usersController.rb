@@ -1,7 +1,7 @@
 class Api::V1::UsersController < ApplicationController
-  before_action :set_user, only: [:show, :update_roles, :schools, :add_school]
+  before_action :set_user, only: [ :show, :update_roles, :schools, :add_school ]
 
-  # POST /api/v1/users
+# POST /api/v1/users
 # POST /api/v1/users
 def create
   service = UserServices::CreateUserService.new(user_params: user_params)
@@ -80,7 +80,7 @@ end
   def set_user
     Rails.logger.debug "🔍 Looking up user by auth0_id: #{params[:id]}"
     @user = User.find_by(auth0_id: params[:id])
-    
+
     unless @user
       Rails.logger.warn "❌ User not found with auth0_id: #{params[:id]}"
       render json: { success: false, error: "User not found" }, status: :not_found

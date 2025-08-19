@@ -25,17 +25,17 @@ class GradeServices::UpdateGradeService
   end
 
   def can_update_grade?
-    return true if user.roles.include?('Admin')
+    return true if user.roles.include?("Admin")
     return true if grade.created_by == user
-    
+
     # Check if user is admin in this school
     user_role = UserSchoolRole.find_by(
-      user: user, 
-      school: grade.school, 
-      role: 'Admin', 
+      user: user,
+      school: grade.school,
+      role: "Admin",
       status: 0
     )
-    
+
     user_role.present?
   end
 
@@ -57,11 +57,11 @@ class GradeServices::UpdateGradeService
   def handle_status_change(new_status)
     case new_status
     when 1 # inactive
-      return deactivate_grade
+      deactivate_grade
     when 2 # archived
-      return archive_grade
+      archive_grade
     when 0 # active
-      return activate_grade
+      activate_grade
     else
       grade.update(grade_params)
       { success: true, grade: grade }
@@ -71,7 +71,7 @@ class GradeServices::UpdateGradeService
   def deactivate_grade
     # Check if grade has active learners
     if grade.learners.active.any?
-      return { success: false, errors: ["Cannot deactivate grade with active learners"] }
+      return { success: false, errors: [ "Cannot deactivate grade with active learners" ] }
     end
 
     grade.update(status: 1)
@@ -81,7 +81,7 @@ class GradeServices::UpdateGradeService
   def archive_grade
     # Archive grade only if no active learners
     if grade.learners.active.any?
-      return { success: false, errors: ["Cannot archive grade with active learners"] }
+      return { success: false, errors: [ "Cannot archive grade with active learners" ] }
     end
 
     grade.update(status: 2)
