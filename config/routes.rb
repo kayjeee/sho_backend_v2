@@ -315,7 +315,7 @@ Rails.application.routes.draw do
   end
 
   # Root route
-  root "api/v1/application#index"
+  # root "api/v1/application#index"
 
   # Health check for load balancers
   get "health", to: "api/v1/application#health"
