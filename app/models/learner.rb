@@ -3,7 +3,7 @@ class Learner
   include Mongoid::Document
   include Mongoid::Timestamps
 
-  # ======================== FIELDS ========================
+  # ======================== LEGACY FIELDS ========================
   field :first_name,       type: String
   field :last_name,        type: String
   field :accession_number, type: String
@@ -14,6 +14,13 @@ class Learner
   field :tel_home,         type: String
   field :whatsapp,         type: String
   field :telegram,         type: String
+
+  # ======================== NEW MOBILE FIELDS ========================
+  field :date_of_birth,   type: Date
+  field :parent_info,     type: Hash, default: {}
+  field :enrollment_date, type: Date
+  field :mobile_sync_id,  type: String
+  field :last_sync_at,    type: DateTime
 
   # ===================== VALIDATIONS ======================
   validates :first_name, :last_name, presence: true
@@ -34,17 +41,19 @@ class Learner
   index({ school_id: 1, accession_number: 1 }, unique: true, sparse: true)
   index({ first_name: 1, last_name: 1 })
   index({ school_id: 1 })
+  index({ mobile_sync_id: 1 }, { unique: true, sparse: true })
+  index({ school_id: 1, last_sync_at: 1 })
 
   # ======================= CALLBACKS =======================
   before_validation :set_default_accession_number, if: -> { accession_number.blank? }
   before_validation :sanitize_phone_numbers
 
   # ========================= SCOPES =========================
-  scope :active,   -> { where(status: STATUSES['active']) }
-  scope :inactive, -> { where(status: STATUSES['inactive']) }
-  scope :graduated,-> { where(status: STATUSES['graduated']) }
-  scope :by_school,->(school_id) { where(school_id: school_id) }
-  scope :by_grade, ->(grade_id)  { where(grade_id: grade_id) }
+  scope :active,    -> { where(status: STATUSES['active']) }
+  scope :inactive,  -> { where(status: STATUSES['inactive']) }
+  scope :graduated, -> { where(status: STATUSES['graduated']) }
+  scope :by_school, ->(school_id) { where(school_id: school_id) }
+  scope :by_grade,  ->(grade_id)  { where(grade_id: grade_id) }
 
   # ======================== METHODS =========================
 
@@ -58,9 +67,9 @@ class Learner
   end
 
   # Status helpers
-  def active?       = status == STATUSES['active']
-  def inactive?     = status == STATUSES['inactive']
-  def graduated?    = status == STATUSES['graduated']
+  def active?    = status == STATUSES['active']
+  def inactive?  = status == STATUSES['inactive']
+  def graduated? = status == STATUSES['graduated']
 
   def status_text
     STATUSES.key(status)&.capitalize || 'Unknown'
@@ -142,6 +151,11 @@ class Learner
         tel_emergency: tel_emergency,
         telegram: telegram
       },
+      date_of_birth: date_of_birth,
+      parent_info: parent_info,
+      enrollment_date: enrollment_date,
+      mobile_sync_id: mobile_sync_id,
+      last_sync_at: last_sync_at,
       created_at: created_at,
       updated_at: updated_at
     }
