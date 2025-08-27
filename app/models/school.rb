@@ -28,6 +28,9 @@ class School
   field :facebook, type: String
   field :tiktok, type: String
   field :linkedin, type: String
+
+  # Status (active/inactive/suspended/etc.)
+  field :status, type: String, default: "active"
   
   # Financial fields
   field :cash_account, type: Float, default: 0.0

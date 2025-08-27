@@ -1,3 +1,4 @@
+# app/controllers/api/v1/schools_controller.rb
 module Api
   module V1
     class SchoolsController < ApplicationController
@@ -8,23 +9,22 @@ module Api
         schools = School.all
         render json: { success: true, schools: schools }, status: :ok
       end
-      
+
       # GET /api/v1/schools/:school_id/parents/:parent_id
       def show_parent
-        # Find the user_school_role to verify this parent belongs to the school
         user_role = UserSchoolRole.find_by(
           school_id: params[:id],
           user_id: params[:parent_id],
           role: 'Parent'
         )
-        
+
         unless user_role
           return render json: { success: false, message: "Parent not found in this school" }, status: :not_found
         end
-        
+
         parent = User.find(params[:parent_id])
-        
-        render json: { 
+
+        render json: {
           success: true,
           parent: {
             id: parent.id.to_s,
@@ -65,63 +65,52 @@ module Api
         end
 
         school_exists = School.where(schoolName: /^#{Regexp.escape(query)}$/i).exists?
-        render json: { 
-          success: true, 
-          isAvailable: !school_exists, 
+        render json: {
+          success: true,
+          isAvailable: !school_exists,
           message: school_exists ? "School name is taken" : "School name available"
         }, status: :ok
-
       rescue => e
+        Rails.logger.error "❌ Search error: #{e.message}"
         render json: { success: false, message: "An error occurred: #{e.message}" }, status: :internal_server_error
       end
 
       # POST /api/v1/schools
       def create
-        # Strong parameters with all permitted fields including user associations
         school_params = params.require(:school).permit(
-          :schoolName, :logo, :schoolEmail, :line1, :line2, :country, 
-          :province, :city, :postalCode, :theme, :latitude, :longitude, 
+          :schoolName, :logo, :schoolEmail, :line1, :line2, :country,
+          :province, :city, :postalCode, :theme, :latitude, :longitude,
           :website, :facebook, :tiktok, :linkedin,
-          :user_id, :user_email, :school_created_by
+          :user_id, :user_email, :school_created_by,
+          :status
         )
-        
-        # Check if school name already exists
+
         if School.where(schoolName: school_params[:schoolName]).exists?
-          return render json: { 
-            success: false, 
-            error: "School name already exists" 
-          }, status: :unprocessable_entity
+          return render json: { success: false, error: "School name already exists" }, status: :unprocessable_entity
         end
 
         @school = School.new(school_params)
-        
-        # Set default values
         @school.cash_account ||= 0.0
         @school.payment_history ||= []
 
         if @school.save
-          # Associate user with school if user_id provided
-          if school_params[:user_id]
-            user = User.find_by(auth0_id: school_params[:user_id])
-            user&.add_school(@school.id)
+          if school_params[:user_id].present?
+            user = find_or_create_user(school_params)
+
+            if user
+              promote_user_to_admin(user)   # ✅ Make sure user is Admin
+              link_user_to_school(user, @school)
+            else
+              Rails.logger.error "⚠️ School created but user could not be created/linked"
+            end
           end
 
-          render json: { 
-            success: true, 
-            data: { school: @school } 
-          }, status: :created
+          render json: { success: true, data: { school: @school } }, status: :created
         else
-          render json: { 
-            success: false, 
-            errors: @school.errors.full_messages 
-          }, status: :unprocessable_entity
+          render json: { success: false, errors: @school.errors.full_messages }, status: :unprocessable_entity
         end
       rescue Mongo::Error::OperationFailure => e
-        render json: { 
-          success: false, 
-          error: "Database operation failed",
-          details: e.message 
-        }, status: :internal_server_error
+        render json: { success: false, error: "Database operation failed", details: e.message }, status: :internal_server_error
       end
 
       # GET /api/v1/schools/:id
@@ -158,41 +147,64 @@ module Api
       end
 
       def fetch_users_by_role(role)
-        # Find all UserSchoolRole records for this school and role
-        user_roles = UserSchoolRole.where(
-          school_id: @school.id,
-          role: role
-        )
-      
-        # Get the actual users
-        users = User.in(id: user_roles.pluck(:user_id)).map do |user|
+        user_roles = UserSchoolRole.where(school_id: @school.id, role: role)
+
+        User.in(id: user_roles.pluck(:user_id)).map do |user|
           {
-            id: user.id,
+            id: user.id.to_s,
             name: user.name,
             email: user.email,
             auth0_id: user.auth0_id,
             role: role
           }
         end
-      
-        users
       end
 
       def school_params
         params.require(:school).permit(
           :schoolName, :schoolEmail, :country, :city, :province,
           :latitude, :longitude, :facebook, :linkedin, :tiktok,
-          :theme, :website, :logo,
+          :theme, :website, :logo, :status,
           schoolAddress: [:line1, :line2, :country, :province, :city, :postalCode]
         )
       end
 
       def populate_null_fields(school)
         payload = params[:school] || {}
-        
-        # Set default values if fields are blank
         %i[country city province latitude longitude facebook linkedin tiktok theme website logo].each do |field|
           school[field] ||= payload[field]
+        end
+      end
+
+      # 🔑 Create or fetch user if missing
+      def find_or_create_user(school_params)
+        user = User.find_by(auth0_id: school_params[:user_id])
+        return user if user.present?
+
+        result = UserServices::CreateUserService.new(
+          user_params: {
+            auth0_id: school_params[:user_id],
+            email: school_params[:user_email] || "unknown-#{SecureRandom.hex(4)}@demo.com",
+            name: school_params[:school_created_by] || "New Admin"
+          }
+        ).call
+
+        result.success? ? result.user : nil
+      end
+
+      # 🔑 Promote user to Admin role
+      def promote_user_to_admin(user)
+        unless user.roles.include?("admin")
+          user.update(roles: ["admin"])
+        end
+      end
+
+      # 🔑 Ensure user is linked to school + assigned Admin role
+      def link_user_to_school(user, school)
+        user.add_school(school.id)
+
+        unless UserSchoolRole.where(user_id: user.id, school_id: school.id, role: "Admin").exists?
+          UserSchoolRole.create!(user_id: user.id, school_id: school.id, role: "Admin")
         end
       end
     end

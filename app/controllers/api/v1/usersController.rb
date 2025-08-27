@@ -76,14 +76,28 @@ end
     Rails.logger.debug "🔒 Permitting user fields: name, email, auth0_id, roles"
     params.require(:user).permit(:name, :email, :auth0_id, roles: [])
   end
+# app/controllers/api/v1/users_controller.rb
+def set_user
+  auth0_id = params[:id]
+  Rails.logger.debug "🔍 Looking up user by auth0_id: #{auth0_id}"
 
-  def set_user
-    Rails.logger.debug "🔍 Looking up user by auth0_id: #{params[:id]}"
-    @user = User.find_by(auth0_id: params[:id])
-    
-    unless @user
-      Rails.logger.warn "❌ User not found with auth0_id: #{params[:id]}"
-      render json: { success: false, error: "User not found" }, status: :not_found
-    end
+  @user = User.find_or_create_by(auth0_id: auth0_id) do |user|
+    # Set default fields when user is first created
+    user.email    = params[:email] || "guest_#{SecureRandom.hex(4)}@example.com"
+    user.name     = params[:name]  || "Guest User"
+    user.status   = "active"
+    user.roles    = ["user"]
+    user.onboarding_status = {
+      createGrades: false,
+      uploadLearners: false,
+      sendInvites: false,
+      adminOnboardingCompleted: false,
+      parentOnboardingCompleted: false,
+      guestOnboardingCompleted: false,
+      completed: false,
+      lastUpdated: nil
+    }
   end
+end
+
 end
