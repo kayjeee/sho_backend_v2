@@ -2,17 +2,15 @@ class Api::V1::UsersController < ApplicationController
   before_action :set_user, only: [:show, :update_roles, :schools, :add_school]
 
   # POST /api/v1/users
-# POST /api/v1/users
-def create
-  service = UserServices::CreateUserService.new(user_params: user_params)
-  result = service.call
-  if result.success?
-    render json: { success: true, data: { user: result.user } }, status: :created
-  else
-    render json: { success: false, errors: result.errors }, status: :unprocessable_entity
+  def create
+    service = UserServices::CreateUserService.new(user_params: user_params)
+    result = service.call
+    if result.success?
+      render json: { success: true, data: { user: result.user } }, status: :created
+    else
+      render json: { success: false, errors: result.errors }, status: :unprocessable_entity
+    end
   end
-end
-
 
   # GET /api/v1/users/:id
   def show
@@ -33,6 +31,7 @@ end
           city: school.city,
           country: school.country,
           province: school.province,
+          status: school.status || "active",  # Fixed: Added status field
           userEmail: school.user_email || school[:user_email]
         }
       end
@@ -76,28 +75,14 @@ end
     Rails.logger.debug "🔒 Permitting user fields: name, email, auth0_id, roles"
     params.require(:user).permit(:name, :email, :auth0_id, roles: [])
   end
-# app/controllers/api/v1/users_controller.rb
-def set_user
-  auth0_id = params[:id]
-  Rails.logger.debug "🔍 Looking up user by auth0_id: #{auth0_id}"
 
-  @user = User.find_or_create_by(auth0_id: auth0_id) do |user|
-    # Set default fields when user is first created
-    user.email    = params[:email] || "guest_#{SecureRandom.hex(4)}@example.com"
-    user.name     = params[:name]  || "Guest User"
-    user.status   = "active"
-    user.roles    = ["user"]
-    user.onboarding_status = {
-      createGrades: false,
-      uploadLearners: false,
-      sendInvites: false,
-      adminOnboardingCompleted: false,
-      parentOnboardingCompleted: false,
-      guestOnboardingCompleted: false,
-      completed: false,
-      lastUpdated: nil
-    }
+  def set_user
+    Rails.logger.debug "🔍 Looking up user by auth0_id: #{params[:id]}"
+    @user = User.find_by(auth0_id: params[:id])
+    
+    unless @user
+      Rails.logger.warn "❌ User not found with auth0_id: #{params[:id]}"
+      render json: { success: false, error: "User not found" }, status: :not_found
+    end
   end
-end
-
 end
