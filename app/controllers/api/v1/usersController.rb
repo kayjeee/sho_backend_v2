@@ -76,13 +76,17 @@ class Api::V1::UsersController < ApplicationController
     params.require(:user).permit(:name, :email, :auth0_id, roles: [])
   end
 
-  def set_user
-    Rails.logger.debug "🔍 Looking up user by auth0_id: #{params[:id]}"
-    @user = User.find_by(auth0_id: params[:id])
-    
-    unless @user
-      Rails.logger.warn "❌ User not found with auth0_id: #{params[:id]}"
-      render json: { success: false, error: "User not found" }, status: :not_found
-    end
+  # app/controllers/api/v1/users_controller.rb
+def set_user
+  Rails.logger.debug "🔍 Looking up user by auth0_id: #{params[:id]}"
+
+  @user = User.find_or_initialize_by(auth0_id: params[:id])
+
+  if @user.new_record?
+    Rails.logger.warn "⚠️ User not found with auth0_id: #{params[:id]}, initializing new one"
+    @user.email = params[:email] if params[:email].present? # optional
+    @user.save!
   end
+end
+
 end
