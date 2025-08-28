@@ -10,6 +10,9 @@ class School
 
   # Status field
   field :status, type: String, default: "active"
+
+   # Admin users array
+  field :adminUsers, type: Array, default: []
   
   # Address fields (flattened structure)
   field :line1, type: String
