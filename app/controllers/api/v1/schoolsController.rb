@@ -80,8 +80,8 @@ module Api
         # Strong parameters with all permitted fields including user associations
         school_params = params.require(:school).permit(
           :schoolName, :logo, :schoolEmail, :line1, :line2, :country, 
-          :province, :city, :postalCode, :theme, :latitude, :longitude, 
-          :website, :facebook, :tiktok, :linkedin,
+          :province, :city, :postalCode, :latitude, :longitude, 
+          :website, :facebook, :tiktok, :linkedin, :status,
           :user_id, :user_email, :school_created_by
         )
         
@@ -98,6 +98,15 @@ module Api
         # Set default values
         @school.cash_account ||= 0.0
         @school.payment_history ||= []
+        @school.status ||= "active"
+
+        # Handle theme - extract just the mode value (e.g., "green")
+        if params[:school][:theme].is_a?(Hash)
+          # Extract just the mode value as a simple string
+          @school.theme = params[:school][:theme][:mode] || params[:school][:theme]["mode"]
+        else
+          @school.theme = params[:school][:theme] if params[:school][:theme].present?
+        end
 
         if @school.save
           # Associate user with school if user_id provided
@@ -131,10 +140,16 @@ module Api
 
       # PATCH/PUT /api/v1/schools/:id
       def update
-        @school.assign_attributes(school_params)
-        populate_null_fields(@school)
+        # Handle theme separately - extract just the mode value
+        if params[:school] && params[:school][:theme].is_a?(Hash)
+          # Extract just the mode value as a simple string
+          theme_value = params[:school][:theme][:mode] || params[:school][:theme]["mode"]
+          @school.theme = theme_value
+        elsif params[:school] && params[:school][:theme].present?
+          @school.theme = params[:school][:theme]
+        end
 
-        if @school.save
+        if @school.update(school_params.except(:theme))
           render json: { success: true, school: @school, message: "School updated successfully" }, status: :ok
         else
           render json: { success: false, errors: @school.errors.full_messages }, status: :unprocessable_entity
@@ -182,18 +197,9 @@ module Api
         params.require(:school).permit(
           :schoolName, :schoolEmail, :country, :city, :province,
           :latitude, :longitude, :facebook, :linkedin, :tiktok,
-          :theme, :website, :logo,
-          schoolAddress: [:line1, :line2, :country, :province, :city, :postalCode]
+          :website, :logo, :status, :line1, :line2, :postalCode,
+          :user_id, :user_email, :school_created_by, :theme
         )
-      end
-
-      def populate_null_fields(school)
-        payload = params[:school] || {}
-        
-        # Set default values if fields are blank
-        %i[country city province latitude longitude facebook linkedin tiktok theme website logo].each do |field|
-          school[field] ||= payload[field]
-        end
       end
     end
   end

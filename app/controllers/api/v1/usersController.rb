@@ -3,15 +3,18 @@ class Api::V1::UsersController < ApplicationController
 
   # POST /api/v1/users
 # POST /api/v1/users
+# app/controllers/api/v1/users_controller.rb
 def create
   service = UserServices::CreateUserService.new(user_params: user_params)
   result = service.call
+
   if result.success?
     render json: { success: true, data: { user: result.user } }, status: :created
   else
     render json: { success: false, errors: result.errors }, status: :unprocessable_entity
   end
 end
+
 
 
   # GET /api/v1/users/:id

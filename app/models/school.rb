@@ -7,6 +7,9 @@ class School
   field :schoolName, type: String
   field :schoolEmail, type: String
   field :logo, type: String
+
+  # Status field
+  field :status, type: String, default: "active"
   
   # Address fields (flattened structure)
   field :line1, type: String
