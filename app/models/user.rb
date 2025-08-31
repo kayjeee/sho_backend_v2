@@ -1,4 +1,4 @@
-# app/models/user.rb - Updated with grade associations
+# app/models/user.rb - Complete model with onboarding integration
 class User
   include Mongoid::Document
   include Mongoid::Timestamps
@@ -10,6 +10,8 @@ class User
   field :roles,            type: Array,  default: []   
   field :cash_account,     type: Float,  default: 0.0  
   field :payment_history,  type: Array,  default: []   
+  field :status,           type: String, default: 'active'
+  field :last_login,       type: Time
 
   # ===================== VALIDATIONS ======================
   validates :email,        presence: true, uniqueness: true
@@ -23,7 +25,7 @@ class User
   has_many :received_messages,   class_name: 'Message', inverse_of: :receiver
   has_many :user_school_roles,   class_name: 'UserSchoolRole', inverse_of: :user
 
-  # NEW GRADE-RELATED ASSOCIATIONS
+  # GRADE-RELATED ASSOCIATIONS
   has_many :created_grades,      class_name: 'Grade', inverse_of: :created_by
   has_many :created_learners,    class_name: 'Learner', inverse_of: :created_by
   has_many :learner_invitations_sent, class_name: 'LearnerInvitation', inverse_of: :invited_by
@@ -34,12 +36,37 @@ class User
 
   has_and_belongs_to_many :schools, class_name: 'School', inverse_of: :users, validate: false
 
+  # ONBOARDING ASSOCIATION
+  embeds_one :onboarding_status, class_name: 'OnboardingStatus'
+
+  # ======================= INDEXES ========================
+  index({ email: 1 }, { unique: true })
+  index({ auth0_id: 1 }, { unique: true })
+  index({ roles: 1 })
+  index({ status: 1 })
+  index({ last_login: 1 })
+  
+  # Onboarding-related indexes
+  index({ 'onboarding_status.completed' => 1 })
+  index({ 'onboarding_status.current_step' => 1 })
+  index({ 'onboarding_status.completion_percentage' => 1 })
+
   # ======================== CALLBACKS =======================
   before_save :log_school_id_changes, if: :school_ids_changed?
+  
+  # Onboarding callbacks
+  after_initialize :ensure_onboarding_status
+  after_create :initialize_onboarding_status
 
-  # ========================= METHODS ========================
+  # ======================== SCOPES ========================
+  scope :active, -> { where(status: 'active') }
+  scope :with_role, ->(role) { where(roles: role) }
+  scope :admins, -> { where(roles: 'admin') }
+  scope :parents, -> { where(roles: 'parent') }
+  scope :guests, -> { where(roles: 'guest') }
 
-  # NEW GRADE-RELATED METHODS
+  # ===================== GRADE-RELATED METHODS =====================
+
   def teaching_grades
     Grade.joins(:teacher_grade_assignments)
          .where(teacher_grade_assignments: { teacher_id: id, status: 0 })
@@ -76,7 +103,8 @@ class User
     Grade.where(:_id.in => (created_in_school.pluck(:id) + teaching_in_school.pluck(:id)).uniq)
   end
 
-  # EXISTING METHODS (keeping your original implementation)
+  # ================== SCHOOL MANAGEMENT METHODS ==================
+
   def add_school(school_id_string)
     Rails.logger.debug "🏫 User#add_school: Attempting to add school with ID string '#{school_id_string}' to user #{id}"
 
@@ -141,6 +169,356 @@ class User
     end
   end
 
+  # ================== ONBOARDING MANAGEMENT METHODS ==================
+
+  # Ensure onboarding status exists (lazy initialization)
+  def ensure_onboarding_status
+    build_onboarding_status unless onboarding_status
+  end
+
+  # Initialize onboarding status for new users
+  def initialize_onboarding_status
+    return if onboarding_status&.persisted?
+    
+    ensure_onboarding_status
+    
+    # Set initial configuration based on user roles
+    configure_initial_onboarding_state
+    
+    onboarding_status.save!
+    Rails.logger.info "🆕 Initialized onboarding status for new user #{auth0_id}"
+  end
+
+  # Configure initial onboarding state based on user roles and context
+  def configure_initial_onboarding_state
+    user_roles = roles || []
+    onboarding = onboarding_status
+    
+    # Set current step based on primary role
+    case
+    when user_roles.include?('admin')
+      onboarding.current_step = 'create_grades'
+      onboarding.total_steps_count = 4 # create_grades, upload_learners, send_invites, admin_onboarding
+    when user_roles.include?('parent')
+      onboarding.current_step = 'parent_onboarding'
+      onboarding.total_steps_count = 1 # Only parent-specific onboarding
+    when user_roles.include?('guest')
+      onboarding.current_step = 'guest_onboarding'
+      onboarding.total_steps_count = 1 # Only guest-specific onboarding
+    else
+      onboarding.current_step = 'create_grades'
+      onboarding.total_steps_count = 3 # Default steps without role-specific
+    end
+    
+    # Set client metadata for tracking
+    onboarding.client_metadata = {
+      'initialized_at' => Time.current.iso8601,
+      'user_roles' => user_roles,
+      'initialization_context' => determine_initialization_context
+    }
+  end
+
+  # Determine the context in which onboarding was initialized
+  def determine_initialization_context
+    # This can be enhanced based on how users are created in your system
+    if schools.any?
+      'existing_school_association'
+    elsif created_at > 1.hour.ago
+      'new_user_registration'
+    else
+      'retroactive_initialization'
+    end
+  end
+
+  # Convenience method to update onboarding status with error handling
+  def update_onboarding_status!(attrs = {})
+    ensure_onboarding_status
+    
+    begin
+      if attrs.is_a?(Hash) && attrs.keys.any? { |k| k.to_s.include?('_') }
+        # Handle snake_case input
+        onboarding_status.assign_attributes(attrs)
+      else
+        # Handle camelCase input from API
+        onboarding_status.assign_attributes_from_api(attrs)
+      end
+      
+      onboarding_status.auto_complete_if_ready!
+      onboarding_status.save!
+      
+      Rails.logger.info "🔄 Updated onboarding status for user #{auth0_id}"
+      onboarding_status
+      
+    rescue => e
+      Rails.logger.error "❌ Failed to update onboarding status for user #{auth0_id}: #{e.message}"
+      raise e
+    end
+  end
+
+  # Check if user needs onboarding
+  def needs_onboarding?
+    ensure_onboarding_status
+    !onboarding_status.completed
+  end
+
+  # Get onboarding progress percentage
+  def onboarding_progress
+    ensure_onboarding_status
+    onboarding_status.completion_percentage
+  end
+
+  # Check if user can access main application features
+  def can_access_main_features?
+    return true unless needs_onboarding?
+    
+    # Allow access if user has completed critical steps
+    ensure_onboarding_status
+    critical_steps_completed = onboarding_status.create_grades && onboarding_status.upload_learners
+    
+    # Or if user has role-specific onboarding completed
+    role_onboarding_completed = onboarding_status.admin_onboarding_completed ||
+                               onboarding_status.parent_onboarding_completed ||
+                               onboarding_status.guest_onboarding_completed
+    
+    critical_steps_completed || role_onboarding_completed
+  end
+
+  # Get current onboarding step
+  def current_onboarding_step
+    ensure_onboarding_status
+    onboarding_status.current_step
+  end
+
+  # Complete a specific onboarding step with comprehensive error handling
+  def complete_onboarding_step!(step_name, metadata: {})
+    ensure_onboarding_status
+    
+    begin
+      # Store completion metadata
+      onboarding_status.client_metadata["#{step_name}_completed_at"] = Time.current.iso8601
+      onboarding_status.client_metadata["#{step_name}_metadata"] = metadata if metadata.any?
+      
+      onboarding_status.complete_step!(step_name)
+      
+      # Trigger any post-completion actions
+      handle_step_completion(step_name, metadata)
+      
+      Rails.logger.info "✅ User #{auth0_id} completed onboarding step: #{step_name}"
+      
+    rescue => e
+      Rails.logger.error "❌ Failed to complete step #{step_name} for user #{auth0_id}: #{e.message}"
+      raise e
+    end
+  end
+
+  # Skip an onboarding step with reason tracking
+  def skip_onboarding_step!(step_name, reason: nil, metadata: {})
+    ensure_onboarding_status
+    
+    begin
+      # Store skip metadata
+      skip_data = {
+        'reason' => reason,
+        'skipped_at' => Time.current.iso8601,
+        'metadata' => metadata
+      }
+      
+      onboarding_status.client_metadata["#{step_name}_skipped"] = skip_data
+      onboarding_status.skip_step!(step_name, reason: reason)
+      
+      Rails.logger.info "⏭️ User #{auth0_id} skipped onboarding step: #{step_name} (#{reason})"
+      
+    rescue => e
+      Rails.logger.error "❌ Failed to skip step #{step_name} for user #{auth0_id}: #{e.message}"
+      raise e
+    end
+  end
+
+  # Reset onboarding status with audit trail
+  def reset_onboarding!(reset_by: nil, reason: nil)
+    ensure_onboarding_status
+    
+    begin
+      # Store reset metadata
+      onboarding_status.client_metadata['reset_by'] = reset_by
+      onboarding_status.client_metadata['reset_reason'] = reason
+      onboarding_status.client_metadata['reset_at'] = Time.current.iso8601
+      
+      onboarding_status.reset!
+      
+      Rails.logger.info "🔄 Onboarding reset for user #{auth0_id} by #{reset_by || 'system'}"
+      
+    rescue => e
+      Rails.logger.error "❌ Failed to reset onboarding for user #{auth0_id}: #{e.message}"
+      raise e
+    end
+  end
+
+  # Get onboarding analytics data
+  def onboarding_analytics
+    ensure_onboarding_status
+    
+    {
+      user_id: auth0_id,
+      completion_percentage: onboarding_status.completion_percentage,
+      steps_completed: onboarding_status.steps_completed_count,
+      total_steps: onboarding_status.total_steps_count,
+      current_step: onboarding_status.current_step,
+      started_at: onboarding_status.started_at,
+      completed_at: onboarding_status.completed_at,
+      time_to_complete: calculate_time_to_complete,
+      skipped_steps: onboarding_status.skipped_steps,
+      user_roles: roles,
+      school_count: schools.count,
+      created_grades_count: created_grades.count,
+      created_learners_count: created_learners.count
+    }
+  end
+
+  # Calculate time taken to complete onboarding
+  def calculate_time_to_complete
+    return nil unless onboarding_status&.started_at && onboarding_status&.completed_at
+    
+    duration_seconds = onboarding_status.completed_at - onboarding_status.started_at
+    
+    {
+      seconds: duration_seconds.to_i,
+      minutes: (duration_seconds / 60).to_i,
+      hours: (duration_seconds / 3600).to_i,
+      days: (duration_seconds / 86400).to_i,
+      human_readable: ActionController::Base.helpers.distance_of_time_in_words(
+        onboarding_status.started_at, 
+        onboarding_status.completed_at
+      )
+    }
+  end
+
+  # Enhanced API serialization including onboarding status
+  def to_api_hash
+    base_hash = {
+      auth0_id: auth0_id,
+      name: name,
+      email: email,
+      roles: roles,
+      school_ids: school_ids&.map(&:to_s),
+      status: status,
+      last_login: last_login&.iso8601,
+      created_at: created_at&.iso8601,
+      updated_at: updated_at&.iso8601
+    }
+    
+    # Include onboarding status
+    ensure_onboarding_status
+    base_hash[:onboardingStatus] = onboarding_status.to_api_hash
+    
+    # Include onboarding-related flags
+    base_hash[:needsOnboarding] = needs_onboarding?
+    base_hash[:canAccessMainFeatures] = can_access_main_features?
+    base_hash[:onboardingProgress] = onboarding_progress
+    
+    base_hash
+  end
+
+  # ================== CLASS METHODS FOR BULK OPERATIONS ==================
+
+  # Bulk onboarding operations for admin users
+  def self.bulk_update_onboarding_status(user_ids, updates)
+    results = { success: [], failed: [] }
+    
+    User.in(id: user_ids).each do |user|
+      begin
+        user.update_onboarding_status!(updates)
+        results[:success] << user.auth0_id
+      rescue => e
+        results[:failed] << { user_id: user.auth0_id, error: e.message }
+      end
+    end
+    
+    results
+  end
+
+  # Get users by onboarding status for admin dashboards
+  def self.by_onboarding_status(status)
+    case status.to_s
+    when 'completed'
+      where('onboarding_status.completed' => true)
+    when 'in_progress'
+      where('onboarding_status.completed' => false, 'onboarding_status.started_at'.ne => nil)
+    when 'not_started'
+      where('onboarding_status.started_at' => nil)
+    when 'needs_attention'
+      # Users who started onboarding more than 7 days ago but haven't completed
+      cutoff_date = 7.days.ago
+      where(
+        'onboarding_status.completed' => false,
+        'onboarding_status.started_at'.lt => cutoff_date
+      )
+    else
+      all
+    end
+  end
+
+  # Get onboarding completion statistics
+  def self.onboarding_statistics
+    total_users = count
+    completed_users = where('onboarding_status.completed' => true).count
+    in_progress_users = where(
+      'onboarding_status.completed' => false,
+      'onboarding_status.started_at'.ne => nil
+    ).count
+    not_started_users = where('onboarding_status.started_at' => nil).count
+    
+    {
+      total_users: total_users,
+      completed_users: completed_users,
+      in_progress_users: in_progress_users,
+      not_started_users: not_started_users,
+      completion_rate: total_users > 0 ? (completed_users.to_f / total_users * 100).round(2) : 0,
+      average_completion_percentage: calculate_average_completion_percentage
+    }
+  end
+
+  def self.calculate_average_completion_percentage
+    users_with_onboarding = where('onboarding_status.completion_percentage'.exists => true)
+    return 0 if users_with_onboarding.count == 0
+    
+    total_percentage = users_with_onboarding.sum('onboarding_status.completion_percentage')
+    (total_percentage / users_with_onboarding.count).round(2)
+  end
+
+  # ==================== UTILITY METHODS ====================
+
+  def admin?
+    roles.include?('admin')
+  end
+
+  def parent?
+    roles.include?('parent')
+  end
+
+  def guest?
+    roles.include?('guest')
+  end
+
+  def has_role?(role)
+    roles.include?(role.to_s)
+  end
+
+  def add_role(role)
+    return if has_role?(role)
+    self.roles << role.to_s
+    save
+  end
+
+  def remove_role(role)
+    self.roles.delete(role.to_s)
+    save
+  end
+
+  def display_name
+    name.presence || email.split('@').first
+  end
+
   private
 
   def log_school_id_changes
@@ -161,320 +539,37 @@ class User
     Rails.logger.debug "  ➕ ADDED (IDs): #{added.inspect}"   if added.any?
     Rails.logger.debug "  ➖ REMOVED (IDs): #{removed.inspect}" if removed.any?
   end
-end
 
-# app/models/learner.rb - Updated with enhanced grade association
-class Learner
-  include Mongoid::Document
-  include Mongoid::Timestamps
-
-  # ======================== FIELDS ========================
-  field :first_name,        type: String
-  field :last_name,         type: String
-  field :accession_number,  type: String
-  field :gender,            type: Integer, default: 0
-  field :status,            type: Integer, default: 0
-  field :phone,             type: String
-  field :tel_emergency,     type: String
-  field :tel_home,          type: String
-  field :whatsapp,          type: String
-  field :telegram,          type: String
-  field :date_of_birth,     type: Date
-  field :enrollment_date,   type: Date
-  field :parent_info,       type: Hash, default: {}
-
-  # ===================== VALIDATIONS ======================
-  validates :first_name, :last_name, presence: true
-  validates :accession_number, uniqueness: { scope: :school_id }, allow_blank: true
-
-  GENDERS = { 'male' => 0, 'female' => 1, 'other' => 2 }.freeze
-  STATUSES = { 'active' => 0, 'inactive' => 1, 'graduated' => 2, 'transferred' => 3, 'expelled' => 4 }.freeze
-
-  validates :gender, inclusion: { in: GENDERS.values }
-  validates :status, inclusion: { in: STATUSES.values }
-
-  # GRADE-SPECIFIC VALIDATIONS
-  validate :age_meets_grade_requirements, if: -> { grade.present? && date_of_birth.present? }
-  validate :grade_belongs_to_school
-
-  # ===================== ASSOCIATIONS =====================
-  belongs_to :school, class_name: 'School', optional: true
-  belongs_to :created_by, class_name: 'User', optional: true
-  belongs_to :grade, class_name: 'Grade', optional: true
-
-  # NEW ASSOCIATIONS
-  has_many :learner_invitations, class_name: 'LearnerInvitation', inverse_of: :learner
-
-  # ======================== INDEXES =======================
-  index({ school_id: 1, accession_number: 1 }, { unique: true, sparse: true })
-  index({ first_name: 1, last_name: 1 })
-  index({ school_id: 1 })
-  index({ grade_id: 1 })
-  index({ status: 1 })
-
-  # ======================== CALLBACKS =======================
-  before_validation :set_default_accession_number, if: -> { accession_number.blank? }
-  before_validation :sanitize_phone_numbers
-  before_validation :set_enrollment_date, if: -> { enrollment_date.blank? && status == 0 }
-
-  # ========================= SCOPES ========================
-  scope :active, -> { where(status: 0) }
-  scope :inactive, -> { where(status: 1) }
-  scope :graduated, -> { where(status: 2) }
-  scope :transferred, -> { where(status: 3) }
-  scope :expelled, -> { where(status: 4) }
-  scope :by_school, ->(school_id) { where(school_id: school_id) }
-  scope :by_grade, ->(grade_id) { where(grade_id: grade_id) }
-  scope :by_gender, ->(gender) { where(gender: gender) }
-
-  # ========================= METHODS ========================
-
-  # Status helper methods
-  def active?
-    status == 0
-  end
-
-  def inactive?
-    status == 1
-  end
-
-  def graduated?
-    status == 2
-  end
-
-  def transferred?
-    status == 3
-  end
-
-  def expelled?
-    status == 4
-  end
-
-  def status_text
-    STATUSES.key(status) || 'unknown'
-  end
-
-  # Gender helper methods
-  def male?
-    gender == 0
-  end
-
-  def female?
-    gender == 1
-  end
-
-  def other_gender?
-    gender == 2
-  end
-
-  def gender_text
-    case gender
-    when 0 then 'Male'
-    when 1 then 'Female'
-    when 2 then 'Other'
-    else 'Unknown'
-    end
-  end
-
-  def full_name
-    "#{first_name} #{last_name}".strip
-  end
-
-  # NEW GRADE-RELATED METHODS
-  def age_in_months
-    return nil unless date_of_birth
-    
-    today = Date.current
-    months = (today.year - date_of_birth.year) * 12 + (today.month - date_of_birth.month)
-    months -= 1 if today.day < date_of_birth.day
-    months
-  end
-
-  def age_in_years
-    return nil unless date_of_birth
-    
-    today = Date.current
-    age = today.year - date_of_birth.year
-    age -= 1 if today < date_of_birth + age.years
-    age
-  end
-
-  def meets_grade_age_requirements?
-    return true unless grade && date_of_birth
-    
-    age_months = age_in_months
-    return true unless age_months
-    
-    grade.accepts_age?(age_months)
-  end
-
-  def transfer_to_grade(new_grade, transferred_by_user = nil)
-    return false unless new_grade
-    return false unless new_grade.can_enroll_learner?
-    return false if new_grade.school != school
-    
-    old_grade = grade
-    self.grade = new_grade
-    
-    if save
-      Rails.logger.info "✅ Learner #{full_name} transferred from #{old_grade&.name} to #{new_grade.name}"
-      true
-    else
-      Rails.logger.error "❌ Failed to transfer learner #{full_name}: #{errors.full_messages.join(', ')}"
-      false
-    end
-  end
-
-  def graduate!(graduation_date = Date.current)
-    update!(
-      status: 2,
-      graduated_at: graduation_date
-    )
-    Rails.logger.info "🎓 Learner graduated: #{full_name} from #{grade&.name}"
-    true
-  rescue => e
-    Rails.logger.error "❌ Failed to graduate learner #{full_name}: #{e.message}"
-    false
-  end
-
-  # EXISTING METHODS with enhancements
-  def add_school(school_id_string)
-    Rails.logger.debug "🏫 Learner#add_school: Attempting to add school with ID string '#{school_id_string}' to learner #{id}"
-
-    return false if school_id_string.blank?
-
-    begin
-      school_bson_id = case school_id_string
-                      when BSON::ObjectId
-                        school_id_string
-                      when String
-                        BSON::ObjectId.from_string(school_id_string.strip)
-                      else
-                        BSON::ObjectId.from_string(school_id_string.to_s.strip)
-                      end
-    rescue BSON::ObjectId::Invalid => e
-      Rails.logger.error "❌ Learner#add_school: Invalid BSON::ObjectId string provided: '#{school_id_string}'. Error: #{e.message}"
-      errors.add(:school, "Invalid school ID format.")
-      return false
-    end
-
-    school_to_add = School.find_by(_id: school_bson_id)
-
-    unless school_to_add
-      Rails.logger.warn "⚠️ Learner#add_school: School with ID '#{school_id_string}' not found in database."
-      errors.add(:school, "School not found.")
-      return false
-    end
-
-    self.school = school_to_add
-
-    if save
-      Rails.logger.info "✅ Learner#add_school: Successfully associated school '#{school_to_add.schoolName || school_to_add.name}' with learner #{full_name}."
-      true
-    else
-      Rails.logger.error "❌ Learner#add_school: Failed to save learner #{id} after associating school. Errors: #{errors.full_messages.join(', ')}"
-      false
-    end
-  end
-
-  def school_name
-    school&.schoolName || school&.name
-  end
-
-  def grade_name
-    grade&.name
-  end
-
-  def primary_contact
-    phone.presence || whatsapp.presence || tel_home.presence
-  end
-
-  def emergency_contact
-    tel_emergency.presence || primary_contact
-  end
-
-  # Enhanced API export
-  def to_api_hash
-    {
-      id: id.to_s,
-      first_name: first_name,
-      last_name: last_name,
-      full_name: full_name,
-      accession_number: accession_number,
-      gender: gender,
-      gender_text: gender_text,
-      status: status,
-      status_text: status_text,
-      date_of_birth: date_of_birth,
-      age: {
-        years: age_in_years,
-        months: age_in_months
-      },
-      school_id: school_id&.to_s,
-      school_name: school_name,
-      grade_id: grade_id&.to_s,
-      grade_name: grade_name,
-      meets_grade_requirements: meets_grade_age_requirements?,
-      enrollment_date: enrollment_date,
-      contact: {
-        phone: phone,
-        whatsapp: whatsapp,
-        tel_home: tel_home,
-        tel_emergency: tel_emergency,
-        telegram: telegram
-      },
-      parent_info: parent_info,
-      created_by: {
-        id: created_by_id&.to_s,
-        name: created_by&.name
-      },
-      created_at: created_at,
-      updated_at: updated_at
-    }
-  end
-
-  private
-
-  def set_default_accession_number
-    timestamp = Time.now.to_i.to_s.last(6)
-    random_suffix = rand(100..999)
-    school_prefix = school_name&.first(3)&.upcase || 'STD'
-    
-    self.accession_number = "#{school_prefix}#{timestamp}#{random_suffix}"
-  end
-
-  def set_enrollment_date
-    self.enrollment_date = Date.current
-  end
-
-  def sanitize_phone_numbers
-    %w[phone tel_emergency tel_home whatsapp telegram].each do |field|
-      value = send(field)
-      if value.present?
-        sanitized = value.gsub(/[^\d\+\-\(\)\s]/, '')
-        send("#{field}=", sanitized.strip)
-      end
-    end
-  end
-
-  def age_meets_grade_requirements
-    return unless grade && date_of_birth
-    
-    unless meets_grade_age_requirements?
-      age_years = age_in_years
-      min_years = grade.min_age ? (grade.min_age / 12.0).round(1) : 'not set'
-      max_years = grade.max_age ? (grade.max_age / 12.0).round(1) : 'not set'
+  # Handle post-step completion actions
+  def handle_step_completion(step_name, metadata)
+    case step_name.to_s
+    when 'create_grades'
+      Rails.logger.info "🎯 User #{auth0_id} completed grade creation"
+      # Could trigger analytics event, send notification, etc.
+      # NotificationService.send_step_completion_notification(self, 'create_grades')
       
-      errors.add(:date_of_birth, 
-        "Age (#{age_years} years) doesn't meet grade requirements (#{min_years} - #{max_years} years)")
+    when 'upload_learners'
+      Rails.logger.info "👥 User #{auth0_id} completed learner upload"
+      learner_count = metadata[:learners_uploaded] || created_learners.count
+      Rails.logger.info "📊 Uploaded #{learner_count} learners"
+      
+    when 'send_invites'
+      Rails.logger.info "📧 User #{auth0_id} completed invite sending"
+      invite_count = metadata[:invites_sent] || 0
+      Rails.logger.info "📊 Sent #{invite_count} invitations"
+      
+    when 'admin_onboarding'
+      Rails.logger.info "👑 User #{auth0_id} completed admin onboarding"
+      # AdminOnboardingCompletionJob.perform_async(id)
+      
+    when 'parent_onboarding'
+      Rails.logger.info "👨‍👩‍👧‍👦 User #{auth0_id} completed parent onboarding"
+      
+    when 'guest_onboarding'
+      Rails.logger.info "👤 User #{auth0_id} completed guest onboarding"
     end
-  end
-
-  def grade_belongs_to_school
-    return unless grade && school
     
-    unless grade.school == school
-      errors.add(:grade, "must belong to the same school as the learner")
-    end
+    # Trigger general step completion analytics
+    # AnalyticsService.track_onboarding_step_completion(self, step_name, metadata)
   end
 end

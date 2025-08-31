@@ -5,14 +5,30 @@ Rails.application.routes.draw do
       # AdminUser custom route
       get 'admin_users/schools_for_admin', to: 'admin_users#schools_for_admin'
 
-      # User Routes
-      resources :users, only: [:index, :show, :create, :update] do
+      # User Routes with onboarding status nested resources
+      resources :users, only: [:index, :show, :create, :update, :destroy] do
         member do
           get :roles
           post :add_role
           patch :update_roles
           get :schools
           patch :add_school
+          get :onboarding_required
+          
+          # Onboarding Status Routes
+          resource :onboarding_status, only: [:show, :update], controller: 'onboarding_status' do
+            post :complete_step
+            post :skip_step
+            post :complete
+            post :reset
+            get :next_step
+            get :analytics
+            post :sync
+          end
+        end
+        
+        collection do
+          get :me
         end
       end
 
@@ -199,6 +215,7 @@ Rails.application.routes.draw do
             post :bulk_upload
             get :statistics
             get :export
+            get :search
           end
         end
       end
