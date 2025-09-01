@@ -13,6 +13,9 @@ class School
 
    # Admin users array
   field :adminUsers, type: Array, default: []
+
+  # Invites (teachers, staff, etc.)
+  field :invites, type: Array, default: []
   
   # Address fields (flattened structure)
   field :line1, type: String

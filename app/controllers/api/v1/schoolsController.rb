@@ -112,6 +112,19 @@ module Api
           end
         end
 
+          # Handle invites
+  if params[:school][:invites].present?
+    @school.invites = params[:school][:invites].map do |invite|
+      {
+        id: invite[:id] || BSON::ObjectId.new.to_s,
+        email: invite[:email],
+        role: invite[:role] || "Staff",
+        status: invite[:status] || "pending",
+        invitedAt: invite[:invitedAt] || Time.current
+      }
+    end
+  end
+
         if @school.save
           # Associate user with school if user_id provided
           if school_params[:user_id]
@@ -202,7 +215,8 @@ module Api
           :latitude, :longitude, :facebook, :linkedin, :tiktok,
           :website, :logo, :status, :line1, :line2, :postalCode,
           :user_id, :user_email, :school_created_by, :theme,
-          adminUsers: [:id, :name, :email, :role, :addedAt]
+          adminUsers: [:id, :name, :email, :role, :addedAt],
+          invites: [:id, :email, :role, :status, :invitedAt]
         )
       end
     end
