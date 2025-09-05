@@ -2,51 +2,49 @@
 module OnboardingAuthorization
   extend ActiveSupport::Concern
 
-  private
+  # Validation rules for different step metadata
+  STEP_VALIDATIONS = {
+    'create_grades' => {
+      'grades' => { type: Array, required: true },
+      'schoolId' => { type: String, required: true, format: /\A[a-f\d]{24}\z/i }
+    }
+    # Add validations for other steps as needed
+  }.freeze
 
-  def authorize_onboarding_access!
-    # Users can access their own onboarding status
-    return if current_user == @target_user
+  def validate_step_metadata(step_name, metadata)
+    validation_rules = STEP_VALIDATIONS[step_name.to_s]
     
-    # Super admins can access any user's onboarding status
-    return if current_user.roles.include?('super_admin')
-    
-    # Admins can access onboarding status of users in their schools
-    if current_user.roles.include?('admin')
-      shared_schools = current_user.schools & @target_user.schools
-      return if shared_schools.any?
+    return { valid: true, errors: [] } unless validation_rules
+
+    errors = []
+    metadata = metadata.to_h if metadata.respond_to?(:to_h)
+
+    validation_rules.each do |field, rules|
+      value = metadata[field]
+
+      # Check required fields
+      if rules[:required] && (value.nil? || value.blank?)
+        errors << "#{field} is required"
+        next
+      end
+
+      # Check type
+      if rules[:type] && !value.is_a?(rules[:type])
+        errors << "#{field} must be a #{rules[:type]}"
+      end
+
+      # Check format with regex
+      if rules[:format] && value && !value.match?(rules[:format])
+        errors << "#{field} has invalid format"
+      end
     end
-    
-    # Teachers can view (but not modify) onboarding status of users in their schools
-    if current_user.roles.include?('teacher') && request.get?
-      shared_schools = current_user.schools & @target_user.schools
-      return if shared_schools.any?
-    end
-    
-    render json: {
-      success: false,
-      message: "Unauthorized to access onboarding status",
-      error_code: "ONBOARDING_ACCESS_DENIED"
-    }, status: :forbidden
+
+    { valid: errors.empty?, errors: errors }
   end
 
-  def authorize_onboarding_modification!
-    # Users can modify their own onboarding status
-    return if current_user == @target_user
-    
-    # Super admins can modify any user's onboarding status
-    return if current_user.roles.include?('super_admin')
-    
-    # Admins can modify onboarding status of users in their schools
-    if current_user.roles.include?('admin')
-      shared_schools = current_user.schools & @target_user.schools
-      return if shared_schools.any?
-    end
-    
-    render json: {
-      success: false,
-      message: "Unauthorized to modify onboarding status",
-      error_code: "ONBOARDING_MODIFICATION_DENIED"
-    }, status: :forbidden
+  # Optional: Add helper methods for specific validation logic
+  def requires_skip_reason?(step_name)
+    # Define which steps require skip reasons
+    ['create_grades', 'upload_learners'].include?(step_name.to_s)
   end
 end

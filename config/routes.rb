@@ -15,15 +15,11 @@ Rails.application.routes.draw do
           patch :add_school
           get :onboarding_required
           
-          # Onboarding Status Routes
-          resource :onboarding_status, only: [:show, :update], controller: 'onboarding_status' do
+          # Fixed Onboarding Status Routes - changed to singular resource
+          resource :onboarding_status, only: [:show, :update] do
             post :complete_step
             post :skip_step
-            post :complete
             post :reset
-            get :next_step
-            get :analytics
-            post :sync
           end
         end
         
