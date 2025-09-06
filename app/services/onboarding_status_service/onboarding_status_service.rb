@@ -2,7 +2,7 @@
 class OnboardingStatusService
   class << self
     def complete_step(user, step_name, metadata = {}, request_context = {})
-      Rails.logger.info "✅ OnboardingStatusService: Completing step herer bbyb'#{step_name}' for user #{user.auth0_id}"
+      Rails.logger.info "✅ OnboardingStatusService: Completing step herer bbybby'#{step_name}' for user #{user.auth0_id}"
 
       begin
         # -----------------------------------
