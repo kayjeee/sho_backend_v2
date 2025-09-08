@@ -16,11 +16,12 @@ Rails.application.routes.draw do
           get :onboarding_required
           
           # Fixed: Changed to singular resource name
-          resource :onboarding_status, only: [:show, :update] do
-            post :complete_step
-            post :skip_step
-            post :reset
-          end
+         resource :onboarding_status, controller: 'onboarding_statuses', only: [:show, :update] do
+  post :complete_step
+  post :skip_step
+  post :reset
+end
+
         end
         
         collection do
