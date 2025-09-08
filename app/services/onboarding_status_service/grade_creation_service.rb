@@ -1,43 +1,42 @@
-# app/services/grade_creation_service.rb
-class GradeCreationService
-  def self.create_from_metadata(user, metadata)
-    grades    = Array.wrap(metadata["grades"]).compact
-    school_id = metadata["schoolId"]
+# app/services/onboarding_status_service.rb (or wherever complete_step lives)
+class OnboardingStatusService
+  class << self
+    def complete_step(user, step_name, metadata = {}, request_context = {})
+      Rails.logger.info "✅ OnboardingStatusService: Completing step '#{step_name}' for user #{user.auth0_id}"
 
-    return false unless grades.any? && school_id.present?
-
-    current_year        = Date.current.year
-    academic_year_start = Date.new(current_year, 1, 1)
-    academic_year_end   = Date.new(current_year, 12, 31)
-
-    created_any = false
-
-    grades.each do |grade_name|
       begin
-        grade = Grade.where(name: grade_name, school_id: school_id).first_or_create!(
-          grade_level: grade_name.to_s,
-          description: "Auto-created during onboarding",
-          capacity: 30,
-          status: 0,
-          min_age: 5,
-          max_age: 18,
-          fees: 0.0,
-          academic_year_start: academic_year_start,
-          academic_year_end: academic_year_end,
-          curriculum_info: {},
-          schedule_info: {}
-        )
-        Rails.logger.info "✅ Grade '#{grade_name}' ensured for school #{school_id} (id: #{grade.id})"
-        created_any = true
+        case step_name
+        when "create_grades"
+          # Ensure school is loaded
+          school_id = metadata["schoolId"] || metadata[:schoolId]
+          school = School.find(BSON::ObjectId.from_string(school_id))
+
+          grades = metadata["grades"] || []
+          grades.each do |grade_name|
+            grade = Grade.new(
+              name: grade_name,
+              school: school # 🔑 attach the actual relation
+            )
+
+            if grade.save
+              Rails.logger.info "✅ Grade '#{grade_name}' created for school '#{school.name}'"
+            else
+              Rails.logger.error "🔥 Error creating grade '#{grade_name}': #{grade.errors.full_messages.join(", ")}"
+            end
+          end
+
+          # Mark onboarding step complete
+          user.onboarding_status&.mark_step_complete!(step_name, metadata)
+
+        else
+          Rails.logger.warn "⚠️ Unknown onboarding step: #{step_name}"
+        end
+
+        { success: true }
       rescue => e
-        Rails.logger.error "🔥 Error creating grade '#{grade_name}' for school #{school_id}: #{e.message}"
+        Rails.logger.error "❌ Failed to complete step '#{step_name}': #{e.message}"
+        { success: false, error: e.message }
       end
     end
-
-    if created_any
-      user.set("onboarding_status.createGrades" => true)
-    end
-
-    created_any
   end
 end
