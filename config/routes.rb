@@ -191,6 +191,19 @@ end
         resources :messages, only: [:create, :index]
       end
 
+      
+      # School Invite System Routes
+      resources :invites, only: [:create, :show, :update, :destroy]
+
+      resources :pr_codes, controller: 'pr_codes', only: [:index, :show, :create, :destroy], param: :code
+
+      namespace :analytics do
+        get 'invites', to: 'analytics#invites'
+        get 'pr-codes', to: 'analytics#pr_codes'
+        get 'engagement', to: 'analytics#engagement'
+      end
+
+
       # Assessment Routes (Enhanced for education system)
       resources :assessments, only: [:index, :show, :create, :update, :destroy] do
         collection do
