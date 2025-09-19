@@ -194,6 +194,7 @@ end
       
       # School Invite System Routes
       resources :invites, only: [:create, :show, :update, :destroy]
+      resources :pr_code_templates, only: [:index, :show, :create, :update, :destroy]
 
       resources :pr_codes, controller: 'pr_codes', only: [:index, :show, :create, :destroy], param: :code
 
