@@ -196,14 +196,13 @@ end
       resources :invites, only: [:create, :show, :update, :destroy]
       resources :pr_code_templates, only: [:index, :show, :create, :update, :destroy]
 
-      resources :pr_codes, controller: 'pr_codes', only: [:index, :show, :create, :destroy], param: :code
+    # PR Code Routes
+    resources :pr_codes, only: [:index, :show, :create, :destroy], param: :code
 
-      namespace :analytics do
-        get 'invites', to: 'analytics#invites'
-        get 'pr-codes', to: 'analytics#pr_codes'
-        get 'engagement', to: 'analytics#engagement'
-      end
-
+    # Analytics Routes
+    get 'analytics/invites',     to: 'analytics#invites'
+    get 'analytics/pr_codes',    to: 'analytics#pr_codes'
+    get 'analytics/engagement',  to: 'analytics#engagement'
 
       # Assessment Routes (Enhanced for education system)
       resources :assessments, only: [:index, :show, :create, :update, :destroy] do
