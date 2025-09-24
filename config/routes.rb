@@ -52,8 +52,37 @@ end
         # Nested resources for school-specific operations
         resources :students, only: [:index, :show, :create, :update, :destroy]
         
-        # GRADES MANAGEMENT - Nested under schools (CREATE & LIST)
-        resources :grades, only: [:index, :create]
+        # GRADES MANAGEMENT - Nested under schools
+        resources :grades, only: [:index, :create, :show, :update, :destroy] do
+          member do
+            get :teachers
+            get :stats
+            post :invite_learner
+            post :invite_teacher
+          end
+          
+          # Enhanced learner management within grades
+          resources :learners, only: [:index] do
+            collection do
+              post :bulk_upload
+            end
+          end
+          
+          # Direct learner assignment/removal for grades
+          post 'learners/:learner_id', to: 'grades#add_learner'
+          delete 'learners/:learner_id', to: 'grades#remove_learner'
+          
+          # Teacher assignments nested under grades
+          resources :teacher_assignments, only: [:index, :create, :update, :destroy], 
+                    controller: 'teacher_grade_assignments' do
+            member do
+              patch :activate
+              patch :deactivate
+              patch :terminate
+              patch :suspend
+            end
+          end
+        end
         
         # Nested learners under schools
         resources :learners, only: [:index]
@@ -62,38 +91,6 @@ end
           collection do
             get :pending
             get :completed
-          end
-        end
-      end
-
-      # GRADES ROUTES - Individual grade management (SHOW, UPDATE, DELETE)
-      resources :grades, only: [:show, :update, :destroy] do
-        member do
-          get :teachers
-          get :stats
-          post :invite_learner
-          post :invite_teacher
-        end
-        
-        # Enhanced learner management within grades
-        resources :learners, only: [:index] do
-          collection do
-            post :bulk_upload
-          end
-        end
-        
-        # Direct learner assignment/removal for grades
-        post 'learners/:learner_id', to: 'grades#add_learner'
-        delete 'learners/:learner_id', to: 'grades#remove_learner'
-        
-        # Teacher assignments nested under grades
-        resources :teacher_assignments, only: [:index, :create, :update, :destroy], 
-                  controller: 'teacher_grade_assignments' do
-          member do
-            patch :activate
-            patch :deactivate
-            patch :terminate
-            patch :suspend
           end
         end
       end
