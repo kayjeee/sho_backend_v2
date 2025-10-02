@@ -16,16 +16,23 @@ Rails.application.routes.draw do
           get :onboarding_required
           
           # Fixed: Changed to singular resource name
-         resource :onboarding_status, controller: 'onboarding_statuses', only: [:show, :update] do
-  post :complete_step
-  post :skip_step
-  post :reset
-end
-
+          resource :onboarding_status, controller: 'onboarding_statuses', only: [:show, :update] do
+            post :complete_step
+            post :skip_step
+            post :reset
+          end
         end
         
         collection do
           get :me
+        end
+      end
+
+      # Invites Routes with PR code and short link functionality
+      resources :invites, only: [:create, :show, :update] do
+        member do
+          post :generate_pr_code
+          post :create_short_link
         end
       end
 
@@ -67,19 +74,14 @@ end
       end
 
       # GRADES ROUTES - Individual grade management (SHOW, UPDATE, DELETE)
+      # FIXED: More specific routing for grade-specific learners
       resources :grades, only: [:show, :update, :destroy] do
         member do
+          get :learners    # FIXED: Use member route for /grades/:id/learners
           get :teachers
           get :stats
           post :invite_learner
           post :invite_teacher
-        end
-        
-        # Enhanced learner management within grades
-        resources :learners, only: [:index] do
-          collection do
-            post :bulk_upload
-          end
         end
         
         # Direct learner assignment/removal for grades

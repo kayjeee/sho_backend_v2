@@ -4,8 +4,8 @@ class Learner
   include Mongoid::Timestamps
 
   # ======================== LEGACY FIELDS ========================
-  field :first_name,       type: String
-  field :last_name,        type: String
+   field :firstName,        as: :first_name, type: String
+  field :lastName,         as: :last_name, type: String
   field :accession_number, type: String
   field :gender,           type: Integer, default: 0
   field :status,           type: Integer, default: 0
@@ -14,6 +14,11 @@ class Learner
   field :tel_home,         type: String
   field :whatsapp,         type: String
   field :telegram,         type: String
+
+  # ======================== GRADE FIELD WITH ALIAS ========================
+  # Database field is 'gradeId' (camelCase) but we want to use 'grade_id' (snake_case) in code
+  field :gradeId, type: String
+  alias_attribute :grade_id, :gradeId  # ← ADD THIS LINE
 
   # ======================== NEW MOBILE FIELDS ========================
   field :date_of_birth,   type: Date
@@ -43,6 +48,8 @@ class Learner
   index({ school_id: 1 })
   index({ mobile_sync_id: 1 }, { unique: true, sparse: true })
   index({ school_id: 1, last_sync_at: 1 })
+  # Update the grade index to use the actual database field name
+  index({ gradeId: 1 })  # ← UPDATE THIS INDEX
 
   # ======================= CALLBACKS =======================
   before_validation :set_default_accession_number, if: -> { accession_number.blank? }
@@ -53,7 +60,7 @@ class Learner
   scope :inactive,  -> { where(status: STATUSES['inactive']) }
   scope :graduated, -> { where(status: STATUSES['graduated']) }
   scope :by_school, ->(school_id) { where(school_id: school_id) }
-  scope :by_grade,  ->(grade_id)  { where(grade_id: grade_id) }
+  scope :by_grade,  ->(grade_id)  { where(gradeId: grade_id) }  # ← UPDATE THIS SCOPE
 
   # ======================== METHODS =========================
 
@@ -142,7 +149,7 @@ class Learner
       status_text: status_text,
       school_id: school_id&.to_s,
       school_name: school_name,
-      grade_id: grade_id&.to_s,
+      grade_id: grade_id&.to_s,  # This will work with the alias
       grade_name: grade_name,
       contact: {
         phone: phone,

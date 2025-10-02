@@ -89,59 +89,91 @@ module Api
       end
 
       # GET /grades/:id/learners
-     def learners
-  # Base query: all learners for this grade
-  learners = Learner.where(gradeId: @grade.id.to_s)
+  # GET /grades/:id/learners
+      def learners
+        Rails.logger.info "🔍🔍🔍 STARTING LEARNERS ENDPOINT 🔍🔍🔍"
+        Rails.logger.info "🔍 Grade ID from params: #{params[:id]}"
+        Rails.logger.info "🔍 Grade instance ID: #{@grade.id}"
 
-  # Filter by school_id if provided
-  learners = learners.where(school_id: params[:school_id]) if params[:school_id].present?
+        # Use the correct scope defined in your model
+        learners = @grade.learners 
+        Rails.logger.info "🔍 Raw learners query count: #{learners.count}"
 
-  # Filter by status (case-insensitive exact match)
-  learners = learners.where(status: params[:status].downcase) if params[:status].present?
+        # Filter by school_id if provided
+        if params[:school_id].present?
+          learners = learners.by_school(params[:school_id])
+          Rails.logger.info "🔍 After school filter count: #{learners.count}"
+        end
 
-  # Pagination
-  page = (params[:page] || 1).to_i
-  per_page = [(params[:per_page] || 20).to_i, 100].min
-  total_count = learners.count
-  learners = learners.skip((page - 1) * per_page).limit(per_page)
+        # Filter by status if provided
+        if params[:status].present?
+          status_value = case params[:status].downcase
+                         when 'active' then 0
+                         when 'inactive' then 1
+                         when 'graduated' then 2
+                         else params[:status].to_i
+                         end
+          learners = learners.where(status: status_value)
+          Rails.logger.info "🔍 After status filter count: #{learners.count}"
+        end
 
-  render json: {
-    status: 'success',
-    data: {
-      learners: learners.map do |learner|
-        {
-          id: learner.id.to_s,
-          firstName: learner.firstName,
-          lastName: learner.lastName,
-          gender: learner.gender,
-          accessionNumber: learner.accessionNumber,
-          gradeId: learner.gradeId,
-          school_id: learner.school_id,
-          status: learner.status,
-          created_at: learner.created_at,
-          updated_at: learner.updated_at
+        # Basic pagination
+        page = (params[:page] || 1).to_i
+        per_page = [(params[:per_page] || 20).to_i, 100].min
+        total_count = learners.count
+        learners_paginated = learners.skip((page - 1) * per_page).limit(per_page)
+        
+        Rails.logger.info "🔍 Paginated learners count: #{learners_paginated.count}"
+
+        # Debug: log actual learner data
+        if learners_paginated.any?
+          Rails.logger.info "🔍 FIRST LEARNER IN RESULTS:"
+          first = learners_paginated.first
+          Rails.logger.info "🔍    ID: #{first.id}"
+          Rails.logger.info "🔍    Name: #{first.first_name} #{first.last_name}"
+          Rails.logger.info "🔍    Grade ID: #{first.grade_id}"
+          Rails.logger.info "🔍    Status: #{first.status} (#{first.status_text})"
+        else
+          Rails.logger.info "🔍 NO LEARNERS FOUND"
+        end
+
+        # Use the to_api_hash method to correctly serialize the data.
+        # This will return full_name, first_name, and last_name as snake_case.
+        learners_data = learners_paginated.map(&:to_api_hash)
+
+        Rails.logger.info "🔍 Serialized learners data count: #{learners_data.count}"
+        
+        response = {
+          status: 'success',
+          data: {
+            learners: learners_data,
+            grade: {
+              id: @grade.id.to_s,
+              name: @grade.name,
+              grade_level: @grade.grade_level,
+              description: @grade.description
+            }
+          },
+          pagination: {
+            current_page: page,
+            per_page: per_page,
+            total_count: total_count,
+            total_pages: (total_count.to_f / per_page).ceil
+          }
         }
-      end,
-      grade: {
-        id: @grade.id.to_s,
-        name: @grade.name,
-        grade_level: @grade.grade_level,
-        description: @grade.description
-      }
-    },
-    pagination: {
-      current_page: page,
-      per_page: per_page,
-      total_count: total_count,
-      total_pages: (total_count.to_f / per_page).ceil
-    }
-  }
-rescue => e
-  handle_exception(e, 'Failed to fetch learners')
-end
 
+        Rails.logger.info "🔍🔍🔍 ENDING LEARNERS ENDPOINT - SUCCESS 🔍🔍🔍"
+        render json: response
 
-
+      rescue => e
+        Rails.logger.error "❌❌❌ ERROR IN LEARNERS ENDPOINT: #{e.message}"
+        Rails.logger.error e.backtrace.join("\n")
+        render json: {
+          status: 'error',
+          message: 'Failed to fetch learners',
+          errors: [e.message]
+        }, status: :internal_server_error
+      end
 
       # GET /grades/:id/teachers
       def teachers
