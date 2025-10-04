@@ -14,15 +14,14 @@ Rails.application.routes.draw do
           get :schools
           patch :add_school
           get :onboarding_required
-          
-          # Fixed: Changed to singular resource name
+
           resource :onboarding_status, controller: 'onboarding_statuses', only: [:show, :update] do
             post :complete_step
             post :skip_step
             post :reset
           end
         end
-        
+
         collection do
           get :me
         end
@@ -36,7 +35,7 @@ Rails.application.routes.draw do
         end
       end
 
-      # School Routes with nested grades
+      # School Routes with nested resources
       resources :schools, only: [:index, :show, :create, :update, :destroy] do
         member do
           get :admins
@@ -58,39 +57,38 @@ Rails.application.routes.draw do
 
         # Nested resources for school-specific operations
         resources :students, only: [:index, :show, :create, :update, :destroy]
-        
-        # GRADES MANAGEMENT - Nested under schools (CREATE & LIST)
         resources :grades, only: [:index, :create]
-        
-        # Nested learners under schools
         resources :learners, only: [:index]
-        
         resources :transactions, only: [:index, :create] do
           collection do
             get :pending
             get :completed
           end
         end
+
+        # ✅ PR Code routes nested under schools
+        resources :pr_codes, only: [:index, :show, :create, :destroy]
       end
 
-      # GRADES ROUTES - Individual grade management (SHOW, UPDATE, DELETE)
-      # FIXED: More specific routing for grade-specific learners
+      # ✅ PR Code validation and usage endpoints
+      post 'pr_codes/validate', to: 'pr_codes#validate'
+      post 'pr_codes/use', to: 'pr_codes#use'
+
+      # GRADES ROUTES
       resources :grades, only: [:show, :update, :destroy] do
         member do
-          get :learners    # FIXED: Use member route for /grades/:id/learners
+          get :learners
           get :teachers
           get :stats
           post :invite_learner
           post :invite_teacher
         end
-        
-        # Direct learner assignment/removal for grades
+
         post 'learners/:learner_id', to: 'grades#add_learner'
         delete 'learners/:learner_id', to: 'grades#remove_learner'
-        
-        # Teacher assignments nested under grades
-        resources :teacher_assignments, only: [:index, :create, :update, :destroy], 
-                  controller: 'teacher_grade_assignments' do
+
+        resources :teacher_assignments, only: [:index, :create, :update, :destroy],
+                                        controller: 'teacher_grade_assignments' do
           member do
             patch :activate
             patch :deactivate
@@ -108,7 +106,7 @@ Rails.application.routes.draw do
           post :cancel
           post :resend
         end
-        
+
         collection do
           get :pending
           get :expired
@@ -123,7 +121,7 @@ Rails.application.routes.draw do
           post :cancel
           post :resend
         end
-        
+
         collection do
           get :pending
           get :expired
@@ -131,7 +129,7 @@ Rails.application.routes.draw do
         end
       end
 
-      # TEACHER GRADE ASSIGNMENTS - Direct management
+      # TEACHER GRADE ASSIGNMENTS
       resources :teacher_grade_assignments, only: [:index, :show, :create, :update, :destroy] do
         member do
           patch :activate
@@ -139,7 +137,7 @@ Rails.application.routes.draw do
           patch :terminate
           patch :suspend
         end
-        
+
         collection do
           get 'by_teacher/:teacher_id', action: :by_teacher
           get 'by_grade/:grade_id', action: :by_grade
@@ -147,33 +145,33 @@ Rails.application.routes.draw do
         end
       end
 
-      # LEARNER ROUTES - Main resource with full CRUD and enhanced functionality
+      # LEARNERS
       resources :learners, only: [:index, :show, :create, :update, :destroy] do
         collection do
           post :bulk_upload
           get :search
-          get :export # For CSV/Excel export
-          get :statistics # For dashboard stats
+          get :export
+          get :statistics
         end
-        
+
         member do
           patch :graduate
           patch :transfer
           patch :activate
           patch :deactivate
-          get :history # For audit trail
-          get :grades # Show grades this learner is enrolled in
+          get :history
+          get :grades
         end
       end
 
-      # Global Transaction Routes
+      # TRANSACTIONS
       resources :transactions, only: [:index, :show, :create, :update, :destroy] do
         member do
           post :process_payment
         end
       end
 
-      # Request Access Routes
+      # REQUEST ACCESS
       resources :request_accesses, only: [:index, :show, :create, :update, :destroy] do
         collection do
           get 'school/:school_id', action: :by_school
@@ -182,18 +180,18 @@ Rails.application.routes.draw do
           post :approve
           post :reject
         end
-        
+
         member do
           get 'users_by_roles', to: 'schools#users_by_roles'
         end
       end
 
-      # Conversation Routes
+      # CONVERSATIONS
       resources :conversations, only: [:index, :show, :create] do
         resources :messages, only: [:create, :index]
       end
 
-      # Assessment Routes (Enhanced for education system)
+      # ASSESSMENTS
       resources :assessments, only: [:index, :show, :create, :update, :destroy] do
         collection do
           post :bulk_upload
@@ -201,14 +199,13 @@ Rails.application.routes.draw do
           get :upcoming
           get :completed
         end
-        
+
         member do
           patch :publish
           patch :unpublish
           post :duplicate
         end
-        
-        # Nested results under assessments
+
         resources :results, only: [:index, :show, :create, :update, :destroy] do
           collection do
             post :bulk_upload
@@ -219,7 +216,7 @@ Rails.application.routes.draw do
         end
       end
 
-      # Result Routes (can also be accessed independently)
+      # RESULTS
       resources :results, only: [:index, :show, :create, :update, :destroy] do
         collection do
           post :bulk_upload
@@ -227,27 +224,27 @@ Rails.application.routes.draw do
           get :statistics
           get :export
         end
-        
+
         member do
           patch :approve
           patch :reject
         end
       end
 
-      # Subject Routes
+      # SUBJECTS
       resources :subjects, only: [:index, :show, :create, :update, :destroy] do
         collection do
           post :bulk_upload
           get :search
         end
-        
+
         member do
           patch :activate
           patch :deactivate
         end
       end
 
-      # Dashboard/Analytics Routes
+      # DASHBOARD
       namespace :dashboard do
         get 'overview', to: 'dashboard#overview'
         get 'learner_statistics', to: 'dashboard#learner_statistics'
@@ -256,8 +253,8 @@ Rails.application.routes.draw do
         get 'performance_trends', to: 'dashboard#performance_trends'
         get 'grade_statistics', to: 'dashboard#grade_statistics'
       end
-      
-      # Report Routes
+
+      # REPORTS
       namespace :reports do
         get 'learner_performance', to: 'reports#learner_performance'
         get 'school_performance', to: 'reports#school_performance'
@@ -267,7 +264,7 @@ Rails.application.routes.draw do
         get 'download/:id', to: 'reports#download'
       end
 
-      # Import/Export Routes
+      # IMPORT/EXPORT
       namespace :import_export do
         post 'import_learners', to: 'import_export#import_learners'
         post 'import_schools', to: 'import_export#import_schools'
@@ -280,14 +277,14 @@ Rails.application.routes.draw do
         get 'template/:type', to: 'import_export#download_template'
       end
 
-      # Authentication endpoints
+      # AUTH
       post 'auth/login', to: 'authentication#login'
       post 'auth/logout', to: 'authentication#logout'
       post 'auth/refresh', to: 'authentication#refresh'
       post 'auth/forgot_password', to: 'authentication#forgot_password'
       post 'auth/reset_password', to: 'authentication#reset_password'
 
-      # System/Admin Routes
+      # ADMIN
       namespace :admin do
         get 'system_info', to: 'admin#system_info'
         get 'audit_logs', to: 'admin#audit_logs'
@@ -296,50 +293,50 @@ Rails.application.routes.draw do
         patch 'system_settings', to: 'admin#update_system_settings'
       end
 
-      # File Upload Routes
+      # UPLOADS
       post 'uploads', to: 'uploads#create'
       get 'uploads/:id', to: 'uploads#show'
       delete 'uploads/:id', to: 'uploads#destroy'
 
-      # Notification Routes
+      # NOTIFICATIONS
       resources :notifications, only: [:index, :show, :create, :update, :destroy] do
         collection do
           patch :mark_all_read
           get :unread_count
         end
-        
+
         member do
           patch :mark_read
           patch :mark_unread
         end
       end
 
-      # PUBLIC INVITATION ACCEPTANCE ROUTES (no authentication required)
+      # PUBLIC INVITATIONS (unauthenticated)
       post 'public/invitations/learner/:token/accept', to: 'public/invitations#accept_learner_invitation'
       post 'public/invitations/teacher/:token/accept', to: 'public/invitations#accept_teacher_invitation'
       get 'public/invitations/learner/:token', to: 'public/invitations#show_learner_invitation'
       get 'public/invitations/teacher/:token', to: 'public/invitations#show_teacher_invitation'
-      
-      # Health check endpoint
+
+      # HEALTH
       get 'health', to: 'application#health'
     end
-    
-    # API versioning for future versions
+
+    # Future versioning
     namespace :v2 do
-      # Future API version routes
+      # future API endpoints
     end
   end
-  
+
   # Root route
   root 'api/v1/application#index'
-  
-  # Health check for load balancers
+
+  # Global health
   get 'health', to: 'api/v1/application#health'
-  
-  # API documentation
+
+  # API docs
   get 'api/docs', to: 'api/v1/documentation#index'
-  
-  # Catch-all route for SPA frontend (if needed)
+
+  # Catch-all (optional)
   # get '*path', to: 'application#index', constraints: ->(request) do
   #   !request.xhr? && request.format.html?
   # end

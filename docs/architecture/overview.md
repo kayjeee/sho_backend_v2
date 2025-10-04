@@ -48,7 +48,7 @@ SHO_BACKEND
 │   ├── controllers
 │   │   ├── api
 │   │   │   └── v1
-│   │   │       ├── base_controller.rb # A new base controller for API v1
+│   │   │      
 │   │   │       ├── concerns # For controller-specific concerns
 │   │   │       ├── schools_controller.rb # Smaller, focused controllers
 │   │   │       ├── users_controller.rb
