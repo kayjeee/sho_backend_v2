@@ -11,7 +11,8 @@ gem "jbuilder"
 
 # Database
 gem "mongoid"
-
+# Add to Gemfile
+gem 'pg'
 # Authentication & Security
 gem 'jwt'
 gem 'rack-cors'
