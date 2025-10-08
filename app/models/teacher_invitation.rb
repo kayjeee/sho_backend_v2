@@ -94,14 +94,14 @@ class TeacherInvitation
     transaction do
       # Find or create teacher user
       teacher_user = User.find_by(email: teacher_email)
-      
+
       if teacher_user.nil?
-        teacher_user = User.create!({
+        teacher_user = User.create!(
           email: teacher_email,
           name: teacher_params[:name] || teacher_email.split('@').first.humanize,
           roles: ['Teacher'],
           **teacher_params
-        })
+        )
       end
 
       # Add school to teacher's schools
@@ -170,7 +170,7 @@ class TeacherInvitation
   # Utility methods
   def assigned_grade_names
     return [] if assigned_grades.empty?
-    
+
     Grade.where(:_id.in => assigned_grades.map { |id| BSON::ObjectId.from_string(id) })
          .pluck(:name)
   end
@@ -228,23 +228,30 @@ class TeacherInvitation
   end
 
   def set_expiration
-    self.expires_at = 14.days.from_now  # Teachers get longer to respond
+    self.expires_at = 14.days.from_now # Teachers get longer to respond
   end
 
   def check_expiration
     if pending? && expires_at < Time.current
-      self.status = 3  # expired
+      self.status = 3 # expired
     end
   end
 
   def expiration_date_future
     return unless expires_at
-
     if expires_at < Time.current
-      errors.add(:expires_at, "must be in the future")
+      errors.add(:expires_at, 'must be in the future')
     end
   end
 
   def grades_belong_to_school
     return if assigned_grades.empty?
-    
+
+    valid_grade_ids = Grade.where(school_id: school_id).pluck(:id).map(&:to_s)
+    invalid_ids = assigned_grades.reject { |gid| valid_grade_ids.include?(gid.to_s) }
+
+    if invalid_ids.any?
+      errors.add(:assigned_grades, "contain invalid grades not belonging to this school: #{invalid_ids.join(', ')}")
+    end
+  end
+end
