@@ -1,5 +1,5 @@
 # Events Controller
-module Api::V1::Schools
+module Api::V1
     class EventsController < ApplicationController
       before_action :set_school
       before_action :set_event, only: [:show, :update, :destroy, :publish, :registrations]
