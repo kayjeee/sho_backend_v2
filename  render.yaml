@@ -1,15 +1,11 @@
-# render.yaml
-
 services:
   - type: web
-    name: your-rails-app
+    name: schoolheadoffice
     env: ruby
     plan: free
     branch: main
     buildCommand: "./render-build.sh"
     startCommand: "bundle exec rails server -p $PORT -e production"
     envVars:
-      - key: RAILS_MASTER_KEY
-        sync: false
       - key: MONGODB_URI
         sync: false
