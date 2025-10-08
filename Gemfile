@@ -19,6 +19,11 @@ gem 'rack-cors'
 # Serialization
 gem 'active_model_serializers'
 
+# File Processing
+gem 'roo'
+gem 'csv'
+
+
 # Caching & Background Jobs
 gem "solid_cache"
 gem "solid_queue"
