@@ -24,10 +24,6 @@ gem 'roo'
 gem 'csv'
 
 
-# Caching & Background Jobs
-gem "solid_cache"
-gem "solid_queue"
-gem "solid_cable"
 
 # Performance
 gem "bootsnap", require: false
