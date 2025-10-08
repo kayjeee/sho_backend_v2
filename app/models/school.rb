@@ -39,6 +39,7 @@ class School
   field :school_created_by, type: String
  # Add this association
   has_many :grades, class_name: 'Grade', inverse_of: :school
+  has_many :pr_codes, dependent: :destroy
   # Validations
   validates :schoolName, presence: true, uniqueness: true
   validates :schoolEmail, presence: true, uniqueness: true

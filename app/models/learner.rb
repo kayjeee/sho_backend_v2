@@ -3,9 +3,9 @@ class Learner
   include Mongoid::Document
   include Mongoid::Timestamps
 
-  # ======================== FIELDS ========================
-  field :first_name,       type: String
-  field :last_name,        type: String
+  # ======================== LEGACY FIELDS ========================
+   field :firstName,        as: :first_name, type: String
+  field :lastName,         as: :last_name, type: String
   field :accession_number, type: String
   field :gender,           type: Integer, default: 0
   field :status,           type: Integer, default: 0
@@ -14,6 +14,18 @@ class Learner
   field :tel_home,         type: String
   field :whatsapp,         type: String
   field :telegram,         type: String
+
+  # ======================== GRADE FIELD WITH ALIAS ========================
+  # Database field is 'gradeId' (camelCase) but we want to use 'grade_id' (snake_case) in code
+  field :gradeId, type: String
+  alias_attribute :grade_id, :gradeId  # ← ADD THIS LINE
+
+  # ======================== NEW MOBILE FIELDS ========================
+  field :date_of_birth,   type: Date
+  field :parent_info,     type: Hash, default: {}
+  field :enrollment_date, type: Date
+  field :mobile_sync_id,  type: String
+  field :last_sync_at,    type: DateTime
 
   # ===================== VALIDATIONS ======================
   validates :first_name, :last_name, presence: true
@@ -34,17 +46,21 @@ class Learner
   index({ school_id: 1, accession_number: 1 }, unique: true, sparse: true)
   index({ first_name: 1, last_name: 1 })
   index({ school_id: 1 })
+  index({ mobile_sync_id: 1 }, { unique: true, sparse: true })
+  index({ school_id: 1, last_sync_at: 1 })
+  # Update the grade index to use the actual database field name
+  index({ gradeId: 1 })  # ← UPDATE THIS INDEX
 
   # ======================= CALLBACKS =======================
   before_validation :set_default_accession_number, if: -> { accession_number.blank? }
   before_validation :sanitize_phone_numbers
 
   # ========================= SCOPES =========================
-  scope :active,   -> { where(status: STATUSES['active']) }
-  scope :inactive, -> { where(status: STATUSES['inactive']) }
-  scope :graduated,-> { where(status: STATUSES['graduated']) }
-  scope :by_school,->(school_id) { where(school_id: school_id) }
-  scope :by_grade, ->(grade_id)  { where(grade_id: grade_id) }
+  scope :active,    -> { where(status: STATUSES['active']) }
+  scope :inactive,  -> { where(status: STATUSES['inactive']) }
+  scope :graduated, -> { where(status: STATUSES['graduated']) }
+  scope :by_school, ->(school_id) { where(school_id: school_id) }
+  scope :by_grade,  ->(grade_id)  { where(gradeId: grade_id) }  # ← UPDATE THIS SCOPE
 
   # ======================== METHODS =========================
 
@@ -58,9 +74,9 @@ class Learner
   end
 
   # Status helpers
-  def active?       = status == STATUSES['active']
-  def inactive?     = status == STATUSES['inactive']
-  def graduated?    = status == STATUSES['graduated']
+  def active?    = status == STATUSES['active']
+  def inactive?  = status == STATUSES['inactive']
+  def graduated? = status == STATUSES['graduated']
 
   def status_text
     STATUSES.key(status)&.capitalize || 'Unknown'
@@ -133,7 +149,7 @@ class Learner
       status_text: status_text,
       school_id: school_id&.to_s,
       school_name: school_name,
-      grade_id: grade_id&.to_s,
+      grade_id: grade_id&.to_s,  # This will work with the alias
       grade_name: grade_name,
       contact: {
         phone: phone,
@@ -142,6 +158,11 @@ class Learner
         tel_emergency: tel_emergency,
         telegram: telegram
       },
+      date_of_birth: date_of_birth,
+      parent_info: parent_info,
+      enrollment_date: enrollment_date,
+      mobile_sync_id: mobile_sync_id,
+      last_sync_at: last_sync_at,
       created_at: created_at,
       updated_at: updated_at
     }

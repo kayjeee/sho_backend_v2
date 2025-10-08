@@ -2,587 +2,300 @@
 class Api::V1::LearnersController < ApplicationController
   before_action :set_learner, only: [:show, :update, :destroy, :graduate, :transfer, :activate, :deactivate]
   before_action :set_grade, only: [:index], if: -> { params[:grade_id].present? }
+  before_action :set_request_context
 
+  # ------------------------------
   # GET /api/v1/learners
   # GET /api/v1/grades/:grade_id/learners
+  # ------------------------------
   def index
-    begin
-      if @grade
-        # Nested route: get learners for a specific grade
-        @learners = @grade.learners.includes(:school, :grade)
-      else
-        # Standard route: get all learners with optional filtering
-        @learners = Learner.includes(:school, :grade)
-        
-        # Apply filters if provided
-        @learners = @learners.where(school_id: params[:school_id]) if params[:school_id].present?
-        @learners = @learners.where(grade_id: params[:grade_id]) if params[:grade_id].present?
-        @learners = @learners.where(status: params[:status]) if params[:status].present?
-      end
+    learners = @grade ? @grade.learners : Learner.all
+    learners = learners.where(school_id: params[:school_id]) if params[:school_id].present?
+    learners = learners.where(grade_id: params[:grade_id]) if params[:grade_id].present?
+    learners = learners.where(status: params[:status]) if params[:status].present?
 
-      # Pagination
-      page = params[:page].to_i > 0 ? params[:page].to_i : 1
-      per_page = params[:per_page].to_i > 0 ? params[:per_page].to_i : 20
-      per_page = [per_page, 100].min # Maximum 100 per page
+    page = (params[:page] || 1).to_i
+    per_page = [(params[:per_page] || 20).to_i, 100].min
+    total_count = learners.count
+    learners = learners.skip((page - 1) * per_page).limit(per_page)
 
-      total_count = @learners.count
-      @learners = @learners.skip((page - 1) * per_page).limit(per_page)
-
-      render json: {
-        status: 'success',
-        data: @learners.map { |learner| learner_response(learner) },
-        pagination: {
-          current_page: page,
-          per_page: per_page,
-          total_count: total_count,
-          total_pages: (total_count.to_f / per_page).ceil
-        }
-      }, status: :ok
-
-    rescue => e
-      Rails.logger.error "❌ Error fetching learners: #{e.message}"
-      render json: { 
-        error: 'Failed to fetch learners', 
-        status: 'error' 
-      }, status: :internal_server_error
-    end
+    render_success(
+      data: learners.map { |l| learner_response(l) },
+      pagination: {
+        current_page: page,
+        per_page: per_page,
+        total_count: total_count,
+        total_pages: (total_count.to_f / per_page).ceil
+      }
+    )
+  rescue => e
+    render_exception("Learners#index", e)
   end
 
-  # GET /api/v1/learners/search
-  def search
-    begin
-      query = params[:q]
-      
-      if query.blank?
-        return render json: { 
-          error: 'Search query is required', 
-          status: 'error' 
-        }, status: :bad_request
-      end
-
-      # Search across multiple fields
-      search_results = Learner.where(
-        "$or" => [
-          { first_name: { "$regex" => query, "$options" => "i" } },
-          { last_name: { "$regex" => query, "$options" => "i" } },
-          { accession_number: { "$regex" => query, "$options" => "i" } }
-        ]
-      ).includes(:school, :grade).limit(50)
-
-      render json: {
-        status: 'success',
-        data: search_results.map { |learner| learner_response(learner) },
-        count: search_results.count
-      }, status: :ok
-
-    rescue => e
-      Rails.logger.error "❌ Error searching learners: #{e.message}"
-      render json: { 
-        error: 'Search failed', 
-        status: 'error' 
-      }, status: :internal_server_error
-    end
-  end
-
+  # ------------------------------
   # GET /api/v1/learners/:id
+  # ------------------------------
   def show
-    render json: {
-      status: 'success',
-      data: learner_response(@learner)
-    }, status: :ok
+    render_success(data: learner_response(@learner))
   end
 
+  # ------------------------------
   # POST /api/v1/learners
+  # ------------------------------
   def create
-    begin
-      learner_params_hash = learner_params
-      
-      # Handle school creation/lookup if needed
-      if learner_params_hash[:school_id].blank? && params[:school_name].present?
-        school_data = {
-          schoolName: params[:school_name],
-          schoolEmail: params[:school_email],
-          province: params[:province],
-          userEmail: params[:user_email]
-        }
-        learner_params_hash[:school_id] = find_or_create_school(school_data)
-      end
+    learner = Learner.new(learner_params)
 
-      @learner = Learner.new(learner_params_hash)
-
-      if @learner.save
-        Rails.logger.info "✅ Successfully created learner: #{@learner.full_name}"
-        render json: {
-          status: 'success',
-          message: 'Learner created successfully',
-          data: learner_response(@learner)
-        }, status: :created
-      else
-        render json: {
-          error: 'Validation failed',
-          status: 'error',
-          errors: @learner.errors.full_messages
-        }, status: :unprocessable_entity
-      end
-
-    rescue => e
-      Rails.logger.error "❌ Error creating learner: #{e.message}"
-      render json: { 
-        error: "Failed to create learner: #{e.message}", 
-        status: 'error' 
-      }, status: :internal_server_error
+    if learner.save
+      mark_upload_learners_complete(params[:user_id])
+      render_success(message: "Learner created", data: learner_response(learner), status: :created)
+    else
+      render_error(learner.errors.full_messages, :unprocessable_entity)
     end
+  rescue => e
+    render_exception("Learners#create", e)
   end
 
-  # PATCH/PUT /api/v1/learners/:id
+  # ------------------------------
+  # PUT/PATCH /api/v1/learners/:id
+  # ------------------------------
   def update
-    begin
-      if @learner.update(learner_params)
-        Rails.logger.info "✅ Successfully updated learner: #{@learner.full_name}"
-        render json: {
-          status: 'success',
-          message: 'Learner updated successfully',
-          data: learner_response(@learner)
-        }, status: :ok
-      else
-        render json: {
-          error: 'Validation failed',
-          status: 'error',
-          errors: @learner.errors.full_messages
-        }, status: :unprocessable_entity
-      end
-
-    rescue => e
-      Rails.logger.error "❌ Error updating learner: #{e.message}"
-      render json: { 
-        error: "Failed to update learner: #{e.message}", 
-        status: 'error' 
-      }, status: :internal_server_error
+    if @learner.update(learner_params)
+      mark_upload_learners_complete(params[:user_id])
+      render_success(message: "Learner updated", data: learner_response(@learner))
+    else
+      render_error(@learner.errors.full_messages, :unprocessable_entity)
     end
+  rescue => e
+    render_exception("Learners#update", e)
   end
 
+  # ------------------------------
   # DELETE /api/v1/learners/:id
+  # ------------------------------
   def destroy
-    begin
-      learner_name = @learner.full_name
-      
-      if @learner.destroy
-        Rails.logger.info "✅ Successfully deleted learner: #{learner_name}"
-        render json: {
-          status: 'success',
-          message: 'Learner deleted successfully'
-        }, status: :ok
-      else
-        render json: {
-          error: 'Failed to delete learner',
-          status: 'error',
-          errors: @learner.errors.full_messages
-        }, status: :unprocessable_entity
-      end
-
-    rescue => e
-      Rails.logger.error "❌ Error deleting learner: #{e.message}"
-      render json: { 
-        error: "Failed to delete learner: #{e.message}", 
-        status: 'error' 
-      }, status: :internal_server_error
+    if @learner.destroy
+      render_success(message: "Learner deleted")
+    else
+      render_error(@learner.errors.full_messages, :unprocessable_entity)
     end
   end
 
-  # PATCH /api/v1/learners/:id/graduate
-  def graduate
-    begin
-      if @learner.update(status: 2) # Graduated status
-        Rails.logger.info "🎓 Successfully graduated learner: #{@learner.full_name}"
-        render json: {
-          status: 'success',
-          message: 'Learner graduated successfully',
-          data: learner_response(@learner)
-        }, status: :ok
-      else
-        render json: {
-          error: 'Failed to graduate learner',
-          status: 'error',
-          errors: @learner.errors.full_messages
-        }, status: :unprocessable_entity
-      end
+  # ------------------------------
+  # PATCH helpers
+  # ------------------------------
+  def graduate;  update_status(2, "graduated");  end
+  def activate;  update_status(0, "activated");  end
+  def deactivate; update_status(1, "deactivated"); end
 
-    rescue => e
-      Rails.logger.error "❌ Error graduating learner: #{e.message}"
-      render json: { 
-        error: "Failed to graduate learner: #{e.message}", 
-        status: 'error' 
-      }, status: :internal_server_error
-    end
-  end
-
-  # PATCH /api/v1/learners/:id/transfer
   def transfer
-    begin
-      new_school_id = params[:new_school_id]
-      new_grade_id = params[:new_grade_id]
+    new_school_id = params[:new_school_id].presence
+    return render_error("new_school_id is required", :bad_request) if new_school_id.blank?
 
-      unless new_school_id.present?
-        return render json: { 
-          error: 'New school ID is required for transfer', 
-          status: 'error' 
-        }, status: :bad_request
-      end
+    update_fields = { school_id: new_school_id }
+    update_fields[:grade_id] = params[:new_grade_id] if params[:new_grade_id].present?
 
-      update_params = { school_id: new_school_id }
-      update_params[:grade_id] = new_grade_id if new_grade_id.present?
-
-      if @learner.update(update_params)
-        Rails.logger.info "🔄 Successfully transferred learner: #{@learner.full_name}"
-        render json: {
-          status: 'success',
-          message: 'Learner transferred successfully',
-          data: learner_response(@learner)
-        }, status: :ok
-      else
-        render json: {
-          error: 'Failed to transfer learner',
-          status: 'error',
-          errors: @learner.errors.full_messages
-        }, status: :unprocessable_entity
-      end
-
-    rescue => e
-      Rails.logger.error "❌ Error transferring learner: #{e.message}"
-      render json: { 
-        error: "Failed to transfer learner: #{e.message}", 
-        status: 'error' 
-      }, status: :internal_server_error
+    if @learner.update(update_fields)
+      mark_upload_learners_complete(params[:user_id])
+      render_success(message: "Learner transferred", data: learner_response(@learner))
+    else
+      render_error(@learner.errors.full_messages, :unprocessable_entity)
     end
+  rescue => e
+    render_exception("Learners#transfer", e)
   end
 
-  # PATCH /api/v1/learners/:id/activate
-  def activate
-    begin
-      if @learner.update(status: 0) # Active status
-        Rails.logger.info "✅ Successfully activated learner: #{@learner.full_name}"
-        render json: {
-          status: 'success',
-          message: 'Learner activated successfully',
-          data: learner_response(@learner)
-        }, status: :ok
-      else
-        render json: {
-          error: 'Failed to activate learner',
-          status: 'error',
-          errors: @learner.errors.full_messages
-        }, status: :unprocessable_entity
-      end
-
-    rescue => e
-      Rails.logger.error "❌ Error activating learner: #{e.message}"
-      render json: { 
-        error: "Failed to activate learner: #{e.message}", 
-        status: 'error' 
-      }, status: :internal_server_error
-    end
-  end
-
-  # PATCH /api/v1/learners/:id/deactivate
-  def deactivate
-    begin
-      if @learner.update(status: 1) # Inactive status
-        Rails.logger.info "⏸️ Successfully deactivated learner: #{@learner.full_name}"
-        render json: {
-          status: 'success',
-          message: 'Learner deactivated successfully',
-          data: learner_response(@learner)
-        }, status: :ok
-      else
-        render json: {
-          error: 'Failed to deactivate learner',
-          status: 'error',
-          errors: @learner.errors.full_messages
-        }, status: :unprocessable_entity
-      end
-
-    rescue => e
-      Rails.logger.error "❌ Error deactivating learner: #{e.message}"
-      render json: { 
-        error: "Failed to deactivate learner: #{e.message}", 
-        status: 'error' 
-      }, status: :internal_server_error
-    end
-  end
-
+  # ------------------------------
   # POST /api/v1/learners/bulk_upload
+  # ------------------------------
   def bulk_upload
-    begin
-      learners_data = params[:data]
-      
-      unless learners_data.is_a?(Array)
-        return render json: { 
-          error: 'Invalid data format, expected array', 
-          status: 'error'
-        }, status: :bad_request
+    learners_data = params[:data]
+    return render_error("data must be an array", :bad_request) unless learners_data.is_a?(Array)
+
+    successful, failed = [], []
+
+    learners_data.each do |row|
+      begin
+        accession = row[:accessionNumber] || row["accessionNumber"]
+        school_id = row[:school_id] || row["school_id"] || params[:school_id]
+        raise ArgumentError, "accessionNumber and school_id are required" if accession.blank? || school_id.blank?
+
+        learner_hash = {
+          first_name: row[:firstName] || row["firstName"],
+          last_name: row[:lastName] || row["lastName"],
+          accession_number: accession,
+          school_id: school_id,
+          grade_id: row[:gradeId] || row["gradeId"],
+          gender: map_gender(row[:gender] || row["gender"]),
+          status: map_status(row[:status] || row["status"]) || 0,
+          phone: row[:phone] || row["phone"],
+          tel_emergency: row[:telEmergency] || row["telEmergency"],
+          tel_home: row[:telHome] || row["telHome"],
+          whatsapp: row[:whatsapp] || row["whatsapp"],
+          telegram: row[:telegram] || row["telegram"]
+        }.compact
+
+        query = { accession_number: accession, school_id: school_id }
+        result = Learner.collection.find_one_and_update(
+          query,
+          { "$set" => learner_hash },
+          upsert: true,
+          return_document: :after
+        )
+
+        successful << {
+          id: result["_id"].to_s,
+          name: "#{result["first_name"]} #{result["last_name"]}".strip,
+          accession_number: result["accession_number"]
+        }
+      rescue => e
+        failed << { row: row, errors: [e.message] }
       end
-
-      successful_imports = []
-      failed_imports = []
-      
-      learners_data.each do |learner_data|
-        begin
-          # Validate required fields
-          missing_fields = validate_learner_data(learner_data)
-          if missing_fields.any?
-            failed_imports << {
-              name: learner_data[:firstName] || learner_data['firstName'] || 'Unknown',
-              errors: ["Missing required fields: #{missing_fields.join(', ')}"]
-            }
-            next
-          end
-
-          # Extract or find school_id from nested data or params
-          school_id = learner_data[:school_id] || learner_data[:schoolId] || params[:school_id]
-          
-          # If no school_id provided but school name exists, find or create school
-          if !school_id && (learner_data[:schoolName] || learner_data['schoolName'])
-            school_id = find_or_create_school(learner_data)
-          end
-
-          learner_params_hash = {
-            first_name: learner_data[:firstName] || learner_data['firstName'],
-            last_name: learner_data[:lastName] || learner_data['lastName'],
-            accession_number: learner_data[:accessionNumber] || learner_data['accessionNumber'],
-            school_id: school_id,
-            grade_id: learner_data[:gradeId] || learner_data['gradeId'] || params[:grade_id],
-            gender: map_gender(learner_data[:gender] || learner_data['gender']),
-            status: map_status(learner_data[:status] || learner_data['status']) || 0,
-            phone: learner_data[:phone] || learner_data['phone'],
-            tel_emergency: learner_data[:telEmergency] || learner_data['telEmergency'],
-            tel_home: learner_data[:telHome] || learner_data['telHome'],
-            whatsapp: learner_data[:whatsapp] || learner_data['whatsapp'],
-            telegram: learner_data[:telegram] || learner_data['telegram']
-          }
-
-          Rails.logger.debug "🔍 Creating learner with params: #{learner_params_hash.inspect}"
-          learner = Learner.new(learner_params_hash)
-          
-          if learner.save
-            Rails.logger.info "✅ Successfully created: #{learner.full_name}"
-            successful_imports << {
-              id: learner.id.to_s,
-              name: "#{learner.first_name} #{learner.last_name}",
-              accession_number: learner.accession_number,
-              school_name: learner.school&.schoolName || learner.school&.name
-            }
-          else
-            Rails.logger.error "❌ Validation failed for #{learner_params_hash[:first_name]}: #{learner.errors.full_messages}"
-            failed_imports << {
-              name: "#{learner_params_hash[:first_name]} #{learner_params_hash[:last_name]}",
-              errors: learner.errors.full_messages
-            }
-          end
-
-        rescue => e
-          Rails.logger.error "❌ Learner creation failed: #{e.message}"
-          Rails.logger.error "❌ Learner data: #{learner_data.inspect}"
-          
-          failed_imports << {
-            name: learner_data['firstName'] || learner_data[:firstName] || 'Unknown',
-            errors: [e.message]
-          }
-        end
-      end
-
-      render json: {
-        status: 'success',
-        message: 'Bulk upload completed',
-        summary: {
-          total_processed: successful_imports.count + failed_imports.count,
-          successful: successful_imports.count,
-          failed: failed_imports.count
-        },
-        successful_imports: successful_imports,
-        failed_imports: failed_imports
-      }, status: :ok
-
-    rescue => e
-      Rails.logger.error "❌ Bulk upload error: #{e.message}"
-      Rails.logger.error e.backtrace.join("\n")
-      
-      render json: { 
-        error: "An error occurred during bulk upload: #{e.message}", 
-        status: 'error' 
-      }, status: :internal_server_error
     end
+
+    mark_upload_learners_complete(params[:user_id]) if successful.any?
+
+    render_success(
+      summary: { successful: successful.size, failed: failed.size },
+      successful_imports: successful,
+      failed_imports: failed
+    )
+  rescue => e
+    render_exception("Learners#bulk_upload", e)
   end
 
   private
 
+  # ------------------------------
+  # Safely mark upload_learners step complete
+  # ------------------------------
+  def mark_upload_learners_complete(user_id)
+    return unless user_id.present?
+
+    user = User.find_by(id: user_id) || User.find_by(auth0_id: user_id)
+    return unless user
+
+    # Build onboarding_status if missing
+    user.build_onboarding_status(completed_steps: [], skipped_steps: []) unless user.onboarding_status
+    user.save! if user.changed?
+
+    # Atomic MongoDB update for embedded document
+    User.collection.find_one_and_update(
+      { "_id" => user.id },
+      {
+        "$set" => {
+          "onboarding_status.upload_learners" => true,
+          "onboarding_status.completion_percentage" => calculate_completion_percentage(user),
+          "onboarding_status.client_metadata.last_request" => {
+            updated_at: Time.current.utc,
+            step_completed: "upload_learners"
+          }
+        },
+        "$addToSet" => { "onboarding_status.completed_steps" => "upload_learners" }
+      }
+    )
+  rescue => e
+    Rails.logger.warn "⚠️ Failed to mark upload_learners complete for #{user_id}: #{e.message}"
+  end
+
+  def calculate_completion_percentage(user)
+    steps = %i[create_grades upload_learners send_invites]
+    completed = steps.select { |s| user.onboarding_status[s] }
+    ((completed.size.to_f / steps.size) * 100).to_i
+  end
+
+  # ------------------------------
+  # Helpers
+  # ------------------------------
   def set_learner
-    begin
-      @learner = Learner.find(params[:id])
-    rescue Mongoid::Errors::DocumentNotFound
-      render json: { 
-        error: 'Learner not found', 
-        status: 'error' 
-      }, status: :not_found
-    end
+    @learner = Learner.find(params[:id])
+  rescue Mongoid::Errors::DocumentNotFound
+    render_error("Learner not found", :not_found)
   end
 
   def set_grade
-    begin
-      @grade = Grade.find(params[:grade_id])
-    rescue Mongoid::Errors::DocumentNotFound
-      render json: { 
-        error: 'Grade not found', 
-        status: 'error' 
-      }, status: :not_found
-    end
+    @grade = Grade.find(params[:grade_id])
+  rescue Mongoid::Errors::DocumentNotFound
+    render_error("Grade not found", :not_found)
+  end
+
+  def set_request_context
+    @request_context = {
+      request_id: request.uuid,
+      user_agent: request.user_agent,
+      ip_address: request.remote_ip,
+      timestamp: Time.current.iso8601,
+      endpoint: "#{request.method} #{request.path}"
+    }
   end
 
   def learner_params
     params.require(:learner).permit(
-      :first_name, :last_name, :accession_number, :school_id, :grade_id,
-      :gender, :status, :phone, :tel_emergency, :tel_home, :whatsapp, :telegram
+      :first_name, :last_name, :accession_number,
+      :school_id, :grade_id, :gender, :status,
+      :phone, :tel_emergency, :tel_home, :whatsapp, :telegram
     )
   end
 
-  def learner_response(learner)
+  def update_status(status_code, action)
+    if @learner.update(status: status_code)
+      mark_upload_learners_complete(params[:user_id])
+      render_success(message: "Learner #{action}", data: learner_response(@learner))
+    else
+      render_error(@learner.errors.full_messages, :unprocessable_entity)
+    end
+  rescue => e
+    render_exception("Learners##{action}", e)
+  end
+
+  def learner_response(l)
     {
-      id: learner.id.to_s,
-      first_name: learner.first_name,
-      last_name: learner.last_name,
-      full_name: learner.full_name,
-      accession_number: learner.accession_number,
-      gender: learner.gender,
-      gender_display: gender_display(learner.gender),
-      status: learner.status,
-      status_display: status_display(learner.status),
-      phone: learner.phone,
-      tel_emergency: learner.tel_emergency,
-      tel_home: learner.tel_home,
-      whatsapp: learner.whatsapp,
-      telegram: learner.telegram,
-      school: learner.school ? {
-        id: learner.school.id.to_s,
-        name: learner.school.schoolName || learner.school.name,
-        email: learner.school.schoolEmail || learner.school.email
-      } : nil,
-      grade: learner.grade ? {
-        id: learner.grade.id.to_s,
-        name: learner.grade.name || learner.grade.gradeName
-      } : nil,
-      created_at: learner.created_at,
-      updated_at: learner.updated_at
+      id: l.id.to_s,
+      first_name: l.first_name,
+      last_name: l.last_name,
+      full_name: l.try(:full_name),
+      accession_number: l.accession_number,
+      status: l.status,
+      phone: l.phone,
+      school_id: l.school_id,
+      grade_id: l.grade_id,
+      created_at: l.created_at,
+      updated_at: l.updated_at
     }
   end
 
-  def gender_display(gender)
-    case gender
-    when 0 then 'Male'
-    when 1 then 'Female'
-    when 2 then 'Other'
-    else 'Unknown'
+  def map_gender(val)
+    return 0 if val.blank?
+    case val.to_s.strip.downcase
+    when "male", "m", "0" then 0
+    when "female", "f", "1" then 1
+    else 2
     end
   end
 
-  def status_display(status)
-    case status
-    when 0 then 'Active'
-    when 1 then 'Inactive'
-    when 2 then 'Graduated'
-    else 'Unknown'
+  def map_status(val)
+    return 0 if val.blank?
+    case val.to_s.strip.downcase
+    when "active", "0" then 0
+    when "inactive", "1" then 1
+    when "graduated", "2" then 2
+    else 0
     end
   end
 
-  def find_or_create_school(learner_data)
-    school_name = learner_data[:schoolName] || learner_data['schoolName']
-    school_email = learner_data[:schoolEmail] || learner_data['schoolEmail']
-    province = learner_data[:province] || learner_data['province']
-    user_email = learner_data[:userEmail] || learner_data['userEmail']
-    
-    return nil unless school_name.present?
-    
-    begin
-      # Try to find existing school by name or email using Mongoid syntax
-      query_conditions = []
-      query_conditions << { schoolName: school_name } if school_name.present?
-      query_conditions << { name: school_name } if school_name.present?
-      query_conditions << { schoolEmail: school_email } if school_email.present?
-      query_conditions << { email: school_email } if school_email.present?
-
-      school = School.or(*query_conditions).first if query_conditions.any?
-
-      # Create school if it doesn't exist
-      unless school
-        Rails.logger.info "🏫 Creating new school: #{school_name}"
-        
-        school_params = {
-          name: school_name,
-          schoolName: school_name,
-          email: school_email,
-          schoolEmail: school_email,
-          province: province,
-          user_email: user_email,
-          city: '',
-          country: '',
-          theme: 'light'
-        }.compact
-
-        school = School.create!(school_params)
-        Rails.logger.info "✅ Successfully created school: #{school.schoolName || school.name}"
-      else
-        Rails.logger.info "🔍 Found existing school: #{school.schoolName || school.name}"
-      end
-
-      school.id.to_s
-    rescue => e
-      Rails.logger.error "❌ School creation/lookup failed: #{e.message}"
-      Rails.logger.error "❌ School data: #{learner_data.inspect}"
-      nil
-    end
+  # ------------------------------
+  # Unified Response Helpers
+  # ------------------------------
+  def render_success(payload = {})
+    status = payload.delete(:status) || :ok
+    render json: { status: "success" }.merge(payload), status: status
   end
 
-  def map_gender(gender_string)
-    return 0 unless gender_string.present?
-    
-    case gender_string.to_s.downcase.strip
-    when 'male', 'm', '0'
-      0
-    when 'female', 'f', '1'
-      1
-    when 'other', '2'
-      2
-    else
-      Rails.logger.warn "⚠️ Unknown gender value: '#{gender_string}', defaulting to male"
-      0
-    end
+  def render_error(errors, status = :unprocessable_entity)
+    render json: { status: "error", errors: Array(errors) }, status: status
   end
 
-  def map_status(status_string)
-    return 0 unless status_string.present?
-    
-    case status_string.to_s.downcase.strip
-    when 'active', '0'
-      0
-    when 'inactive', '1'
-      1
-    when 'graduated', '2'
-      2
-    else
-      Rails.logger.warn "⚠️ Unknown status value: '#{status_string}', defaulting to active"
-      0
-    end
-  end
-
-  def validate_learner_data(learner_data)
-    required_fields = [:firstName, :lastName]
-    missing_fields = []
-
-    required_fields.each do |field|
-      string_key = field.to_s
-      if learner_data[field].blank? && learner_data[string_key].blank?
-        missing_fields << field
-      end
-    end
-
-    missing_fields
+  def render_exception(context, exception)
+    Rails.logger.error "❌ #{context} error: #{exception.message}\n#{exception.backtrace.first(5).join("\n")}"
+    render json: { status: "error", error: exception.message }, status: :internal_server_error
   end
 end
