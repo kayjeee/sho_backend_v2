@@ -1,176 +1,160 @@
-# app/services/onboarding_status_service.rb
-class OnboardingStatusService
-  VALID_STEPS = %w[
-    upload_learners
-    create_assessment
-    send_notifications
-    setup_classes
-    configure_settings
-  ].freeze
+# app/services/learner_services/bulk_upload_service.rb
+module LearnerServices
+  class BulkUploadService
+    require 'csv'
+    require 'roo'
 
-  class << self
-    # Enhanced method with better error handling and context support
-    def mark_upload_learners_complete(user, context = {})
-      return false unless user&.persisted?
-      
-      mark_step_complete(user, "upload_learners", context)
+    attr_reader :school_id, :file, :user, :errors, :processed_count, :imported_count
+
+    def initialize(school_id:, file:, user:)
+      @school_id = school_id
+      @file = file
+      @user = user
+      @errors = []
+      @processed_count = 0
+      @imported_count = 0
     end
 
-    # Generic method for marking any onboarding step complete
-    def mark_step_complete(user, step_name, context = {})
-      return false unless user&.persisted?
-      return false unless VALID_STEPS.include?(step_name.to_s)
+    def call
+      Rails.logger.info "📥 Starting bulk learner upload for school_id=#{school_id} by user=#{user.id}"
 
-      begin
-        Rails.logger.info "📌 Starting onboarding step completion: #{step_name} for user #{user.id}"
-        
-        # Use a single atomic operation where possible
-        update_operations = build_update_operations(step_name, context)
-        
-        # Perform the update
-        result = user.collection.find_one_and_update(
-          { "_id" => user.id },
-          update_operations,
-          return_document: :after
-        )
+      learners_data = parse_file
+      return self if learners_data.empty?
 
-        if result
-          Rails.logger.info "✅ User #{user.id} onboarding: #{step_name} completed successfully"
-          true
-        else
-          Rails.logger.error "❌ Failed to update onboarding status for user #{user.id}"
-          false
-        end
+      process_learners(learners_data)
 
-      rescue => e
-        Rails.logger.error "❌ Onboarding update error for user #{user.id}: #{e.message}"
-        Rails.logger.error e.backtrace.join("\n") if Rails.env.development?
-        false
+      if success?
+        Rails.logger.info "✅ Bulk upload completed successfully: #{imported_count}/#{processed_count} learners imported for school_id=#{school_id}"
+
+        # Mark onboarding step complete
+        OnboardingStatusService.mark_upload_learners_complete(user, {
+          batch_size: imported_count,
+          school_id: school_id
+        })
+      else
+        Rails.logger.warn "⚠️ Bulk upload completed with errors: #{errors.count} issues found"
       end
+
+      self
+    rescue => e
+      Rails.logger.error "❌ Bulk upload failed for school_id=#{school_id}: #{e.message}"
+      Rails.logger.error e.backtrace.join("\n") if Rails.env.development?
+      errors << "Unexpected error: #{e.message}"
+      self
     end
 
-    # Check if a specific step is completed
-    def step_completed?(user, step_name)
-      return false unless user&.persisted?
-      return false unless VALID_STEPS.include?(step_name.to_s)
-
-      user.onboarding_status&.dig("completed_steps")&.include?(step_name.to_s) || false
-    end
-
-    # Get completion percentage
-    def completion_percentage(user)
-      return 0 unless user&.persisted?
-
-      completed_steps = user.onboarding_status&.dig("completed_steps") || []
-      completed_count = (completed_steps & VALID_STEPS).size
-      
-      ((completed_count.to_f / VALID_STEPS.size) * 100).round(2)
-    end
-
-    # Get next incomplete step
-    def next_step(user)
-      return VALID_STEPS.first unless user&.persisted?
-
-      completed_steps = user.onboarding_status&.dig("completed_steps") || []
-      VALID_STEPS.find { |step| !completed_steps.include?(step) }
-    end
-
-    # Reset onboarding status (useful for testing or re-onboarding)
-    def reset_onboarding(user)
-      return false unless user&.persisted?
-
-      begin
-        user.unset("onboarding_status")
-        Rails.logger.info "🔄 Onboarding status reset for user #{user.id}"
-        true
-      rescue => e
-        Rails.logger.error "❌ Failed to reset onboarding for user #{user.id}: #{e.message}"
-        false
-      end
-    end
-
-    # Bulk mark multiple steps as complete (useful for data migrations)
-    def mark_multiple_steps_complete(user, steps, context = {})
-      return false unless user&.persisted?
-
-      valid_steps = steps.select { |step| VALID_STEPS.include?(step.to_s) }
-      return false if valid_steps.empty?
-
-      begin
-        update_operations = {
-          "$addToSet" => {
-            "onboarding_status.completed_steps" => { "$each" => valid_steps.map(&:to_s) }
-          },
-          "$set" => {}
-        }
-
-        # Set individual step flags
-        valid_steps.each do |step|
-          update_operations["$set"]["onboarding_status.#{step}"] = true
-        end
-
-        # Add metadata
-        update_operations["$set"]["onboarding_status.client_metadata.last_bulk_update"] = build_metadata(context.merge(
-          step_completed: "bulk_update",
-          steps_completed: valid_steps
-        ))
-
-        user.collection.update_one({ "_id" => user.id }, update_operations)
-        
-        Rails.logger.info "✅ Bulk onboarding update completed for user #{user.id}: #{valid_steps.join(', ')}"
-        true
-      rescue => e
-        Rails.logger.error "❌ Bulk onboarding update failed for user #{user.id}: #{e.message}"
-        false
-      end
+    def success?
+      @errors.empty?
     end
 
     private
 
-    def build_update_operations(step_name, context)
-      {
-        "$set" => {
-          "onboarding_status.#{step_name}" => true,
-          "onboarding_status.client_metadata.last_request" => build_metadata(context.merge(
-            step_completed: step_name
-          ))
-        },
-        "$addToSet" => {
-          "onboarding_status.completed_steps" => step_name.to_s
-        }
-      }
-    end
+    # ================================
+    # STEP 1: Parse File
+    # ================================
+    def parse_file
+      extension = File.extname(file.original_filename).downcase
+      Rails.logger.info "📂 Parsing file: #{file.original_filename} (#{extension})"
 
-    def build_metadata(context)
-      base_metadata = {
-        "updated_at" => Time.current.iso8601,
-        "step_completed" => context[:step_completed]
-      }
-
-      # Add optional context data
-      optional_fields = {
-        "user_agent" => context[:user_agent] || Current.request&.user_agent,
-        "ip_address" => context[:ip_address] || Current.request&.remote_ip,
-        "batch_size" => context[:batch_size],
-        "request_id" => context[:request_id],
-        "session_id" => context[:session_id],
-        "steps_completed" => context[:steps_completed]
-      }
-
-      base_metadata.merge(optional_fields.compact)
-    end
-
-    # Helper method to ensure onboarding_status structure exists
-    def ensure_onboarding_structure(user)
-      return unless user&.persisted?
-
-      if user.onboarding_status.blank?
-        user.set("onboarding_status" => {
-          "completed_steps" => [],
-          "client_metadata" => {},
-          "created_at" => Time.current.iso8601
-        })
+      case extension
+      when '.csv'
+        parse_csv(file)
+      when '.xlsx', '.xls'
+        parse_excel(file)
+      else
+        errors << "Unsupported file format: #{extension}"
+        []
       end
+    end
+
+    def parse_csv(file)
+      learners = []
+      CSV.foreach(file.path, headers: true) do |row|
+        learners << sanitize_row(row.to_h)
+      end
+      learners
+    rescue => e
+      errors << "Failed to parse CSV: #{e.message}"
+      []
+    end
+
+    def parse_excel(file)
+      spreadsheet = Roo::Spreadsheet.open(file.path)
+      headers = spreadsheet.row(1).map(&:to_s)
+      learners = []
+
+      (2..spreadsheet.last_row).each do |i|
+        row_data = Hash[[headers, spreadsheet.row(i)].transpose]
+        learners << sanitize_row(row_data)
+      end
+
+      learners
+    rescue => e
+      errors << "Failed to parse Excel file: #{e.message}"
+      []
+    end
+
+    # ================================
+    # STEP 2: Validate & Process
+    # ================================
+    def sanitize_row(row)
+      row.transform_keys! { |k| k.to_s.strip.downcase }
+      {
+        name: row['name']&.strip,
+        grade: row['grade']&.strip,
+        class_name: row['class']&.strip,
+        parent_email: row['parent_email']&.strip&.downcase,
+        parent_phone: row['parent_phone']&.strip,
+        school_id: school_id
+      }.compact
+    end
+
+    def process_learners(learners_data)
+      @processed_count = learners_data.size
+      valid_learners = []
+
+      learners_data.each_with_index do |learner, index|
+        if valid_learner?(learner)
+          valid_learners << learner
+        else
+          errors << "Row #{index + 2}: Missing required fields (#{learner.inspect})"
+        end
+      end
+
+      insert_learners(valid_learners)
+    end
+
+    def valid_learner?(learner)
+      learner[:name].present? && learner[:grade].present?
+    end
+
+    # ================================
+    # STEP 3: Bulk Insert
+    # ================================
+    def insert_learners(valid_learners)
+      return if valid_learners.empty?
+
+      collection = Mongoid.default_client[:learners]
+      docs = valid_learners.map do |learner|
+        {
+          name: learner[:name],
+          grade: learner[:grade],
+          class_name: learner[:class_name],
+          parent_email: learner[:parent_email],
+          parent_phone: learner[:parent_phone],
+          school_id: BSON::ObjectId.from_string(school_id),
+          created_by: user.id,
+          created_at: Time.current,
+          updated_at: Time.current
+        }
+      end
+
+      result = collection.insert_many(docs)
+      @imported_count = result.inserted_count
+
+      Rails.logger.info "📊 Inserted #{@imported_count} learners into MongoDB"
+    rescue => e
+      errors << "Database insert failed: #{e.message}"
     end
   end
 end
