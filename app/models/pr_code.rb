@@ -1,19 +1,22 @@
 # app/models/pr_code.rb
-class PrCode < ApplicationRecord
+class PrCode
+  include Mongoid::Document
+  include Mongoid::Timestamps
+
+  field :code, type: String
+  field :purpose, type: String
+  field :status, type: String, default: 'active'
+  field :expires_at, type: DateTime
+  field :used_at, type: DateTime, default: nil
+  field :metadata, type: Hash, default: {}
+
   belongs_to :school
   belongs_to :user, optional: true
 
-  validates :code, presence: true, uniqueness: true
+  validates :code, presence: true, uniqueness: { scope: :school_id }
   validates :purpose, presence: true
   validates :expires_at, presence: true
-
-  # FIXED: Proper enum syntax for Rails
-  enum :status, {
-    active: 'active',
-    used: 'used', 
-    expired: 'expired',
-    revoked: 'revoked'
-  }, default: :active
+  validates :status, inclusion: { in: %w[active used expired revoked] }
 
   scope :active, -> { where(status: 'active').where('expires_at > ?', Time.current) }
   scope :by_school, ->(school_id) { where(school_id: school_id) }

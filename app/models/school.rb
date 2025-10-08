@@ -7,15 +7,6 @@ class School
   field :schoolName, type: String
   field :schoolEmail, type: String
   field :logo, type: String
-
-  # Status field
-  field :status, type: String, default: "active"
-
-   # Admin users array
-  field :adminUsers, type: Array, default: []
-
-  # Invites (teachers, staff, etc.)
-  field :invites, type: Array, default: []
   
   # Address fields (flattened structure)
   field :line1, type: String
@@ -48,6 +39,7 @@ class School
   field :school_created_by, type: String
  # Add this association
   has_many :grades, class_name: 'Grade', inverse_of: :school
+  has_many :pr_codes, dependent: :destroy
   # Validations
   validates :schoolName, presence: true, uniqueness: true
   validates :schoolEmail, presence: true, uniqueness: true

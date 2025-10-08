@@ -1,68 +1,37 @@
-# app/controllers/api/v1/pr_codes_controller.rb
-class Api::V1::PrCodesController < ApplicationController
-  before_action :set_school
-  before_action :authorize_school_access!
+module Api
+  module V1
+    class PrCodesController < ApplicationController
+      before_action :set_school
 
-  # POST /api/v1/schools/:school_id/pr_codes
-  def create
-    # Try different service class names - use the one that exists in your app
-    service = GeneratePrCodeService.new(
-      @school,
-      pr_code_params[:purpose],
-      nil, # no current_user
-      pr_code_params[:metadata] || {}
-    )
-    
-    # OR if it's in a module:
-    # service = PrCodeService::Generate.new(...)
-    # service = PrCodeGeneratorService.new(...)
-    # service = GeneratePrCode.new(...)
+      def create
+        pr_code = @school.pr_codes.new(pr_code_params)
+        pr_code.code = generate_unique_code
 
-    if service.call
-      render json: {
-        pr_code: PrCodeSerializer.new(service.pr_code).serializable_hash,
-        message: "PR code generated successfully"
-      }, status: :created
-    else
-      render json: { errors: service.errors }, status: :unprocessable_entity
+        if pr_code.save
+          render json: { success: true, pr_code: pr_code }, status: :created
+        else
+          render json: { success: false, errors: pr_code.errors.full_messages }, status: :unprocessable_entity
+        end
+      end
+
+      private
+
+      def set_school
+        @school = School.find(params[:school_id])
+      rescue Mongoid::Errors::DocumentNotFound
+        render json: { success: false, message: 'School not found' }, status: :not_found
+      end
+
+      def pr_code_params
+        params.require(:pr_code).permit(:purpose, :academic_year, metadata: {})
+      end
+
+      def generate_unique_code
+        loop do
+          code = SecureRandom.hex(3).upcase
+          break code unless PrCode.exists?(code: code)
+        end
+      end
     end
-  end
-
-  # GET /api/v1/schools/:school_id/pr_codes
-  def index
-    pr_codes = @school.pr_codes.order(created_at: :desc)
-    
-    render json: {
-      pr_codes: PrCodeSerializer.new(pr_codes).serializable_hash,
-      meta: {
-        total_count: pr_codes.count,
-        school_name: @school.name
-      }
-    }
-  end
-
-  private
-
-  def set_school
-    @school = School.find_by(id: params[:school_id])
-    return render json: { error: "School not found" }, status: :not_found unless @school
-  end
-
-  def authorize_school_access!
-    # Add your authorization logic here
-    # For now, allow all - implement proper auth as needed
-  end
-
-  def pr_code_params
-    params.require(:pr_code).permit(
-      :purpose, 
-      metadata: [
-        :school_name, 
-        :academic_year, 
-        :generated_at, 
-        :scope,
-        channels: []
-      ]
-    )
   end
 end
