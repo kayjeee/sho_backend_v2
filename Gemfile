@@ -16,6 +16,9 @@ gem "mongoid"
 gem 'jwt'
 gem 'rack-cors'
 
+# Serialization
+gem 'active_model_serializers'
+
 # Caching & Background Jobs
 gem "solid_cache"
 gem "solid_queue"
