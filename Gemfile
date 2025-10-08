@@ -1,28 +1,35 @@
 source "https://rubygems.org"
 
+# Rails framework
 gem "rails", "~> 8.0.2"
 gem "propshaft"
-# Remove sqlite3 since we're using MongoDB
-# gem "sqlite3", ">= 2.1"
 gem "puma", ">= 5.0"
 gem "importmap-rails"
 gem "turbo-rails"
 gem "stimulus-rails"
 gem "jbuilder"
 
-# MongoDB gems
+# Database
 gem "mongoid"
+
+# Authentication & Security
+gem 'jwt'
 gem 'rack-cors'
 
-# Remove tzinfo-data or keep it only for JRuby
-gem "tzinfo-data", platforms: [:jruby]
-
+# Caching & Background Jobs
 gem "solid_cache"
 gem "solid_queue"
 gem "solid_cable"
+
+# Performance
 gem "bootsnap", require: false
-gem "kamal", require: false
 gem "thruster", require: false
+
+# Deployment
+gem "kamal", require: false
+
+# Platform specific
+gem "tzinfo-data", platforms: [:jruby]
 
 group :development, :test do
   gem "debug", platforms: %i[ mri windows ], require: "debug/prelude"
