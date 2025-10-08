@@ -24,9 +24,8 @@ class Trip
   # Associations
   belongs_to :school
   has_many :registrations, class_name: 'TripRegistration'
-  has_many :participants, through: :registrations, class_name: 'Student'
-  has_many :payments, through: :registrations
-
+  # FIXED: Remove :through associations
+  
   # Validations
   validates :title, :destination, :departure_time, :school_id, presence: true
   validates :cost, numericality: { greater_than_or_equal_to: 0 }
@@ -44,6 +43,16 @@ class Trip
 
   def spots_available
     max_participants ? max_participants - registered_count : nil
+  end
+
+  # Custom method to get participants
+  def participants
+    Student.in(id: registrations.pluck(:student_id))
+  end
+
+  # Custom method to get payments
+  def payments
+    Payment.in(registration_id: registrations.pluck(:id))
   end
 
   def total_collected
