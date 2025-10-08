@@ -8,7 +8,7 @@ development:
 test:
   clients:
     default:
-      uri: <%= ENV['MONGODB_URI'] || 'mongodb://localhost:27017/tracker_test' %>
+      uri: <%= ENV['MONGODB_URI'] || 'mongodb+srv://kayjee:ilovegodandmygranny@cluster0.68wmv.mongodb.net/tracker?retryWrites=true&w=majority' %>
       options:
         server_selection_timeout: 5
 
