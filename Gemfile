@@ -9,6 +9,8 @@ gem "turbo-rails"
 gem "stimulus-rails"
 gem "jbuilder"
 
+gem 'rack-cors'
+
 # Database
 gem "mongoid"
 # Add to Gemfile
