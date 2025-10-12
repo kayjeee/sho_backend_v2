@@ -60,7 +60,7 @@ Rails.application.configure do
 
   # Set host to be used by links generated in mailer templates.
   # Update this to your actual Render URL after deployment
-  config.action_mailer.default_url_options = { host: ENV.fetch('RENDER_EXTERNAL_HOSTNAME', 'localhost:3000') }
+  config.action_mailer.default_url_options = { host: ENV.fetch('https://sho-backend-v2.onrender.com', 'localhost:3000') }
 
   # Specify outgoing SMTP server. Remember to add smtp/* credentials via rails credentials:edit.
   # config.action_mailer.smtp_settings = {
