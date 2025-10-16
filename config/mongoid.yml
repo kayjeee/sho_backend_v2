@@ -4,3 +4,10 @@ development:
       uri: mongodb+srv://kayjee:ilovegodandmygranny@cluster0.68wmv.mongodb.net/tracker?retryWrites=true&w=majority
       options:
         server_selection_timeout: 5
+
+production:
+  clients:
+    default:
+      uri: <%= ENV['MONGODB_URI'] %>
+      options:
+        server_selection_timeout: 5

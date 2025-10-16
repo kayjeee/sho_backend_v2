@@ -12,7 +12,6 @@ school = School.create!(
   country: "USA",
   city: "New York",
   province: "NY",
-  schoolAddress: { street: "123 Main St", zip: "10001" },
   cash_account: 5000.0
 )
 

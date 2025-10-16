@@ -1,14 +1,31 @@
-#!/bin/bash -e
+#!/bin/bash
+set -e
 
-# Enable jemalloc for reduced memory usage and latency.
-if [ -z "${LD_PRELOAD+x}" ]; then
-    LD_PRELOAD=$(find /usr/lib -name libjemalloc.so.2 -print -quit)
-    export LD_PRELOAD
+# ---------------------------
+# Docker Entrypoint for Rails
+# ---------------------------
+
+# Ensure RAILS_MASTER_KEY is set
+if [ -z "$RAILS_MASTER_KEY" ]; then
+  echo "ERROR: RAILS_MASTER_KEY environment variable is not set!"
+  exit 1
 fi
 
-# If running the rails server then create or migrate existing database
-if [ "${@: -2:1}" == "./bin/rails" ] && [ "${@: -1:1}" == "server" ]; then
-  ./bin/rails db:prepare
+export RAILS_MASTER_KEY
+
+# Ensure tmp directories exist
+mkdir -p tmp/pids tmp/cache tmp/sockets log
+
+# Check if database exists, then prepare (create, migrate, seed)
+echo "==> Preparing database..."
+bundle exec rails db:prepare
+
+# Precompile assets if missing
+if [ ! -d "public/assets" ]; then
+  echo "==> Precompiling assets..."
+  bundle exec rails assets:precompile
 fi
 
-exec "${@}"
+# Start Rails server
+echo "==> Starting Rails server..."
+exec "$@"
