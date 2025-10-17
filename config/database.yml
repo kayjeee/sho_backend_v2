@@ -1,33 +1,24 @@
-# config/database.yml
-
 default: &default
   adapter: postgresql
   encoding: unicode
   pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
-  timeout: 5000
+  url: <%= ENV["DATABASE_URL"] %>
 
 development:
   <<: *default
-  database: <%= ENV.fetch("DB_NAME_DEV") { "myapp_development" } %>
-  username: <%= ENV.fetch("DB_USERNAME_DEV") { "postgres" } %>
-  password: <%= ENV.fetch("DB_PASSWORD_DEV") { "password" } %>
-  host: <%= ENV.fetch("DB_HOST_DEV") { "localhost" } %>
-  port: <%= ENV.fetch("DB_PORT_DEV") { 5432 } %>
+  database: sho_backend_development
 
 test:
   <<: *default
-  database: <%= ENV.fetch("DB_NAME_TEST") { "myapp_test" } %>
-  username: <%= ENV.fetch("DB_USERNAME_TEST") { "postgres" } %>
-  password: <%= ENV.fetch("DB_PASSWORD_TEST") { "password" } %>
-  host: <%= ENV.fetch("DB_HOST_TEST") { "localhost" } %>
-  port: <%= ENV.fetch("DB_PORT_TEST") { 5432 } %>
+  database: sho_backend_test
 
 production:
-  <<: *default
-  # Use DATABASE_URL for Fly.io
-  url: <%= ENV['DATABASE_URL'] %>
-
-  # Explicitly define cable database for ActionCable / SolidCable
+  primary:
+    <<: *default
+    url: <%= ENV["DATABASE_URL"] %>
   cable:
     <<: *default
-    url: <%= ENV['DATABASE_URL'] %>
+    url: <%= ENV["DATABASE_URL"] %>
+  queue:
+    <<: *default
+    url: <%= ENV["DATABASE_URL"] %>
