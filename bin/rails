@@ -1,4 +1,13 @@
-#!/usr/bin/env ruby.exe
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# -----------------------------------------
+# bin/rails
+# Fixed for Linux / Docker containers
+# Converts Windows ruby reference to Linux ruby
+# Ensures proper line endings
+# -----------------------------------------
+
 APP_PATH = File.expand_path("../config/application", __dir__)
 require_relative "../config/boot"
 require "rails/commands"

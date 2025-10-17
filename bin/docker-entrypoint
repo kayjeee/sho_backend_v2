@@ -1,31 +1,31 @@
 #!/bin/bash
 set -e
 
-# ---------------------------
+# -----------------------------
 # Docker Entrypoint for Rails
-# ---------------------------
+# -----------------------------
+# Usage: docker run ... sho_backend [rails server options]
 
-# Ensure RAILS_MASTER_KEY is set
-if [ -z "$RAILS_MASTER_KEY" ]; then
-  echo "ERROR: RAILS_MASTER_KEY environment variable is not set!"
-  exit 1
+echo "Starting Docker Entrypoint..."
+echo "RAILS_ENV=${RAILS_ENV:-development}"
+
+# Ensure Bundler bin is in PATH
+export PATH="/usr/local/bundle/bin:$PATH"
+
+# Optional: wait for database to be ready (Postgres example)
+if [ -n "$WAIT_FOR_DB" ]; then
+  echo "Waiting for database..."
+  until bundle exec rails db:version >/dev/null 2>&1; do
+    echo "Database not ready, sleeping 2s..."
+    sleep 2
+  done
 fi
 
-export RAILS_MASTER_KEY
-
-# Ensure tmp directories exist
-mkdir -p tmp/pids tmp/cache tmp/sockets log
-
-# Check if database exists, then prepare (create, migrate, seed)
-echo "==> Preparing database..."
-bundle exec rails db:prepare
-
-# Precompile assets if missing
-if [ ! -d "public/assets" ]; then
-  echo "==> Precompiling assets..."
-  bundle exec rails assets:precompile
+# Run pending migrations in production automatically
+if [ "$RAILS_ENV" = "production" ]; then
+  echo "Running migrations..."
+  bundle exec rails db:migrate
 fi
 
-# Start Rails server
-echo "==> Starting Rails server..."
+# Execute the CMD passed in Dockerfile (or docker-compose)
 exec "$@"
