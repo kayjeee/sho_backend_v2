@@ -3,7 +3,6 @@ class Event
   include Mongoid::Timestamps
   include Mongoid::Attributes::Dynamic
 
-  # Constants
   EVENT_TYPES = %w[academic sports cultural social meeting other].freeze
   AUDIENCE_TYPES = %w[all students parents teachers staff public].freeze
 
@@ -27,15 +26,9 @@ class Event
   # Associations
   belongs_to :school
   has_many :registrations, class_name: 'EventRegistration', dependent: :destroy
-  has_many :attendees, class_name: 'User', inverse_of: nil
-
-  # Custom method to fetch attendees through registrations
-  def attendees
-    User.where(:id.in => registrations.pluck(:user_id))
-  end
 
   # Validations
-  validates :title, :start_time, :school_id, presence: true
+  validates :title, :start_time, :school, presence: true
   validates :event_type, inclusion: { in: EVENT_TYPES }
   validates :audience, inclusion: { in: AUDIENCE_TYPES }
   validates :max_attendees, numericality: { greater_than: 0 }, allow_nil: true
@@ -50,7 +43,7 @@ class Event
   # Methods
   def duration
     return 0 unless end_time && start_time
-    ((end_time - start_time) / 60).to_i # duration in minutes
+    ((end_time - start_time) / 60).to_i
   end
 
   def registered_count
@@ -61,10 +54,14 @@ class Event
     max_attendees ? max_attendees - registered_count : nil
   end
 
+  def attendees
+    User.where(:id.in => registrations.pluck(:user_id))
+  end
+
   private
 
   def end_time_after_start_time
     return unless end_time && start_time
-    errors.add(:end_time, "must be after start time") if end_time <= start_time
+    errors.add(:end_time, 'must be after start time') if end_time <= start_time
   end
 end
