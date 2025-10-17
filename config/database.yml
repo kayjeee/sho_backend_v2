@@ -1,20 +1,45 @@
+# config/database.yml
 default: &default
   adapter: postgresql
   encoding: unicode
   pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
-  url: <%= ENV["DATABASE_URL"] %>
+  timeout: 5000
+  # Optional SSL mode for production
+  # sslmode: require
 
 development:
   <<: *default
-  database: sho_development
+  database: <%= ENV.fetch("DB_NAME_DEV") { "myapp_development" } %>
+  username: <%= ENV.fetch("DB_USERNAME_DEV") { "postgres" } %>
+  password: <%= ENV.fetch("DB_PASSWORD_DEV") { "password" } %>
+  host: <%= ENV.fetch("DB_HOST_DEV") { "localhost" } %>
+  port: <%= ENV.fetch("DB_PORT_DEV") { 5432 } %>
 
 test:
   <<: *default
-  database: sho_test
+  database: <%= ENV.fetch("DB_NAME_TEST") { "myapp_test" } %>
+  username: <%= ENV.fetch("DB_USERNAME_TEST") { "postgres" } %>
+  password: <%= ENV.fetch("DB_PASSWORD_TEST") { "password" } %>
+  host: <%= ENV.fetch("DB_HOST_TEST") { "localhost" } %>
+  port: <%= ENV.fetch("DB_PORT_TEST") { 5432 } %>
 
 production:
   <<: *default
-  database: sho_production
-  cable:
-    <<: *default
-    database: sho_production
+  # This is the primary database for Rails 8 multi-db
+  primary:
+    database: <%= ENV.fetch("DB_NAME") %>
+    username: <%= ENV.fetch("DB_USERNAME") %>
+    password: <%= ENV.fetch("DB_PASSWORD") %>
+    host: <%= ENV.fetch("DB_HOST") %>
+    port: <%= ENV.fetch("DB_PORT") { 5432 } %>
+    # sslmode is recommended for cloud deployments
+    sslmode: require
+
+  # Optional: secondary/replica for read-only queries
+  # reading:
+  #   database: <%= ENV.fetch("DB_NAME_READ") %>
+  #   username: <%= ENV.fetch("DB_USERNAME_READ") %>
+  #   password: <%= ENV.fetch("DB_PASSWORD_READ") %>
+  #   host: <%= ENV.fetch("DB_HOST_READ") %>
+  #   port: <%= ENV.fetch("DB_PORT") { 5432 } %>
+  #   sslmode: require
