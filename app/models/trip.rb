@@ -1,8 +1,12 @@
+# app/models/trip.rb
 class Trip
   include Mongoid::Document
   include Mongoid::Timestamps
+  include Mongoid::Attributes::Dynamic
 
+  # ============================
   # Fields
+  # ============================
   field :title, type: String
   field :description, type: String
   field :destination, type: String
@@ -18,26 +22,39 @@ class Trip
   field :is_published, type: Boolean, default: false
   field :transportation_details, type: String
   field :accommodation_details, type: String
-  field :itinerary, type: Array
+  field :itinerary, type: Array, default: []
   field :permission_form_url, type: String
 
+  # ============================
   # Associations
+  # ============================
   belongs_to :school
-  has_many :registrations, class_name: 'TripRegistration'
-  has_many :participants, through: :registrations, class_name: 'Student'
-  has_many :payments, through: :registrations
+  has_many :registrations, class_name: 'TripRegistration', dependent: :destroy
+  has_many :payments, class_name: 'Transaction', dependent: :nullify
 
+  # Note: Mongoid does NOT support has_many :through.
+  # We emulate participants through registrations with a method:
+  def participants
+    Student.in(id: registrations.pluck(:student_id))
+  end
+
+  # ============================
   # Validations
+  # ============================
   validates :title, :destination, :departure_time, :school_id, presence: true
-  validates :cost, numericality: { greater_than_or_equal_to: 0 }
+  validates :cost, numericality: { greater_than_or_equal_to: 0 }, allow_nil: true
   validate :return_time_after_departure
   validate :deadline_before_departure
 
+  # ============================
   # Scopes
-  scope :upcoming, -> { where(:departure_time.gte => Time.current).order(departure_time: :asc) }
+  # ============================
+  scope :upcoming, -> { where(:departure_time.gte => Time.current).order_by(departure_time: :asc) }
   scope :requires_permission, -> { where(:permission_form_url.exists => true) }
 
+  # ============================
   # Methods
+  # ============================
   def registered_count
     registrations.count
   end
@@ -52,6 +69,9 @@ class Trip
 
   private
 
+  # ============================
+  # Validation Methods
+  # ============================
   def return_time_after_departure
     return unless return_time && departure_time
     errors.add(:return_time, "must be after departure time") if return_time <= departure_time
