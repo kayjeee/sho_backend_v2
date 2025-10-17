@@ -1,11 +1,10 @@
 # config/database.yml
+
 default: &default
   adapter: postgresql
   encoding: unicode
   pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
   timeout: 5000
-  # Optional SSL mode for production
-  # sslmode: require
 
 development:
   <<: *default
@@ -25,34 +24,10 @@ test:
 
 production:
   <<: *default
-  primary:
-    database: <%= ENV.fetch("DB_NAME") { "dummy_db" } %>
-    username: <%= ENV.fetch("DB_USERNAME") { "postgres" } %>
-    password: <%= ENV.fetch("DB_PASSWORD") { "password" } %>
-    host: <%= ENV.fetch("DB_HOST") { "localhost" } %>
-    port: <%= ENV.fetch("DB_PORT") { 5432 } %>
-    sslmode: require
+  # Use DATABASE_URL for Fly.io
+  url: <%= ENV['DATABASE_URL'] %>
 
-  # Optional: secondary/replica for read-only queries
-  # This allows Rails 8 multiple DB connections
-  # reading:
-  #   database: <%= ENV.fetch("DB_NAME_READ") { "dummy_db_read" } %>
-  #   username: <%= ENV.fetch("DB_USERNAME_READ") { "postgres" } %>
-  #   password: <%= ENV.fetch("DB_PASSWORD_READ") { "password" } %>
-  #   host: <%= ENV.fetch("DB_HOST_READ") { "localhost" } %>
-  #   port: <%= ENV.fetch("DB_PORT") { 5432 } %>
-  #   sslmode: require
-
-# -------------------------
-# Prevent DB access during Docker assets precompile
-# -------------------------
-<% if ENV['SKIP_DB'] %>
-production:
-  primary:
-    database: dummy_db
-    username: postgres
-    password: password
-    host: localhost
-    port: 5432
-    sslmode: require
-<% end %>
+  # Explicitly define cable database for ActionCable / SolidCable
+  cable:
+    <<: *default
+    url: <%= ENV['DATABASE_URL'] %>
