@@ -32,11 +32,6 @@ class Trip
   has_many :registrations, class_name: 'TripRegistration', dependent: :destroy
   has_many :payments, class_name: 'Transaction', dependent: :nullify
 
-  # Note: Mongoid does NOT support has_many :through.
-  # We emulate participants through registrations with a method:
-  def participants
-    Student.in(id: registrations.pluck(:student_id))
-  end
 
   # ============================
   # Validations
