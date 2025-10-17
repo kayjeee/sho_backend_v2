@@ -8,6 +8,9 @@ gem 'pg', '~> 1.5'
 gem "rails", "~> 8.0.2"
 gem "puma", ">= 5.0"
 
+gem 'jsonapi-serializer'
+
+
 # --- MongoDB ---
 gem "mongoid", "~> 9.0" # Ensure Mongoid version compatible with Rails 8
 gem "bson_ext", require: false # Optional: improves BSON performance
