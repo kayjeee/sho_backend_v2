@@ -2,16 +2,19 @@ default: &default
   adapter: postgresql
   encoding: unicode
   pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
-  url: <%= ENV['DATABASE_URL'] %>
+  url: <%= ENV["DATABASE_URL"] %>
 
 development:
   <<: *default
-  database: sho_backend_v2_development
+  database: sho_development
 
 test:
   <<: *default
-  database: sho_backend_v2_test
+  database: sho_test
 
 production:
   <<: *default
-  url: <%= ENV['DATABASE_URL'] %>
+  database: sho_production
+  cable:
+    <<: *default
+    database: sho_production
