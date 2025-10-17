@@ -2,7 +2,8 @@ source "https://rubygems.org"
 
 ruby "~> 3.3.0"
 
-
+# add this instead
+gem 'pg', '~> 1.5'
 # --- Core Rails ---
 gem "rails", "~> 8.0.2"
 gem "puma", ">= 5.0"
