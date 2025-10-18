@@ -66,11 +66,11 @@ Rails.application.routes.draw do
           end
         end
 
-        # ✅ PR Code routes nested under schools
+        # PR Code routes nested under schools
         resources :pr_codes, only: [:index, :show, :create, :destroy]
       end
 
-      # ✅ PR Code validation and usage endpoints
+      # PR Code validation and usage endpoints
       post 'pr_codes/validate', to: 'pr_codes#validate'
       post 'pr_codes/use', to: 'pr_codes#use'
 
@@ -317,8 +317,8 @@ Rails.application.routes.draw do
       get 'public/invitations/learner/:token', to: 'public/invitations#show_learner_invitation'
       get 'public/invitations/teacher/:token', to: 'public/invitations#show_teacher_invitation'
 
-      # HEALTH
-      get 'health', to: 'application#health'
+      # HEALTH CHECK (within API namespace)
+      get 'health', to: 'home#health'
     end
 
     # Future versioning
@@ -328,16 +328,14 @@ Rails.application.routes.draw do
   end
 
   # Root route
-  root 'api/v1/application#index'
+  root 'api/v1/home#index'
 
-  # Global health
-  get 'health', to: 'api/v1/application#health'
+  # Global health route (works for Fly.io and load balancers)
+  get 'health', to: 'api/v1/home#health'
 
-  # API docs
+  # API documentation route
   get 'api/docs', to: 'api/v1/documentation#index'
 
-  # Catch-all (optional)
-  # get '*path', to: 'application#index', constraints: ->(request) do
-  #   !request.xhr? && request.format.html?
-  # end
+  # Optional: catch-all for frontend or invalid routes
+  # get '*path', to: 'api/v1/home#index', constraints: ->(req) { !req.xhr? && req.format.html? }
 end
