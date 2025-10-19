@@ -1,60 +1,69 @@
 require "active_support/core_ext/integer/time"
 
 Rails.application.configure do
-  # Settings specified here will take precedence over those in config/application.rb.
-
-  # Code is not reloaded between requests.
+  # Disable code reloading between requests
   config.enable_reloading = false
 
-  # Eager load code on boot for better performance and memory savings.
+  # Eager load application code for better performance
   config.eager_load = true
 
-  # Full error reports are disabled.
+  # Disable detailed error reports
   config.consider_all_requests_local = false
 
-  # Enable caching for API responses if needed.
+  # Enable caching for better performance
   config.action_controller.perform_caching = true
 
-  # Cache assets or public files for far-future expiry.
-  config.public_file_server.enabled = true
-  config.public_file_server.headers = { "Cache-Control" => "public, max-age=#{1.year.to_i}" }
+  # Cache assets for far-future expiry since they are digest stamped
+  config.public_file_server.headers = {
+    "Cache-Control" => "public, max-age=#{1.year.to_i}"
+  }
 
-  # Force all access to the app over SSL.
+  # Enforce SSL (assuming SSL termination handled by proxy)
   config.assume_ssl = true
   config.force_ssl = true
 
-  # Use STDOUT logging (important for Docker/Render/Vercel).
+  # Tag logs with request ID for better traceability
   config.log_tags = [:request_id]
-  config.logger = ActiveSupport::TaggedLogging.logger(Logger.new(STDOUT))
+
+  # ✅ Proper logger setup for Rails 8+ and Docker/Render environments
+  logger = Logger.new($stdout)
+  logger.formatter = Logger::Formatter.new
+  config.logger = ActiveSupport::TaggedLogging.new(logger)
+
+  # Default log level (use DEBUG for more verbosity)
   config.log_level = ENV.fetch("RAILS_LOG_LEVEL", "info")
 
-  # Silence health check logs.
+  # Reduce log noise for health checks
   config.silence_healthcheck_path = "/up"
 
-  # Don’t log deprecations in production.
+  # Do not show or log deprecations in production
   config.active_support.report_deprecations = false
 
-  # Use in-memory cache store or Redis (optional).
+  # Cache store for Rails (works fine with Redis or memory)
   config.cache_store = :memory_store
 
-  # ActiveJob (background jobs) – disable or configure your own.
-  config.active_job.queue_adapter = :async
+  # Optional: disable Active Job if unused
+  # If you’re using background jobs with SolidQueue, keep this:
+  config.active_job.queue_adapter = :solid_queue
+  config.solid_queue.connects_to = { database: { writing: :queue } }
 
-  # Configure default URL options for mailers (if used).
-  config.action_mailer.default_url_options = { host: "example.com" }
-  # config.action_mailer.raise_delivery_errors = false
-
-  # Fallbacks for I18n.
+  # Enable locale fallbacks (helps with missing translations)
   config.i18n.fallbacks = true
 
-  # ✅ Disable ActiveRecord (you’re using Mongoid instead)
-  config.active_record = nil
+  # ✅ Remove ActiveRecord-specific config — not needed for MongoDB
 
-  # ✅ Disable ActiveStorage completely
-  if config.respond_to?(:active_storage)
-    config.active_storage.draw_routes = false
-  end
+  # Default URL host for mailers
+  config.action_mailer.default_url_options = {
+    host: ENV.fetch("APP_HOST", "example.com")
+  }
 
-  # Host protection (optional)
-  # config.hosts << "your-production-domain.com"
+  # Optionally configure SMTP if sending emails in production
+  # config.action_mailer.smtp_settings = {
+  #   user_name: Rails.application.credentials.dig(:smtp, :user_name),
+  #   password: Rails.application.credentials.dig(:smtp, :password),
+  #   address: "smtp.gmail.com",
+  #   port: 587,
+  #   authentication: :plain,
+  #   enable_starttls_auto: true
+  # }
 end

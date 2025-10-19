@@ -1,4 +1,19 @@
+# frozen_string_literal: true
+
+# Set Gemfile path
 ENV["BUNDLE_GEMFILE"] ||= File.expand_path("../Gemfile", __dir__)
 
-require "bundler/setup" # Set up gems listed in the Gemfile.
-require "bootsnap/setup" # Speed up boot time by caching expensive operations.
+# Load gems listed in Gemfile
+require "bundler/setup"
+
+# Speed up boot time with Bootsnap
+require "bootsnap/setup"
+
+# Skip ActiveRecord connection if not needed (e.g., API-only with Mongoid)
+if ENV["SKIP_DB"]
+  module ActiveRecord
+    class Base
+      def self.establish_connection(*); end
+    end
+  end
+end
