@@ -7,18 +7,34 @@ default: &default
   encoding: utf8
 
 development:
-  <<: *default
-  database: db/development.sqlite3
-
-test:
-  <<: *default
-  database: db/test.sqlite3
-
-production:
   primary:
     <<: *default
-    database: db/production.sqlite3
+    database: db/development.sqlite3
 
   cache:
     <<: *default
+    database: db/solid_cache_development.sqlite3
+
+test:
+  primary:
+    <<: *default
+    database: db/test.sqlite3
+
+  cache:
+    <<: *default
+    database: db/solid_cache_test.sqlite3
+
+production:
+  primary:
+    adapter: sqlite3
+    database: db/production.sqlite3
+    pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
+    timeout: 5000
+    encoding: utf8
+
+  cache:
+    adapter: sqlite3
     database: db/solid_cache_production.sqlite3
+    pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
+    timeout: 5000
+    encoding: utf8
