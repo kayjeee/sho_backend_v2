@@ -40,7 +40,7 @@ class School
   # Embedded documents for admins and invites
   field :adminUsers, type: Array, default: []
   field :invites, type: Array, default: []
-
+  field :status, type: String, default: "active"
   # Associations
   has_many :grades, class_name: 'Grade', inverse_of: :school
   has_many :students, class_name: 'Student', inverse_of: :school
