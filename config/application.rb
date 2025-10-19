@@ -1,23 +1,30 @@
 require_relative "boot"
 
-require "rails/all"
+# ✅ Instead of require "rails/all", only load what you need
+require "rails"
+require "action_controller/railtie"
+require "action_view/railtie"
+require "action_mailer/railtie"
+require "active_job/railtie"
+require "sprockets/railtie" # optional if not an API-only app
+# ❌ Do NOT require "active_record/railtie"
 
-# Require the gems listed in Gemfile, including any gems
-# you've limited to :test, :development, or :production.
 Bundler.require(*Rails.groups)
 
 module ShoBackendV2
   class Application < Rails::Application
-    # Initialize configuration defaults for originally generated Rails version.
     config.load_defaults 8.0
 
-    # Please, add to the `ignore` list any other `lib` subdirectories that do
-    # not contain `.rb` files, or that should not be reloaded or eager loaded.
+    # Automatically load code from lib
     config.autoload_lib(ignore: %w[assets tasks])
 
-    # -------------------------
-    # Skip DB connection during precompile (for Docker/Fly builds)
-    # -------------------------
+    # ✅ Tell Rails it’s an API-only app
+    config.api_only = true
+
+    # ✅ Skip ActiveRecord completely
+    config.generators.orm :mongoid
+
+    # ✅ Optional: prevent connection attempts during builds
     if ENV['SKIP_DB']
       module ActiveRecord
         class Base
@@ -25,9 +32,5 @@ module ShoBackendV2
         end
       end
     end
-
-    # Other configuration...
-    # config.time_zone = "Central Time (US & Canada)"
-    # config.eager_load_paths << Rails.root.join("extras")
   end
 end
