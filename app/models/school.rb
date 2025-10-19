@@ -37,6 +37,10 @@ class School
   field :user_email, type: String
   field :school_created_by, type: String
 
+   # ✅ ADD THIS LINE
+  field :status, type: String, default: "active"
+
+
   # Associations
   has_many :grades, class_name: 'Grade', inverse_of: :school
   has_many :students, class_name: 'Student', inverse_of: :school
