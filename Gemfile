@@ -1,3 +1,5 @@
+# Gemfile
+
 source "https://rubygems.org"
 
 ruby "~> 3.3.0"
@@ -32,6 +34,11 @@ gem "thruster", require: false   # Optional process management
 # --- Platform Compatibility ---
 gem "tzinfo-data", platforms: %i[ windows jruby ]
 
+# --- Environment Variables ---
+group :development, :test do
+  gem "dotenv-rails"             # Load .env automatically in dev/test
+end
+
 # --- Development & Test ---
 group :development, :test do
   gem "debug", platforms: %i[ mri windows ], require: "debug/prelude"
@@ -40,7 +47,7 @@ group :development, :test do
 end
 
 group :development do
-  gem "web-console"               # Console in development only
+  gem "web-console"               # Interactive console for development
 end
 
 group :test do

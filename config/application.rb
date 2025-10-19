@@ -1,33 +1,42 @@
 require_relative "boot"
 
-# ✅ Load only frameworks you actually use — skip ActiveRecord & Sprockets
+# --- Load only the frameworks you need ---
 require "rails"
 require "action_controller/railtie"
-require "action_view/railtie"
 require "action_mailer/railtie"
-require "active_job/railtie"
-# ❌ No ActiveRecord (using Mongoid)
-# ❌ No ActionCable or Sprockets
+#require "active_job/railtie"
+require "active_model/railtie"
+# ❌ No ActiveRecord
+# ❌ No ActionCable
+# ❌ No Sprockets / assets
 
+# --- Load gems from Gemfile ---
 Bundler.require(*Rails.groups)
+
+# --- Load .env automatically if dotenv-rails is in Gemfile ---
+require "dotenv-rails"
+Dotenv.load(File.expand_path("../.env", __dir__))
 
 module ShoBackendV2
   class Application < Rails::Application
-    # Initialize configuration defaults for Rails 8.0
+    # --- Initialize Rails defaults ---
     config.load_defaults 8.0
 
-    # ✅ API-only mode — lightweight, no views or assets
+    # --- API-only mode ---
     config.api_only = true
 
-    # ✅ Use Mongoid instead of ActiveRecord
+    # --- Mongoid setup ---
     config.generators do |g|
       g.orm :mongoid
       g.test_framework nil
       g.assets false
       g.helper false
+      g.view_specs false
+      g.controller_specs false
+      g.routing_specs false
     end
 
-    # ✅ Skip DB initialization in environments where it’s not needed (e.g. Docker build)
+    # --- Skip ActiveRecord if accidentally referenced ---
     if ENV["SKIP_DB"]
       module ActiveRecord
         class Base
@@ -36,31 +45,33 @@ module ShoBackendV2
       end
     end
 
-    # ✅ Autoload from lib/, ignoring non-code folders
-    config.autoload_lib(ignore: %w[assets tasks])
+    # --- Autoload lib/ for custom modules ---
+    config.autoload_paths << Rails.root.join("lib")
+    config.eager_load_paths << Rails.root.join("lib")
 
-    # ✅ Time zone & I18n defaults
+    # --- Time zone & I18n ---
     config.time_zone = "Pretoria"
-    config.i18n.available_locales = [:en]
     config.i18n.default_locale = :en
+    config.i18n.available_locales = [:en]
+    config.i18n.fallbacks = true
 
-    # ✅ Background job adapter (SolidQueue or Sidekiq)
+    # --- Background jobs ---
     config.active_job.queue_adapter = :solid_queue
 
-    # ✅ Cache store (use Redis or memory depending on env)
+    # --- Caching ---
     config.cache_store = :memory_store
 
-    # ✅ Force SSL for security
+    # --- Security ---
     config.force_ssl = true
 
-    # ✅ Logging setup — works perfectly in Docker & Render
+    # --- Logging ---
     config.log_tags = [:request_id]
-    logger = Logger.new($stdout)
+    logger           = Logger.new($stdout)
     logger.formatter = Logger::Formatter.new
-    config.logger = ActiveSupport::TaggedLogging.new(logger)
-    config.log_level = ENV.fetch("RAILS_LOG_LEVEL", "info")
+    config.logger    = ActiveSupport::TaggedLogging.new(logger)
+    config.log_level = ENV.fetch("RAILS_LOG_LEVEL", "info").to_sym
 
-    # ✅ Default host for URL generation
+    # --- Default URL options for mailers & other services ---
     config.action_mailer.default_url_options = {
       host: ENV.fetch("APP_HOST", "example.com"),
       protocol: "https"
