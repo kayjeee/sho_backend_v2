@@ -14,5 +14,9 @@ test:
   database: db/test.sqlite3
 
 production:
-  <<: *default
-  database: db/production.sqlite3
+  primary:
+    <<: *default
+    database: db/production.sqlite3
+  cache:
+    <<: *default
+    database: db/solid_cache_production.sqlite3

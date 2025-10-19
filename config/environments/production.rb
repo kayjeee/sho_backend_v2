@@ -10,7 +10,7 @@ Rails.application.configure do
 
   # --- Caching ---
   config.action_controller.perform_caching = true
-  config.cache_store = :memory_store
+  config.cache_store = :solid_cache_store
 
   # --- Public file server caching ---
   config.public_file_server.headers = {
