@@ -3,14 +3,23 @@ module UserServices
   class CreateUserService
     Result = Struct.new(:success?, :user, :errors, keyword_init: true)
 
-    def initialize(user_params:)
+    def initialize(user_params:, invitation_token: nil)
       @user_params = user_params
+      @invitation_token = invitation_token
     end
 
     def call
-      # 🔑 Check if user already exists → return it
       user = User.find_or_initialize_by(auth0_id: @user_params[:auth0_id])
       user.assign_attributes(@user_params)
+
+      if @invitation_token
+        invitation = Invitation.find_by(token: @invitation_token, status: 'pending')
+        if invitation
+          user.roles << 'parent'
+          user.schools << invitation.school
+          invitation.update(status: 'accepted')
+        end
+      end
 
       if user.save
         Result.new(success?: true, user: user, errors: [])
