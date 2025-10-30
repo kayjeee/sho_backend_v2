@@ -36,7 +36,8 @@ end
           city: school.city,
           country: school.country,
           province: school.province,
-          userEmail: school.user_email || school[:user_email]
+          userEmail: school.user_email || school[:user_email],
+          logo: school.logo,
         }
       end
 
