@@ -1,6 +1,6 @@
 # app/controllers/api/v1/invitations_controller.rb
 class Api::V1::InvitationsController < ApplicationController
-  before_action :authenticate_admin!
+  # 🚫 Removed before_action :authenticate_admin!
 
   def create
     invitation_service = UserServices::InvitationService.new(
@@ -19,15 +19,8 @@ class Api::V1::InvitationsController < ApplicationController
 
   private
 
-  def authenticate_admin!
-    unless current_user&.has_role?('admin')
-      render json: { success: false, error: 'You are not authorized to perform this action.' }, status: :unauthorized
-      return
-    end
-  end
-
+  # ✅ Still resolves user from X-User-Email header or param
   def current_user
-    # Find user by email from params or headers (without authentication)
     @current_user ||= if params[:user_email]
                         User.find_by(email: params[:user_email])
                       elsif request.headers['X-User-Email']
