@@ -1,6 +1,6 @@
 # app/controllers/api/v1/invitations_controller.rb
 class Api::V1::InvitationsController < ApplicationController
-  # 🚫 Removed before_action :authenticate_admin!
+  include Secured
 
   def create
     invitation_service = UserServices::InvitationService.new(
@@ -15,16 +15,5 @@ class Api::V1::InvitationsController < ApplicationController
     else
       render json: { success: false, errors: invitation.errors.full_messages }, status: :unprocessable_entity
     end
-  end
-
-  private
-
-  # ✅ Still resolves user from X-User-Email header or param
-  def current_user
-    @current_user ||= if params[:user_email]
-                        User.find_by(email: params[:user_email])
-                      elsif request.headers['X-User-Email']
-                        User.find_by(email: request.headers['X-User-Email'])
-                      end
   end
 end

@@ -8,13 +8,17 @@ module UserServices
     end
 
     def call
-      invitation = Invitation.create!(
+      invitation = Invitation.new(
         sender: @sender,
         recipient_phone_number: @recipient_phone_number,
         school_id: @school_id,
         token: generate_token
       )
-      send_sms(invitation)
+
+      if invitation.save
+        send_sms(invitation)
+      end
+
       invitation
     end
 
