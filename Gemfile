@@ -1,43 +1,47 @@
-# Gemfile
-
 source "https://rubygems.org"
 
 ruby "~> 3.3.0"
 
+# add this instead
+gem 'pg', '~> 1.5'
 # --- Core Rails ---
 gem "rails", "~> 8.0.2"
 gem "puma", ">= 5.0"
 
-# --- MongoDB ---
-gem "mongoid", "~> 9.0"          # MongoDB ODM compatible with Rails 8
-gem "bson_ext", require: false   # Optional: improves BSON performance
+gem 'jsonapi-serializer'
 
-# --- Serialization / API ---
-gem "jsonapi-serializer"         # JSON:API serialization
-gem "jbuilder"                   # Standard JSON templates (optional)
+
+# --- MongoDB ---
+gem "mongoid", "~> 9.0" # Ensure Mongoid version compatible with Rails 8
+gem "bson_ext", require: false # Optional: improves BSON performance
 
 # --- Authentication / Authorization ---
-gem "jwt", "~> 2.9"              # JWT support
-gem "rack-cors"                  # Handle CORS in API mode
+gem "jwt", "~> 2.9" # Fixes missing jwt error for Auth0 integration
+gem "rack-cors" # For handling CORS in API mode
+
+# --- Asset & Frontend ---
+gem "propshaft"
+gem "importmap-rails"
+gem "turbo-rails"
+gem "stimulus-rails"
+
+# --- JSON & APIs ---
+gem "jbuilder"
 
 # --- Background Jobs & Caching ---
-gem "solid_queue"                # Queue for background jobs
-gem "solid_cache"                # Optional cache store
+gem "solid_cache"
+gem "solid_queue"
+gem "solid_cable"
 
 # --- Performance / Boot ---
-gem "bootsnap", require: false   # Speeds up boot time
+gem "bootsnap", require: false
 
-# --- Deployment Helpers ---
-gem "kamal", require: false      # Docker deployment tooling
-gem "thruster", require: false   # Optional process management
+# --- Deployment ---
+gem "kamal", require: false
+gem "thruster", require: false
 
 # --- Platform Compatibility ---
 gem "tzinfo-data", platforms: %i[ windows jruby ]
-
-# --- Environment Variables ---
-group :development, :test do
-  gem "dotenv-rails"             # Load .env automatically in dev/test
-end
 
 # --- Development & Test ---
 group :development, :test do
@@ -47,10 +51,10 @@ group :development, :test do
 end
 
 group :development do
-  gem "web-console"               # Interactive console for development
+  gem "web-console"
 end
 
 group :test do
-  gem "capybara"                  # Integration testing
-  gem "selenium-webdriver"        # Browser driver for Capybara
+  gem "capybara"
+  gem "selenium-webdriver"
 end
