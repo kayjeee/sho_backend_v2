@@ -9,8 +9,12 @@ module UserServices
     end
 
     def call
-      school = School.find(@school_id)
-      return nil unless school
+      school = School.where(id: @school_id).first
+      unless school
+        invitation = Invitation.new
+        invitation.errors.add(:school, 'not found')
+        return invitation
+      end
 
       invitation = Invitation.new(
         sender: @sender,
