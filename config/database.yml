@@ -26,15 +26,13 @@ test:
 
 production:
   primary:
-    adapter: sqlite3
-    database: db/production.sqlite3
+    url: <%= ENV["DATABASE_URL"] %>
     pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
     timeout: 5000
     encoding: utf8
 
   cache:
-    adapter: sqlite3
-    database: db/solid_cache_production.sqlite3
+    url: <%= ENV["CACHE_DATABASE_URL"] %>
     pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
     timeout: 5000
     encoding: utf8
