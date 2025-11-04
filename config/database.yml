@@ -1,32 +1,34 @@
 # config/database.yml
 
 default: &default
-  adapter: postgresql
-  encoding: unicode
+  adapter: sqlite3
   pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
-  url: <%= ENV["DATABASE_URL"] %>
+  timeout: 5000
+  encoding: utf8
 
 development:
-  <<: *default
-  database: sho_backend_development
+  primary:
+    <<: *default
+    database: db/development.sqlite3
+
+  cache:
+    <<: *default
+    database: db/solid_cache_development.sqlite3
 
 test:
-  <<: *default
-  database: sho_backend_test
+  primary:
+    <<: *default
+    database: db/test.sqlite3
+
+  cache:
+    <<: *default
+    database: db/solid_cache_test.sqlite3
 
 production:
   primary:
     <<: *default
-    url: <%= ENV["DATABASE_URL"] %>
-
-  queue:
-    <<: *default
-    url: <%= ENV["DATABASE_URL"] %>
-
-  cable:
-    <<: *default
-    url: <%= ENV["DATABASE_URL"] %>
+    url: <%= ENV.fetch("DATABASE_URL", "sqlite3:db/production.sqlite3") %>
 
   cache:
     <<: *default
-    url: <%= ENV["DATABASE_URL"] %>
+    url: <%= ENV.fetch("CACHE_DATABASE_URL", "sqlite3:db/solid_cache_production.sqlite3") %>
