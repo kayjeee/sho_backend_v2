@@ -26,13 +26,9 @@ test:
 
 production:
   primary:
-    url: <%= ENV["DATABASE_URL"] %>
-    pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
-    timeout: 5000
-    encoding: utf8
+    <<: *default
+    url: <%= ENV.fetch("DATABASE_URL", "sqlite3:db/production.sqlite3") %>
 
   cache:
-    url: <%= ENV["CACHE_DATABASE_URL"] %>
-    pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
-    timeout: 5000
-    encoding: utf8
+    <<: *default
+    url: <%= ENV.fetch("CACHE_DATABASE_URL", "sqlite3:db/solid_cache_production.sqlite3") %>
