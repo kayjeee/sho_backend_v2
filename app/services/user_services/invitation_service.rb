@@ -1,17 +1,22 @@
 # app/services/user_services/invitation_service.rb
 module UserServices
   class InvitationService
-    def initialize(sender:, recipient_phone_number:, school_id:)
+    def initialize(sender:, recipient_phone_number:, school_id:, role:)
       @sender = sender
       @recipient_phone_number = recipient_phone_number
       @school_id = school_id
+      @role = role
     end
 
     def call
+      school = School.find(@school_id)
+      return nil unless school
+
       invitation = Invitation.new(
         sender: @sender,
         recipient_phone_number: @recipient_phone_number,
-        school_id: @school_id,
+        school: school,
+        role: @role,
         token: generate_token
       )
 

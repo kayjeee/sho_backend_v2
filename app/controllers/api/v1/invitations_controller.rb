@@ -6,7 +6,8 @@ class Api::V1::InvitationsController < ApplicationController
     invitation_service = UserServices::InvitationService.new(
       sender: current_user,
       recipient_phone_number: params[:phone_number],
-      school_id: params[:school_id]
+      school_id: params[:school_id],
+      role: params[:role]
     )
     invitation = invitation_service.call
 
