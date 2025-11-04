@@ -28,6 +28,7 @@ RUN gem install bundler -v "~> 2.6" --no-document
 ENV BUNDLE_PATH=/usr/local/bundle \
     BUNDLE_JOBS=4 \
     BUNDLE_RETRY=3 \
+    BUNDLE_APP_CONFIG=/usr/local/bundle \
     PATH="/usr/local/bundle/bin:/app/bin:$PATH"
 
 # -------------------------
