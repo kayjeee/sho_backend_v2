@@ -1,30 +1,47 @@
 # app/controllers/api/v1/invitations_controller.rb
 class Api::V1::InvitationsController < ApplicationController
-  # 🚫 Removed before_action :authenticate_admin!
 
   def create
+    Rails.logger.info "🔹 [InvitationsController] Creating invitation with params: #{params}"
+    
     invitation_service = UserServices::InvitationService.new(
       sender: current_user,
       recipient_phone_number: params[:phone_number],
-      school_id: params[:school_id]
+      school_id: params[:school_id],
+      role: params[:role] || 'parent' # Include role parameter
     )
+    
     invitation = invitation_service.call
 
     if invitation.persisted?
-      render json: { success: true, message: 'Invitation sent successfully.' }, status: :created
+      Rails.logger.info "✅ [InvitationsController] Invitation created successfully: #{invitation.id}"
+      render json: { 
+        success: true, 
+        message: 'Invitation sent successfully.',
+        invitation: {
+          id: invitation.id.to_s,
+          token: invitation.token, # 🔥 CRITICAL: Return the token
+          recipient_phone_number: invitation.recipient_phone_number,
+          role: invitation.role,
+          status: invitation.status
+        }
+      }, status: :created
     else
-      render json: { success: false, errors: invitation.errors.full_messages }, status: :unprocessable_entity
+      Rails.logger.error "❌ [InvitationsController] Failed to create invitation: #{invitation.errors.full_messages}"
+      render json: { 
+        success: false, 
+        errors: invitation.errors.full_messages 
+      }, status: :unprocessable_entity
     end
   end
 
   private
 
-  # ✅ Still resolves user from X-User-Email header or param
   def current_user
     @current_user ||= if params[:user_email]
-                        User.find_by(email: params[:user_email])
-                      elsif request.headers['X-User-Email']
-                        User.find_by(email: request.headers['X-User-Email'])
-                      end
+      User.find_by(email: params[:user_email])
+    elsif request.headers['X-User-Email']
+      User.find_by(email: request.headers['X-User-Email'])
+    end
   end
 end

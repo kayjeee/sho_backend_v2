@@ -1,20 +1,41 @@
 # app/services/user_services/invitation_service.rb
 module UserServices
   class InvitationService
-    def initialize(sender:, recipient_phone_number:, school_id:)
+    def initialize(sender:, recipient_phone_number:, school_id:, role: 'parent')
       @sender = sender
       @recipient_phone_number = recipient_phone_number
       @school_id = school_id
+      @role = role
     end
 
     def call
+      Rails.logger.info "🔹 [InvitationService] Creating invitation for #{@recipient_phone_number}"
+      
+      # Find school first
+      school = School.find(@school_id)
+      
       invitation = Invitation.create!(
         sender: @sender,
         recipient_phone_number: @recipient_phone_number,
-        school_id: @school_id,
+        school: school,
+        role: @role, # Add role to invitation
         token: generate_token
       )
+      
+      Rails.logger.info "✅ [InvitationService] Invitation created: #{invitation.id} with token: #{invitation.token}"
+      
       send_sms(invitation)
+      invitation # Return the invitation object with token
+      
+    rescue Mongoid::Errors::DocumentNotFound => e
+      Rails.logger.error "❌ [InvitationService] School not found: #{@school_id}"
+      invitation = Invitation.new
+      invitation.errors.add(:school, 'not found')
+      invitation
+    rescue => e
+      Rails.logger.error "❌ [InvitationService] Error: #{e.message}"
+      invitation = Invitation.new
+      invitation.errors.add(:base, e.message)
       invitation
     end
 
@@ -28,9 +49,8 @@ module UserServices
     end
 
     def send_sms(invitation)
-      # In a real application, you would integrate with an SMS gateway like Twilio.
-      # For this example, we'll just log the message.
-      Rails.logger.info "Sending SMS to #{invitation.recipient_phone_number}: You have been invited to join our school. Please click this link to register: [invitation_link]"
+      Rails.logger.info "📱 [InvitationService] Sending SMS to #{invitation.recipient_phone_number} with token: #{invitation.token}"
+      # Your SMS logic here
     end
   end
 end
