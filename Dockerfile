@@ -35,6 +35,7 @@ ENV BUNDLE_PATH=/usr/local/bundle \
 # Install Gems
 # -------------------------
 COPY Gemfile Gemfile.lock ./
+RUN bundle lock --remove-platform x64-mingw-ucrt
 RUN bundle install && rm -rf ~/.bundle "${BUNDLE_PATH}"/ruby/*/cache
 
 # -------------------------
