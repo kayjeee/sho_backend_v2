@@ -7,7 +7,6 @@ class Invitation
   field :token, type: String
   field :status, type: String, default: 'pending'
   field :recipient_phone_number, type: String
-  field :role, type: String
 
   # ===================== ASSOCIATIONS =====================
   belongs_to :sender, class_name: 'User'
