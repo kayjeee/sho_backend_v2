@@ -45,9 +45,9 @@ module ShoBackendV2
       end
     end
 
-    # --- Autoload lib/ for custom modules ---
-    config.autoload_paths << Rails.root.join("lib")
-    config.eager_load_paths << Rails.root.join("lib")
+    # --- Autoload app/lib for custom modules ---
+    config.autoload_paths << Rails.root.join("app", "lib")
+    config.eager_load_paths << Rails.root.join("app", "lib")
 
     # --- Time zone & I18n ---
     config.time_zone = "Pretoria"
