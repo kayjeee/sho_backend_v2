@@ -2,11 +2,11 @@ require_relative "boot"
 
 # --- Load only the frameworks you need ---
 require "rails"
+require "active_record/railtie"
 require "action_controller/railtie"
 require "action_mailer/railtie"
 #require "active_job/railtie"
 require "active_model/railtie"
-# ❌ No ActiveRecord
 # ❌ No ActionCable
 # ❌ No Sprockets / assets
 
@@ -45,9 +45,9 @@ module ShoBackendV2
       end
     end
 
-    # --- Autoload lib/ for custom modules ---
-    config.autoload_paths << Rails.root.join("lib")
-    config.eager_load_paths << Rails.root.join("lib")
+    # --- Autoload app/lib for custom modules ---
+    config.autoload_paths << Rails.root.join("app", "lib")
+    config.eager_load_paths << Rails.root.join("app", "lib")
 
     # --- Time zone & I18n ---
     config.time_zone = "Pretoria"

@@ -33,6 +33,7 @@ gem "thruster", require: false   # Optional process management
 
 # --- Platform Compatibility ---
 gem "tzinfo-data", platforms: %i[ windows jruby ]
+gem "pg", "~> 1.5"
 
 # --- Environment Variables ---
 group :development, :test do

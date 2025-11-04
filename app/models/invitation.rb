@@ -7,6 +7,7 @@ class Invitation
   field :token, type: String
   field :status, type: String, default: 'pending'
   field :recipient_phone_number, type: String
+  field :role, type: String, default: 'parent' # Add role field
 
   # ===================== ASSOCIATIONS =====================
   belongs_to :sender, class_name: 'User'
@@ -15,8 +16,10 @@ class Invitation
   # ===================== VALIDATIONS ======================
   validates :recipient_phone_number, presence: true
   validates :token, presence: true, uniqueness: true
+  validates :role, presence: true
 
   # ======================= INDEXES ========================
   index({ token: 1 }, { unique: true })
   index({ status: 1 })
+  index({ role: 1 })
 end
