@@ -18,6 +18,7 @@ RUN apt-get update -qq && apt-get install --no-install-recommends -y \
     pkg-config \
     libyaml-dev \
     nodejs \
+    openssl \
   && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives
 
 # -------------------------
@@ -45,6 +46,8 @@ COPY . .
 
 # Ensure scripts are executable
 RUN chmod +x bin/* && sed -i 's/\r$//g' bin/*
+RUN chmod +x script/generate-ssl-certs.sh
+RUN script/generate-ssl-certs.sh
 
 # -------------------------
 # Environment Variables
