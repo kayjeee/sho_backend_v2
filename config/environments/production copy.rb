@@ -18,8 +18,8 @@ Rails.application.configure do
   }
 
   # --- SSL ---
-  config.assume_ssl = true
-  config.force_ssl = true
+   # config.assume_ssl = true
+   # config.force_ssl = true
 
   # --- Logging setup ---
   config.log_tags = [:request_id]

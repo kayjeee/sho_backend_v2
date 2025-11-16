@@ -18,8 +18,14 @@ Rails.application.configure do
   }
 
   # --- SSL ---
-  config.assume_ssl = true
-  config.force_ssl = true
+# Trust Railway's reverse proxy for HTTPS
+# config.assume_ssl = true
+# config.force_ssl = true
+# config.action_dispatch.trusted_proxies = [
+ #  IPAddr.new("0.0.0.0/0"), # Trust all proxies (safe for Railway)
+# ]
+config.force_ssl = false
+config.assume_ssl = false
 
   # --- Logging setup ---
   config.log_tags = [:request_id]

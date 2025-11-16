@@ -17,7 +17,10 @@ services:
       - "4000:4000"
     volumes:
       - .:/app:cached
-    command: bundle exec rails server -b 0.0.0.0 -p 4000
+    command: >
+      sh -c "
+        bundle exec rails server -b 'ssl://0.0.0.0?key=config/ssl/localhost.key&cert=config/ssl/localhost.crt' -p 4000
+      "
     stdin_open: true
     tty: true
 

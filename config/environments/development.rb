@@ -46,6 +46,8 @@ Rails.application.configure do
 
   # --- Allowed hosts (ngrok or custom dev domains) ---
   config.hosts << ENV.fetch("DEV_HOST", "localhost")
+config.force_ssl = false
+config.assume_ssl = false
 
   # --- I18n fallbacks ---
   config.i18n.fallbacks = true
