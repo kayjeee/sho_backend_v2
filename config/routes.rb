@@ -27,6 +27,8 @@ Rails.application.routes.draw do
         end
       end
 
+      get 'parents/:parent_id/learners', to: 'parents#learners'
+
       # Invites Routes with PR code and short link functionality
       resources :invites, only: [:create, :show, :update] do
         member do
