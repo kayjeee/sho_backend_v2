@@ -1,0 +1,15 @@
+# test/fixtures/learners.yml
+learner_one:
+  first_name: Learner
+  last_name: One
+  parent_info: { auth0_id: 'auth0|parent1' }
+
+learner_two:
+  first_name: Learner
+  last_name: Two
+  parent_info: { auth0_id: 'auth0|parent1' }
+
+learner_three:
+  first_name: Learner
+  last_name: Three
+  parent_info: { auth0_id: 'auth0|parent2' }

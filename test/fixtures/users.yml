@@ -1,0 +1,14 @@
+# test/fixtures/users.yml
+parent_one:
+  name: Parent One
+  email: parent1@example.com
+  auth0_id: 'auth0|parent1'
+  roles: ['parent']
+  status: 'active'
+
+parent_two:
+  name: Parent Two
+  email: parent2@example.com
+  auth0_id: 'auth0|parent2'
+  roles: ['parent']
+  status: 'active'
