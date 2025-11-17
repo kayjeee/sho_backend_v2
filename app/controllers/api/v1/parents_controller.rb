@@ -10,6 +10,15 @@ module Api::V1
       render json: learners.map(&:to_api_hash), status: :ok
     end
 
+    def profile
+      # Return the parent's profile information
+      render json: {
+        parent: @parent.to_api_hash,
+        # Add any additional profile data here
+        learner_count: Learner.where('parent_info.auth0_id' => @parent.auth0_id).count
+      }, status: :ok
+    end
+
     private
 
     def set_parent
