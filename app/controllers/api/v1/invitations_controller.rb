@@ -35,6 +35,21 @@ class Api::V1::InvitationsController < ApplicationController
     end
   end
 
+  def verify
+    token = params[:token]
+    invitation = Invitation.find_by(token: token)
+
+    if invitation
+      if invitation.update(status: 'verified')
+        render json: { success: true, message: 'Invitation verified successfully.' }, status: :ok
+      else
+        render json: { success: false, errors: invitation.errors.full_messages }, status: :unprocessable_entity
+      end
+    else
+      render json: { success: false, message: 'Invalid or expired invitation link.' }, status: :not_found
+    end
+  end
+
   private
 
   def current_user

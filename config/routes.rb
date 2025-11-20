@@ -102,7 +102,11 @@ Rails.application.routes.draw do
       end
 
       # INVITATIONS MANAGEMENT
-        resources :invitations, only: [:create]
+      resources :invitations, only: [:create] do
+        collection do
+          post :verify
+        end
+      end
       resources :learner_invitations, only: [:index, :show, :update, :destroy] do
         member do
           post :accept

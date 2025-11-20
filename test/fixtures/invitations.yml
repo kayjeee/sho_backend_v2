@@ -1,0 +1,16 @@
+# test/fixtures/invitations.yml
+one:
+  sender: one
+  school: one
+  token: "valid-token-1"
+  status: "pending"
+  recipient_phone_number: "1234567890"
+  role: "parent"
+
+two:
+  sender: two
+  school: two
+  token: "valid-token-2"
+  status: "pending"
+  recipient_phone_number: "0987654321"
+  role: "teacher"
