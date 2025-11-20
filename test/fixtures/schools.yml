@@ -1,0 +1,6 @@
+# test/fixtures/schools.yml
+one:
+  name: "Test School One"
+
+two:
+  name: "Test School Two"

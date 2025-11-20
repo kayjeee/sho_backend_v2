@@ -9,6 +9,7 @@ class OnboardingStatus
   field :admin_onboarding_completed, type: Boolean, default: false
   field :parent_onboarding_completed, type: Boolean, default: false
   field :guest_onboarding_completed, type: Boolean, default: false
+  field :completed, type: Boolean, default: false
 
   field :current_step, type: String
   field :completed_steps, type: Array, default: []
@@ -45,6 +46,7 @@ class OnboardingStatus
   def auto_complete_if_ready!
     if all_steps_completed?
       self.completed_at = Time.current
+      self.completed = true
       true
     else
       false
