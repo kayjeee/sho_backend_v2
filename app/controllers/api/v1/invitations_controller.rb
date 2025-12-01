@@ -4,6 +4,7 @@ class Api::V1::InvitationsController < ApplicationController
   def create
     Rails.logger.info "🔹 [InvitationsController] Creating invitation with params: #{params}"
     
+    learner_ids = params[:learner_ids] || []
     invitation_service = UserServices::InvitationService.new(
       sender: current_user,
       recipient_phone_number: params[:phone_number],
