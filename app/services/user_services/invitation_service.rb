@@ -1,31 +1,40 @@
 # app/services/user_services/invitation_service.rb
 module UserServices
   class InvitationService
-    def initialize(sender:, recipient_phone_number:, school_id:, role: 'parent')
+    def initialize(sender:, recipient_phone_number:, school_id:, role: 'parent', learner_ids: [], parent_name: nil, grade_id: nil)
       @sender = sender
       @recipient_phone_number = recipient_phone_number
       @school_id = school_id
       @role = role
+      @learner_ids = learner_ids || []
+      @parent_name = parent_name
+      @grade_id = grade_id
     end
 
     def call
       Rails.logger.info "🔹 [InvitationService] Creating invitation for #{@recipient_phone_number}"
-      
-      # Find school first
+
       school = School.find(@school_id)
-      
+      learners = find_learners(school)
+      learner_ids = learners.map { |learner| learner.id.to_s }
+      learner_names = learners.map(&:full_name)
+
       invitation = Invitation.create!(
         sender: @sender,
         recipient_phone_number: @recipient_phone_number,
         school: school,
-        role: @role, # Add role to invitation
-        token: generate_token
+        role: @role,
+        token: generate_token,
+        learner_ids: learner_ids,
+        learner_names: learner_names,
+        parent_name: @parent_name,
+        grade_id: @grade_id
       )
-      
+
       Rails.logger.info "✅ [InvitationService] Invitation created: #{invitation.id} with token: #{invitation.token}"
       
       send_sms(invitation)
-      invitation # Return the invitation object with token
+      invitation
       
     rescue Mongoid::Errors::DocumentNotFound => e
       Rails.logger.error "❌ [InvitationService] School not found: #{@school_id}"
@@ -40,6 +49,18 @@ module UserServices
     end
 
     private
+
+    def find_learners(school)
+      if @learner_ids.any?
+        return Learner.where(school_id: school.id, :id.in => @learner_ids)
+      end
+
+      Learner.where(school_id: school.id).or(
+        { 'parent_info.phone' => @recipient_phone_number },
+        { 'parent_info.contact_number' => @recipient_phone_number },
+        { 'parent_info.primary_contact' => @recipient_phone_number }
+      )
+    end
 
     def generate_token
       loop do

@@ -4,11 +4,15 @@ class Api::V1::InvitationsController < ApplicationController
   def create
     Rails.logger.info "🔹 [InvitationsController] Creating invitation with params: #{params}"
     
+    learner_ids = params[:learner_ids] || []
     invitation_service = UserServices::InvitationService.new(
       sender: current_user,
       recipient_phone_number: params[:phone_number],
       school_id: params[:school_id],
-      role: params[:role] || 'parent' # Include role parameter
+      role: params[:role] || 'parent',
+      learner_ids: learner_ids,
+      parent_name: params[:parent_name],
+      grade_id: params[:grade_id]
     )
     
     invitation = invitation_service.call
@@ -41,7 +45,21 @@ class Api::V1::InvitationsController < ApplicationController
 
     if invitation
       if invitation.update(status: 'verified')
-        render json: { success: true, message: 'Invitation verified successfully.' }, status: :ok
+        render json: {
+          success: true,
+          message: 'Invitation verified successfully.',
+          invitation: {
+            id: invitation.id.to_s,
+            recipient_phone_number: invitation.recipient_phone_number,
+            role: invitation.role,
+            status: invitation.status,
+            learner_ids: invitation.learner_ids,
+            learner_names: invitation.learner_names,
+            parent_name: invitation.parent_name,
+            grade_id: invitation.grade_id,
+            school_id: invitation.school_id.to_s
+          }
+        }, status: :ok
       else
         render json: { success: false, errors: invitation.errors.full_messages }, status: :unprocessable_entity
       end
