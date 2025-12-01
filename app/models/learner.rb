@@ -23,6 +23,7 @@ class Learner
   # ======================== NEW MOBILE FIELDS ========================
   field :date_of_birth,   type: Date
   field :parent_info,     type: Hash, default: {}
+  field :parent_ids,      type: Array, default: []
   field :enrollment_date, type: Date
   field :mobile_sync_id,  type: String
   field :last_sync_at,    type: DateTime
@@ -50,6 +51,7 @@ class Learner
   index({ school_id: 1, last_sync_at: 1 })
   # Update the grade index to use the actual database field name
   index({ gradeId: 1 })  # ← UPDATE THIS INDEX
+  index({ parent_ids: 1 })
 
   # ======================= CALLBACKS =======================
   before_validation :set_default_accession_number, if: -> { accession_number.blank? }
