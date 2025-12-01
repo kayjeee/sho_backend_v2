@@ -77,8 +77,8 @@ end
   private
 
   def user_params
-    Rails.logger.debug "🔒 Permitting user fields: name, email, auth0_id, roles"
-    params.require(:user).permit(:name, :email, :auth0_id, roles: [])
+    Rails.logger.debug "🔒 Permitting user fields: name, email, auth0_id, roles, invitation_token"
+    params.require(:user).permit(:name, :email, :auth0_id, :invitation_token, roles: [])
   end
 
   def set_user
