@@ -6,7 +6,7 @@ module UserServices
       @recipient_phone_number = recipient_phone_number
       @school_id = school_id
       @role = role
-      @learner_ids = learner_ids
+      @learner_ids = learner_ids || []
       @parent_name = parent_name
       @grade_id = grade_id
     end
@@ -51,7 +51,7 @@ module UserServices
     private
 
     def find_learners(school)
-      if @learner_ids&.any?
+      if @learner_ids.any?
         return school.learners.where(:id.in => @learner_ids)
       end
 
