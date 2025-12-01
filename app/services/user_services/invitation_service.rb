@@ -1,12 +1,20 @@
 # app/services/user_services/invitation_service.rb
 module UserServices
   class InvitationService
+fix/invitation-service-nil-error
+    def initialize(sender:, recipient_phone_number:, school_id:, role: 'parent', learner_ids: nil, parent_name: nil, grade_id: nil)
+=======
     def initialize(sender:, recipient_phone_number:, school_id:, role: 'parent', learner_ids: [], parent_name: nil, grade_id: nil)
+ feature-implement-invitation-verification
       @sender = sender
       @recipient_phone_number = recipient_phone_number
       @school_id = school_id
       @role = role
+ fix/invitation-service-nil-error
+      @learner_ids = learner_ids || []
+=======
       @learner_ids = learner_ids
+feature-implement-invitation-verification
       @parent_name = parent_name
       @grade_id = grade_id
     end
@@ -51,7 +59,11 @@ module UserServices
     private
 
     def find_learners(school)
+ fix/invitation-service-nil-error
+      if @learner_ids.any?
+=======
       if @learner_ids&.any?
+feature-implement-invitation-verification
         return school.learners.where(:id.in => @learner_ids)
       end
 
