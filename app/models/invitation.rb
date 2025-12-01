@@ -8,6 +8,10 @@ class Invitation
   field :status, type: String, default: 'pending'
   field :recipient_phone_number, type: String
   field :role, type: String, default: 'parent' # Add role field
+  field :learner_ids, type: Array, default: []
+  field :learner_names, type: Array, default: []
+  field :parent_name, type: String
+  field :grade_id, type: String
 
   # ===================== ASSOCIATIONS =====================
   belongs_to :sender, class_name: 'User'
@@ -22,4 +26,5 @@ class Invitation
   index({ token: 1 }, { unique: true })
   index({ status: 1 })
   index({ role: 1 })
+  index({ learner_ids: 1 })
 end
