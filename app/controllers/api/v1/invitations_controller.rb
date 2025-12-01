@@ -10,7 +10,7 @@ class Api::V1::InvitationsController < ApplicationController
       recipient_phone_number: params[:phone_number],
       school_id: params[:school_id],
       role: params[:role] || 'parent',
-      learner_ids: learner_ids,
+      learner_ids: params[:learner_ids],
       parent_name: params[:parent_name],
       grade_id: params[:grade_id]
     )
