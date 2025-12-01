@@ -51,7 +51,7 @@ module UserServices
     private
 
     def find_learners(school)
-      if @learner_ids.any?
+      if @learner_ids&.any?
         return school.learners.where(:id.in => @learner_ids)
       end
 
