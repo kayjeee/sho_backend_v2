@@ -103,14 +103,10 @@ Rails.application.routes.draw do
 
       # INVITATIONS MANAGEMENT
       resources :invitations, param: :token, only: [:create] do
-        member do
-          get :verify_with_details
-        end
         collection do
           post :verify
         end
       end
-      get 'invitations/:token/verify_with_details', to: 'invitations#verify_with_details', as: :verify_invitation_with_details
       resources :learner_invitations, only: [:index, :show, :update, :destroy] do
         member do
           post :accept
@@ -344,6 +340,9 @@ Rails.application.routes.draw do
 
   # Global health route (works for Fly.io and load balancers)
   get 'health', to: 'api/v1/home#health'
+
+  # Unauthenticated invitation route
+  get 'invitations/:token/verify_with_details', to: 'api/v1/invitations#verify_with_details'
 
   # API documentation route
   get 'api/docs', to: 'api/v1/documentation#index'

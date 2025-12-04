@@ -1,7 +1,5 @@
 # app/controllers/api/v1/invitations_controller.rb
 class Api::V1::InvitationsController < ApplicationController
-  skip_before_action :authenticate_request, only: [:verify_with_details]
-
   def verify_with_details
     token = params[:token]
     invitation = Invitation.find_by(token: token)
