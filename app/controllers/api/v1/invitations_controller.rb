@@ -1,5 +1,31 @@
 # app/controllers/api/v1/invitations_controller.rb
 class Api::V1::InvitationsController < ApplicationController
+  skip_before_action :authenticate_request, only: [:verify_with_details]
+
+  def verify_with_details
+    token = params[:token]
+    invitation = Invitation.find_by(token: token)
+
+    if invitation
+      render json: {
+        success: true,
+        message: 'Invitation details fetched successfully.',
+        invitation: {
+          id: invitation.id.to_s,
+          recipient_phone_number: invitation.recipient_phone_number,
+          role: invitation.role,
+          status: invitation.status,
+          learner_ids: invitation.learner_ids,
+          learner_names: invitation.learner_names,
+          parent_name: invitation.parent_name,
+          grade_id: invitation.grade_id,
+          school_id: invitation.school_id.to_s
+        }
+      }, status: :ok
+    else
+      render json: { success: false, message: 'Invalid or expired invitation link.' }, status: :not_found
+    end
+  end
 
   def create
     Rails.logger.info "🔹 [InvitationsController] Creating invitation with params: #{params}"
