@@ -107,6 +107,7 @@ Rails.application.routes.draw do
           post :verify
         end
       end
+      get 'invitations/:token/verify_with_details', to: 'invitations#verify_with_details', as: :verify_invitation_with_details
       resources :learner_invitations, only: [:index, :show, :update, :destroy] do
         member do
           post :accept
