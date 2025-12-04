@@ -102,7 +102,10 @@ Rails.application.routes.draw do
       end
 
       # INVITATIONS MANAGEMENT
-      resources :invitations, only: [:create] do
+      resources :invitations, param: :token, only: [:create] do
+        member do
+          get :verify_with_details
+        end
         collection do
           post :verify
         end
