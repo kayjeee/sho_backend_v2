@@ -291,6 +291,7 @@ Rails.application.routes.draw do
       post 'auth/refresh', to: 'authentication#refresh'
       post 'auth/forgot_password', to: 'authentication#forgot_password'
       post 'auth/reset_password', to: 'authentication#reset_password'
+      post 'auth/login', to: 'authentication#login'
 
       # ADMIN
       namespace :admin do
