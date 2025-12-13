@@ -23,7 +23,7 @@ module Api::V1
 
     def set_parent
       @parent = User.find_by(auth0_id: params[:parent_id])
-      render json: { error: 'Parent not found' }, status: :not_found unless @parent
+      render json: { error: 'Parent not found' }, status: :not_found and return unless @parent
     end
   end
 end
