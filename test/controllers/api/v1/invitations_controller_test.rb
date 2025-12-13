@@ -29,4 +29,22 @@ class Api::V1::InvitationsControllerTest < ActionDispatch::IntegrationTest
     post verify_api_v1_invitations_url, params: { token: @invitation.token }
     assert_response :unprocessable_entity
   end
+
+  test "should verify invitation with details with valid token" do
+    get "/invitations/#{@invitation.token}/verify_with_details"
+    assert_response :success
+    json_response = JSON.parse(response.body)
+    assert_equal true, json_response['success']
+    assert_not_nil json_response['invitation']
+    assert_equal @invitation.id.to_s, json_response['invitation']['id']
+    assert_equal @invitation.recipient_phone_number, json_response['invitation']['recipient_phone_number']
+  end
+
+  test "should not verify invitation with details with invalid token" do
+    get "/invitations/invalid-token/verify_with_details"
+    assert_response :not_found
+    json_response = JSON.parse(response.body)
+    assert_equal false, json_response['success']
+    assert_equal 'Invalid or expired invitation link.', json_response['message']
+  end
 end
