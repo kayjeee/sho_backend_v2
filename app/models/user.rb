@@ -405,7 +405,8 @@ class User
       status: status,
       last_login: last_login&.iso8601,
       created_at: created_at&.iso8601,
-      updated_at: updated_at&.iso8601
+      updated_at: updated_at&.iso8601,
+      onboarding_prefill: onboarding_prefill
     }
     
     # Include onboarding status
@@ -518,6 +519,19 @@ class User
 
   def display_name
     name.presence || email.split('@').first
+  end
+
+  def onboarding_prefill
+    if invitation = Invitation.where(user_id: self.id).first
+      {
+        phone_number: invitation.recipient_phone_number,
+        school_id: invitation.school_id,
+        learner_ids: invitation.learner_ids,
+        parent_name: invitation.parent_name
+      }
+    else
+      {}
+    end
   end
 
   private

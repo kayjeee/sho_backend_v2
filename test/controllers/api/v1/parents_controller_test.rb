@@ -23,5 +23,18 @@ module Api::V1
       get "/api/v1/parents/nonexistent-id/learners"
       assert_response :not_found
     end
+
+    test 'should get profile for a specific parent with special characters in id' do
+      get "/api/v1/parents/#{@parent.auth0_id}/profile"
+      assert_response :success
+
+      profile_response = JSON.parse(response.body)
+      assert_equal @parent.auth0_id, profile_response['parent']['auth0_id']
+    end
+
+    test "should return 'not found' for profile if parent does not exist" do
+      get "/api/v1/parents/nonexistent-id/profile"
+      assert_response :not_found
+    end
   end
 end
