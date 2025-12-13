@@ -5,8 +5,6 @@ class Api::V1::InvitationsController < ApplicationController
     invitation = Invitation.find_by(token: token)
 
     if invitation
-      session[:invitation_token] = token
-
       render json: {
         success: true,
         invitation: {
