@@ -522,7 +522,7 @@ class User
   end
 
   def onboarding_prefill
-    if invitation = Invitation.find_by(user_id: self.id)
+    if invitation = Invitation.where(user_id: self.id).first
       {
         phone_number: invitation.recipient_phone_number,
         school_id: invitation.school_id,
