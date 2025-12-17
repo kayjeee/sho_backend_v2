@@ -6,7 +6,11 @@ module Api::V1
     # GET /api/v1/parents/:parent_id/learners
     def learners
       # This assumes the Learner model's parent_info hash contains the parent's auth0_id.
-      learners = Learner.where('parent_info.auth0_id' => @parent.auth0_id)
+      learners = Learner.or(
+        {'parent_info.auth0_id' => @parent.auth0_id},
+        {'auth0Id' => @parent.auth0_id},
+        {'userAuth0Id' => @parent.auth0_id}
+      )
       render json: learners.map(&:to_api_hash), status: :ok
     end
 
@@ -15,7 +19,11 @@ module Api::V1
       render json: {
         parent: @parent.to_api_hash,
         # Add any additional profile data here
-        learner_count: Learner.where('parent_info.auth0_id' => @parent.auth0_id).count
+        learner_count: Learner.or(
+          {'parent_info.auth0_id' => @parent.auth0_id},
+          {'auth0Id' => @parent.auth0_id},
+          {'userAuth0Id' => @parent.auth0_id}
+        ).count
       }, status: :ok
     end
 
