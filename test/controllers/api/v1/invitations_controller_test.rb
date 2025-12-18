@@ -1,6 +1,5 @@
 # test/controllers/api/v1/invitations_controller_test.rb
 require 'test_helper'
-require 'mocha/minitest'
 
 module Api::V1
   class InvitationsControllerTest < ActionDispatch::IntegrationTest
@@ -9,17 +8,14 @@ module Api::V1
       @school = schools(:school_one)
       @learner = learners(:learner_one)
       @invitation = invitations(:one)
-
-      # Stub the authorization for all tests in this class
-      Api::V1::InvitationsController.any_instance.stubs(:authorize).returns(true)
-      Api::V1::InvitationsController.any_instance.stubs(:current_user).returns(@user)
     end
 
-    test "should create invitation when authenticated" do
+    test "should create invitation" do
       post api_v1_invitations_url, params: {
         phone_number: '1234567890',
         school_id: @school.id.to_s,
-        learner_number: @learner.accession_number
+        learner_number: @learner.accession_number,
+        user_email: @user.email
       }
       assert_response :created
       json_response = JSON.parse(response.body)
@@ -27,8 +23,8 @@ module Api::V1
       assert_not_nil json_response['invitation']['token']
     end
 
-    test "should verify invitation and link learner when authenticated" do
-      post verify_api_v1_invitations_url, params: { token: @invitation.token }
+    test "should verify invitation and link learner" do
+      post verify_api_v1_invitations_url, params: { token: @invitation.token, user_email: @user.email }
       assert_response :ok
       json_response = JSON.parse(response.body)
       assert json_response['success']
@@ -40,13 +36,14 @@ module Api::V1
     test "should not create invitation without learner number" do
       post api_v1_invitations_url, params: {
         phone_number: '1234567890',
-        school_id: @school.id.to_s
+        school_id: @school.id.to_s,
+        user_email: @user.email
       }
       assert_response :unprocessable_entity
     end
 
     test "should return not found for invalid token on verify" do
-      post verify_api_v1_invitations_url, params: { token: 'invalid-token' }
+      post verify_api_v1_invitations_url, params: { token: 'invalid-token', user_email: @user.email }
       assert_response :not_found
     end
 

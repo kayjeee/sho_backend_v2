@@ -1,6 +1,5 @@
 # test/controllers/api/v1/my_learners_controller_test.rb
 require 'test_helper'
-require 'mocha/minitest'
 
 module Api::V1
   class MyLearnersControllerTest < ActionDispatch::IntegrationTest
@@ -24,16 +23,12 @@ module Api::V1
 
       # An unassociated learner that should not be returned
       @other_learner = learners(:learner_three)
-
-      # Stub the authorization for all tests in this class
-      Api::V1::MyLearnersController.any_instance.stubs(:authorize).returns(true)
-      Api::V1::MyLearnersController.any_instance.stubs(:current_user).returns(@user)
     end
 
     # --- Tests for the new /my_learners route ---
 
-    test 'should get all associated learners for an authenticated user via my_learners route' do
-      get '/api/v1/my_learners'
+    test 'should get all associated learners for a user via my_learners route' do
+      get '/api/v1/my_learners', headers: { 'X-User-Email' => @user.email }
 
       assert_response :success
 

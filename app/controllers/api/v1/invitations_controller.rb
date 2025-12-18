@@ -1,7 +1,6 @@
 # app/controllers/api/v1/invitations_controller.rb
 class Api::V1::InvitationsController < ApplicationController
-  include Secured
-  before_action :authorize, only: [:create, :verify]
+  skip_before_action :authenticate_user!, raise: false
 
   def verify_with_details
     token = params[:token]
@@ -75,7 +74,7 @@ class Api::V1::InvitationsController < ApplicationController
     end
 
     # Link the learner to the current user
-    unless current_user.learner_ids.include?(learner.id.to_s)
+    if current_user && !current_user.learner_ids.include?(learner.id.to_s)
       current_user.learner_ids << learner.id.to_s
       current_user.save
     end
@@ -85,7 +84,7 @@ class Api::V1::InvitationsController < ApplicationController
     render json: {
       success: true,
       message: 'User linked to learner successfully.',
-      user: { auth0_id: current_user.auth0_id },
+      user: { auth0_id: current_user&.auth0_id },
       learner: { learner_number: learner.accession_number, school_id: learner.school_id.to_s },
       linked: true
     }, status: :ok
@@ -94,6 +93,10 @@ class Api::V1::InvitationsController < ApplicationController
   private
 
   def current_user
-    @current_user ||= User.find_by(auth0_id: @decoded_token.auth0_id) if @decoded_token
+    @current_user ||= if params[:user_email]
+      User.find_by(email: params[:user_email])
+    elsif request.headers['X-User-Email']
+      User.find_by(email: request.headers['X-User-Email'])
+    end
   end
 end

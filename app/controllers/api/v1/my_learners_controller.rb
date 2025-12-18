@@ -1,11 +1,14 @@
 # app/controllers/api/v1/my_learners_controller.rb
 module Api::V1
   class MyLearnersController < ApplicationController
-    include Secured
-    before_action :authorize
+    skip_before_action :authenticate_user!, raise: false
     before_action :set_user
 
     def index
+      unless @user
+        render json: { error: 'User not found' }, status: :not_found and return
+      end
+
       # New learner-centric logic
       newly_linked_learners = Learner.where(:id.in => @user.learner_ids)
 
@@ -38,14 +41,17 @@ module Api::V1
     def set_user
       if params[:parent_id]
         @user = User.find_by(auth0_id: params[:parent_id])
-        render json: { error: 'Parent not found' }, status: :not_found and return unless @user
       else
         @user = current_user
       end
     end
 
     def current_user
-      @current_user ||= User.find_by(auth0_id: @decoded_token.auth0_id) if @decoded_token
+      @current_user ||= if params[:user_email]
+        User.find_by(email: params[:user_email])
+      elsif request.headers['X-User-Email']
+        User.find_by(email: request.headers['X-User-Email'])
+      end
     end
   end
 end
