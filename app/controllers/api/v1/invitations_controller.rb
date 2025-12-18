@@ -1,5 +1,8 @@
 # app/controllers/api/v1/invitations_controller.rb
 class Api::V1::InvitationsController < ApplicationController
+  include Secured
+  before_action :authorize, only: [:create, :verify]
+
   def verify_with_details
     token = params[:token]
     invitation = Invitation.find_by(token: token)
@@ -91,10 +94,6 @@ class Api::V1::InvitationsController < ApplicationController
   private
 
   def current_user
-    @current_user ||= if params[:user_email]
-      User.find_by(email: params[:user_email])
-    elsif request.headers['X-User-Email']
-      User.find_by(email: request.headers['X-User-Email'])
-    end
+    @current_user ||= User.find_by(auth0_id: @decoded_token.auth0_id) if @decoded_token
   end
 end

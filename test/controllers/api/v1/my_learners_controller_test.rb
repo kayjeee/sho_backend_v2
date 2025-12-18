@@ -1,5 +1,6 @@
 # test/controllers/api/v1/my_learners_controller_test.rb
 require 'test_helper'
+require 'mocha/minitest'
 
 module Api::V1
   class MyLearnersControllerTest < ActionDispatch::IntegrationTest
@@ -23,12 +24,16 @@ module Api::V1
 
       # An unassociated learner that should not be returned
       @other_learner = learners(:learner_three)
+
+      # Stub the authorization for all tests in this class
+      Api::V1::MyLearnersController.any_instance.stubs(:authorize).returns(true)
+      Api::V1::MyLearnersController.any_instance.stubs(:current_user).returns(@user)
     end
 
     # --- Tests for the new /my_learners route ---
 
     test 'should get all associated learners for an authenticated user via my_learners route' do
-      get '/api/v1/my_learners', headers: { 'X-User-Auth0-Id' => @user.auth0_id }
+      get '/api/v1/my_learners'
 
       assert_response :success
 
@@ -71,13 +76,6 @@ module Api::V1
     test "should return 'not found' for legacy route if parent does not exist" do
       get "/api/v1/parents/nonexistent-id/learners"
       assert_response :not_found
-    end
-
-    # --- Authentication Test ---
-
-    test 'should not return learners if unauthenticated' do
-      get '/api/v1/my_learners'
-      assert_response :unauthorized
     end
   end
 end

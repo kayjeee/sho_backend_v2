@@ -1,7 +1,8 @@
 # app/controllers/api/v1/my_learners_controller.rb
 module Api::V1
   class MyLearnersController < ApplicationController
-    before_action :authenticate_user! # Assuming you have a way to authenticate the current_user
+    include Secured
+    before_action :authorize
     before_action :set_user
 
     def index
@@ -41,6 +42,10 @@ module Api::V1
       else
         @user = current_user
       end
+    end
+
+    def current_user
+      @current_user ||= User.find_by(auth0_id: @decoded_token.auth0_id) if @decoded_token
     end
   end
 end
