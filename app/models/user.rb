@@ -13,6 +13,7 @@ class User
   field :status,           type: String, default: 'active'
   field :last_login,       type: Time
   field :phone_number,     type: String
+  field :learner_ids,      type: Array,  default: []
 
   # ===================== VALIDATIONS ======================
   validates :email,        presence: true, uniqueness: true

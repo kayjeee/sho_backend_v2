@@ -27,8 +27,7 @@ Rails.application.routes.draw do
         end
       end
 
-      get 'parents/:parent_id/learners', to: 'parents#learners', constraints: { parent_id: /[^\/]+/ }
-      get 'parents/:parent_id/profile', to: 'parents#profile', constraints: { parent_id: /[^\/]+/ }
+      get 'my_learners', to: 'my_learners#index'
 
       # Invites Routes with PR code and short link functionality
       resources :invites, only: [:create, :show, :update] do

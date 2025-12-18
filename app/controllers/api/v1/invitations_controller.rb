@@ -21,15 +21,14 @@ class Api::V1::InvitationsController < ApplicationController
   end
 
   def create
-    Rails.logger.info "🔹 [InvitationsController] Creating invitation with params: #{params}"
+    Rails.logger.info "🔹 [InvitationsController] Creating learner-centric invitation with params: #{params}"
     
-    learner_ids = params[:learner_ids] || []
     invitation_service = UserServices::InvitationService.new(
       sender: current_user,
       recipient_phone_number: params[:phone_number],
       school_id: params[:school_id],
+      learner_number: params[:learner_number],
       role: params[:role] || 'parent',
-      learner_ids: learner_ids,
       parent_name: params[:parent_name],
       grade_id: params[:grade_id]
     )
@@ -43,7 +42,7 @@ class Api::V1::InvitationsController < ApplicationController
         message: 'Invitation sent successfully.',
         invitation: {
           id: invitation.id.to_s,
-          token: invitation.token, # 🔥 CRITICAL: Return the token
+          token: invitation.token,
           recipient_phone_number: invitation.recipient_phone_number,
           role: invitation.role,
           status: invitation.status
@@ -60,31 +59,33 @@ class Api::V1::InvitationsController < ApplicationController
 
   def verify
     token = params[:token]
-    invitation = Invitation.find_by(token: token)
+    invitation = Invitation.find_by(token: token, status: 'pending')
 
-    if invitation
-      if invitation.update(status: 'verified')
-        render json: {
-          success: true,
-          message: 'Invitation verified successfully.',
-          invitation: {
-            id: invitation.id.to_s,
-            recipient_phone_number: invitation.recipient_phone_number,
-            role: invitation.role,
-            status: invitation.status,
-            learner_ids: invitation.learner_ids,
-            learner_names: invitation.learner_names,
-            parent_name: invitation.parent_name,
-            grade_id: invitation.grade_id,
-            school_id: invitation.school_id.to_s
-          }
-        }, status: :ok
-      else
-        render json: { success: false, errors: invitation.errors.full_messages }, status: :unprocessable_entity
-      end
-    else
-      render json: { success: false, message: 'Invalid or expired invitation link.' }, status: :not_found
+    unless invitation
+      render json: { success: false, message: 'Invalid or expired invitation link.' }, status: :not_found and return
     end
+
+    learner = Learner.find_by(school_id: invitation.school_id, accession_number: invitation.learner_number)
+
+    unless learner
+      render json: { success: false, message: 'Learner not found for this invitation.' }, status: :not_found and return
+    end
+
+    # Link the learner to the current user
+    unless current_user.learner_ids.include?(learner.id.to_s)
+      current_user.learner_ids << learner.id.to_s
+      current_user.save
+    end
+
+    invitation.update(status: 'verified')
+
+    render json: {
+      success: true,
+      message: 'User linked to learner successfully.',
+      user: { auth0_id: current_user.auth0_id },
+      learner: { learner_number: learner.accession_number, school_id: learner.school_id.to_s },
+      linked: true
+    }, status: :ok
   end
 
   private
