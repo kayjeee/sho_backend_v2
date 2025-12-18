@@ -29,6 +29,10 @@ Rails.application.routes.draw do
 
       get 'my_learners', to: 'my_learners#index'
 
+      # Legacy parent routes for backward compatibility
+      get 'parents/:parent_id/learners', to: 'my_learners#index', constraints: { parent_id: /[^\/]+/ }
+      get 'parents/:parent_id/profile', to: 'my_learners#index', constraints: { parent_id: /[^\/]+/ }
+
       # Invites Routes with PR code and short link functionality
       resources :invites, only: [:create, :show, :update] do
         member do

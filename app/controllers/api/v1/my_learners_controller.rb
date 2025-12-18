@@ -2,26 +2,45 @@
 module Api::V1
   class MyLearnersController < ApplicationController
     before_action :authenticate_user! # Assuming you have a way to authenticate the current_user
+    before_action :set_user
 
     def index
       # New learner-centric logic
-      newly_linked_learners = Learner.where(:id.in => current_user.learner_ids)
+      newly_linked_learners = Learner.where(:id.in => @user.learner_ids)
 
       # Old parent-centric logic for backward compatibility
-      learners_in_school = Learner.where(:school_id.in => current_user.school_ids)
+      learners_in_school = Learner.where(:school_id.in => @user.school_ids)
       legacy_linked_learners = learners_in_school.or(
-        {'parent_info.auth0_id' => current_user.auth0_id},
-        {'auth0Id' => current_user.auth0_id},
-        {'userAuth0Id' => current_user.auth0_id}
+        {'parent_info.auth0_id' => @user.auth0_id},
+        {'auth0Id' => @user.auth0_id},
+        {'userAuth0Id' => @user.auth0_id}
       )
 
       # Combine and unique the learners
       all_learners = (newly_linked_learners.to_a + legacy_linked_learners.to_a).uniq
 
-      render json: {
+      response_data = {
         learners: all_learners.map(&:to_api_hash),
         learner_count: all_learners.count
-      }, status: :ok
+      }
+
+      # For backward compatibility with the old `/profile` route
+      if params[:parent_id] && request.path.include?('/profile')
+        response_data[:parent] = @user.to_api_hash
+      end
+
+      render json: response_data, status: :ok
+    end
+
+    private
+
+    def set_user
+      if params[:parent_id]
+        @user = User.find_by(auth0_id: params[:parent_id])
+        render json: { error: 'Parent not found' }, status: :not_found and return unless @user
+      else
+        @user = current_user
+      end
     end
   end
 end
