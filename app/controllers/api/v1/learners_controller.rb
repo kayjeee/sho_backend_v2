@@ -43,7 +43,9 @@ class Api::V1::LearnersController < ApplicationController
   # POST /api/v1/learners
   # ------------------------------
   def create
-    learner = Learner.new(learner_params)
+    p = learner_params.to_h
+    p[:school_id] = BSON::ObjectId(p[:school_id]) if p[:school_id].is_a?(String)
+    learner = Learner.new(p)
 
     if learner.save
       mark_upload_learners_complete(params[:user_id])
@@ -51,6 +53,8 @@ class Api::V1::LearnersController < ApplicationController
     else
       render_error(learner.errors.full_messages, :unprocessable_entity)
     end
+  rescue BSON::ObjectId::Invalid => e
+    render_error("Invalid school_id format", :bad_request)
   rescue => e
     render_exception("Learners#create", e)
   end
@@ -91,7 +95,7 @@ class Api::V1::LearnersController < ApplicationController
     new_school_id = params[:new_school_id].presence
     return render_error("new_school_id is required", :bad_request) if new_school_id.blank?
 
-    update_fields = { school_id: new_school_id }
+    update_fields = { school_id: BSON::ObjectId(new_school_id) }
     update_fields[:grade_id] = params[:new_grade_id] if params[:new_grade_id].present?
 
     if @learner.update(update_fields)
@@ -100,6 +104,8 @@ class Api::V1::LearnersController < ApplicationController
     else
       render_error(@learner.errors.full_messages, :unprocessable_entity)
     end
+  rescue BSON::ObjectId::Invalid => e
+    render_error("Invalid new_school_id format", :bad_request)
   rescue => e
     render_exception("Learners#transfer", e)
   end
@@ -116,14 +122,14 @@ class Api::V1::LearnersController < ApplicationController
     learners_data.each do |row|
       begin
         accession = row[:accessionNumber] || row["accessionNumber"]
-        school_id = row[:school_id] || row["school_id"] || params[:school_id]
-        raise ArgumentError, "accessionNumber and school_id are required" if accession.blank? || school_id.blank?
+        school_id_str = row[:school_id] || row["school_id"] || params[:school_id]
+        raise ArgumentError, "accessionNumber and school_id are required" if accession.blank? || school_id_str.blank?
 
         learner_hash = {
           first_name: row[:firstName] || row["firstName"],
           last_name: row[:lastName] || row["lastName"],
           accession_number: accession,
-          school_id: school_id,
+          school_id: BSON::ObjectId(school_id_str),
           grade_id: row[:gradeId] || row["gradeId"],
           gender: map_gender(row[:gender] || row["gender"]),
           status: map_status(row[:status] || row["status"]) || 0,
