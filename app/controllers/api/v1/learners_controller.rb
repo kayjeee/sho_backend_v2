@@ -169,6 +169,24 @@ class Api::V1::LearnersController < ApplicationController
     render_exception("Learners#bulk_upload", e)
   end
 
+  # ------------------------------
+  # POST /api/v1/learners/link
+  # ------------------------------
+  def link
+    learner = Learner.find_by(
+      accession_number: params[:learner_number],
+      :school_id.in => current_user.school_ids
+    )
+
+    if learner && current_user.push(learner_ids: learner.id.to_s)
+      render_success(message: "Learner linked successfully", data: { learner_id: learner.id.to_s })
+    else
+      render_error("Learner not found or could not be linked", :not_found)
+    end
+  rescue => e
+    render_exception("Learners#link", e)
+  end
+
   private
 
   # ------------------------------

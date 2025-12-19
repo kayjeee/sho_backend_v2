@@ -159,6 +159,7 @@ Rails.application.routes.draw do
       # LEARNERS
       resources :learners, only: [:index, :show, :create, :update, :destroy] do
         collection do
+          post :link
           post :bulk_upload
           get :search
           get :export

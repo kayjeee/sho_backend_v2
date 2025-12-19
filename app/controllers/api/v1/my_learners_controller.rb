@@ -9,21 +9,15 @@ module Api::V1
         render json: { error: 'User not found' }, status: :not_found and return
       end
 
-      all_learners = if @user.learner_ids.present?
-        # New, preferred logic: fetch learners directly via stored IDs
+      learners = if @user.learner_ids.present?
         Learner.where(:id.in => @user.learner_ids)
       else
-        # Legacy fallback for users who haven't been migrated to the new system
-        Learner.or(
-          {'parent_info.auth0_id' => @user.auth0_id},
-          {'auth0Id' => @user.auth0_id},
-          {'userAuth0Id' => @user.auth0_id}
-        )
+        Learner.none
       end
 
       response_data = {
-        learners: all_learners.map(&:to_api_hash),
-        learner_count: all_learners.count
+        learners: learners.map(&:to_api_hash),
+        learner_count: learners.count
       }
 
       # For backward compatibility with the old `/profile` route
