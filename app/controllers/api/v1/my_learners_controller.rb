@@ -9,19 +9,17 @@ module Api::V1
         render json: { error: 'User not found' }, status: :not_found and return
       end
 
-      # New learner-centric logic
-      newly_linked_learners = Learner.where(:id.in => @user.learner_ids)
-
-      # Old parent-centric logic for backward compatibility
-      learners_in_school = Learner.where(:school_id.in => @user.school_ids)
-      legacy_linked_learners = learners_in_school.or(
-        {'parent_info.auth0_id' => @user.auth0_id},
-        {'auth0Id' => @user.auth0_id},
-        {'userAuth0Id' => @user.auth0_id}
-      )
-
-      # Combine and unique the learners
-      all_learners = (newly_linked_learners.to_a + legacy_linked_learners.to_a).uniq
+      all_learners = if @user.learner_ids.present?
+        # New, preferred logic: fetch learners directly via stored IDs
+        Learner.where(:id.in => @user.learner_ids)
+      else
+        # Legacy fallback for users who haven't been migrated to the new system
+        Learner.or(
+          {'parent_info.auth0_id' => @user.auth0_id},
+          {'auth0Id' => @user.auth0_id},
+          {'userAuth0Id' => @user.auth0_id}
+        )
+      end
 
       response_data = {
         learners: all_learners.map(&:to_api_hash),
