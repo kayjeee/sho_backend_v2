@@ -74,7 +74,11 @@ class Api::V1::InvitationsController < ApplicationController
     end
 
     # Link the learner to the current user
-    if current_user && !current_user.learner_ids.include?(learner.id.to_s)
+    unless current_user
+      render json: { success: false, message: 'User not found for this invitation.' }, status: :not_found and return
+    end
+
+    if !current_user.learner_ids.include?(learner.id.to_s)
       current_user.learner_ids << learner.id.to_s
       current_user.save
     end
@@ -84,7 +88,7 @@ class Api::V1::InvitationsController < ApplicationController
     render json: {
       success: true,
       message: 'User linked to learner successfully.',
-      user: { auth0_id: current_user&.auth0_id },
+      user: { auth0_id: current_user.auth0_id },
       learner: { learner_number: learner.accession_number, school_id: learner.school_id.to_s },
       linked: true
     }, status: :ok

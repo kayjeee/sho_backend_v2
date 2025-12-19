@@ -6,10 +6,10 @@ module Api::V1
     setup do
       @user = users(:parent_one)
       @learner = learners(:learner_one)
-      @user.update(learner_ids: [@learner.id.to_s])
     end
 
     test 'should return learners if user has learner_ids' do
+      @user.update(learner_ids: [@learner.id.to_s])
       get '/api/v1/my_learners', headers: { 'X-User-Email' => @user.email }
 
       assert_response :success

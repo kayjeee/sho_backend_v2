@@ -157,9 +157,9 @@ Rails.application.routes.draw do
       end
 
       # LEARNERS
+      post 'learners/link', to: 'learner_links#create'
       resources :learners, only: [:index, :show, :create, :update, :destroy] do
         collection do
-          post :link
           post :bulk_upload
           get :search
           get :export
