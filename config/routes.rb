@@ -29,11 +29,19 @@ Rails.application.routes.draw do
 
       # Unauthenticated, secure route for a parent to get their own linked learners
       # e.g., /api/v1/parents/google-oauth2|12345/my_learners
+      # --- Parent and Learner Routes ---
+
+      # New, secure, unauthenticated route for fetching learners
       resources :parents, param: :parent_auth0_id, constraints: { parent_auth0_id: /[^\/]+/ }, only: [] do
         get 'my_learners', to: 'my_learners#index'
+        # Legacy route for backward compatibility
+        get 'profile', to: 'my_learners#profile'
       end
 
-      # Route to link a learner to the current user
+      # Legacy authenticated route for backward compatibility
+      get 'my_learners', to: 'my_learners#index'
+
+      # Route to link a learner to the current user (requires auth)
       post 'learner_links', to: 'learner_links#create'
 
       # Invites Routes with PR code and short link functionality

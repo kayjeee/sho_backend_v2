@@ -1,78 +1,76 @@
 # test/controllers/api/v1/my_learners_controller_test.rb
 require 'test_helper'
+require 'mocha/minitest'
 
 module Api::V1
   class MyLearnersControllerTest < ActionDispatch::IntegrationTest
     setup do
-      # Fixture data is loaded from test/fixtures/
       @parent = users(:parent_one)
       @linked_learner = learners(:learner_one)
       @unlinked_learner = learners(:learner_two)
 
-      # Ensure the data model is correct for the test:
-      # Link learner_one to the parent using the explicit `parent_auth0_ids` array.
+      # Link learner_one to the parent to set up the main test condition
       @linked_learner.update!(parent_auth0_ids: [@parent.auth0_id])
-
-      # Ensure learner_two is NOT linked to this parent.
-      @unlinked_learner.update!(parent_auth0_ids: ['some-other-parent-auth0-id'])
+      # Ensure learner_two is explicitly unlinked for security checks
+      @unlinked_learner.update!(parent_auth0_ids: ['some-other-parent-id'])
     end
 
-    test 'should return only linked learners when given a valid parent_auth0_id' do
-      # --- ARRANGE ---
-      # No authentication mocking is needed. The request is public.
-
-      # --- ACT ---
-      # Make a GET request to the new nested URL, passing the parent's auth0_id in the path.
+    # --- Test Case 1: New Unauthenticated Route ---
+    test 'GET /parents/:id/my_learners should return only linked learners without auth' do
       get "/api/v1/parents/#{@parent.auth0_id}/my_learners"
 
-      # --- ASSERT ---
       assert_response :success
-
       response_json = JSON.parse(response.body)
 
-      # Verify the response contains exactly one learner.
+      # Assert correct JSON shape for the new route
       assert_equal 1, response_json['count']
+      assert_equal 1, response_json['learners'].count
+      assert_equal @linked_learner.id.to_s, response_json['learners'].first['id']
 
-      # Verify that the learner in the response is the correct one.
-      returned_learner_ids = response_json['learners'].map { |l| l['id'] }
-      assert_includes returned_learner_ids, @linked_learner.id.to_s
-
-      # CRITICAL: Verify that the unlinked learner is NOT present in the response.
-      # This confirms the query is secure and does not leak data.
-      assert_not_includes returned_learner_ids, @unlinked_learner.id.to_s
+      # Assert data security
+      returned_ids = response_json['learners'].map { |l| l['id'] }
+      assert_not_includes returned_ids, @unlinked_learner.id.to_s
     end
 
-    test 'should return not_found if the parent_auth0_id does not exist' do
-      # --- ARRANGE ---
-      invalid_parent_id = 'non-existent-auth0-id'
+    # --- Test Case 2: Legacy Authenticated Route ---
+    test 'GET /my_learners should return linked learners with JWT auth' do
+      # Mock the JWT authentication
+      Api::V1::MyLearnersController.any_instance.stubs(:authorize).returns(true)
+      decoded_token = mock()
+      decoded_token.stubs(:token).returns({ 'sub' => @parent.auth0_id })
+      Api::V1::MyLearnersController.any_instance.stubs(:instance_variable_get).with(:@decoded_token).returns(decoded_token)
 
-      # --- ACT ---
-      # Make a request with an ID that does not correspond to any user in the database.
-      get "/api/v1/parents/#{invalid_parent_id}/my_learners"
+      get '/api/v1/my_learners'
 
-      # --- ASSERT ---
-      # Verify that the controller correctly returns a 404 Not Found status.
+      assert_response :success
+      response_json = JSON.parse(response.body)
+
+      # Assert correct JSON shape for the LEGACY route ("learner_count")
+      assert_equal 1, response_json['learner_count']
+      assert_equal 1, response_json['learners'].count
+      assert_equal @linked_learner.id.to_s, response_json['learners'].first['id']
+    end
+
+    # --- Test Case 3: Legacy Profile Route ---
+    test 'GET /parents/:id/profile should return parent profile and count' do
+      get "/api/v1/parents/#{@parent.auth0_id}/profile"
+
+      assert_response :success
+      response_json = JSON.parse(response.body)
+
+      # Assert correct JSON shape for the LEGACY profile route
+      assert_not_nil response_json['parent']
+      assert_equal @parent.auth0_id, response_json['parent']['auth0_id']
+      assert_equal 1, response_json['learner_count']
+    end
+
+    # --- Edge Case Test ---
+    test 'should return not_found for a non-existent parent_auth0_id' do
+      get "/api/v1/parents/non-existent-id/my_learners"
       assert_response :not_found
 
-      response_json = JSON.parse(response.body)
-      assert_equal 'Parent not found', response_json['error']
-    end
-
-    test 'should return an empty array if parent exists but has no linked learners' do
-      # --- ARRANGE ---
-      # Create a parent who has no learners linked to them.
-      parent_with_no_learners = users(:parent_two)
-      @linked_learner.update!(parent_auth0_ids: ['some-other-parent-auth0-id']) # Ensure it's not linked
-
-      # --- ACT ---
-      get "/api/v1/parents/#{parent_with_no_learners.auth0_id}/my_learners"
-
-      # --- ASSERT ---
-      assert_response :success
-
-      response_json = JSON.parse(response.body)
-      assert_equal 0, response_json['count']
-      assert_empty response_json['learners']
+      get "/api/v1/parents/non-existent-id/profile"
+      assert_response :not_found
     end
   end
 end

@@ -1,37 +1,71 @@
 # app/controllers/api/v1/my_learners_controller.rb
 module Api::V1
   class MyLearnersController < ApplicationController
-    # This controller is now unauthenticated and relies on the explicit parent_auth0_id from the URL.
-    # We remove all token-based authentication.
+    include Secured
+
+    # --- HYBRID AUTHENTICATION ---
+    # This controller now supports two modes for backward compatibility:
+    # 1. New, Unauthenticated (URL-based): Skips auth if a `parent_auth0_id` is present.
+    # 2. Legacy, Authenticated (JWT-based): Requires a token if the old `/my_learners` route is used.
     skip_before_action :authenticate_user!, raise: false
+    before_action :authorize, only: [:index], if: :legacy_my_learners_route?
 
-    before_action :set_user!
+    before_action :set_user_and_learners!
 
-    # GET /api/v1/parents/:parent_auth0_id/my_learners
+    # GET /api/v1/parents/:parent_auth0_id/my_learners (New)
+    # GET /api/v1/my_learners (Legacy)
     #
-    # Securely fetches learners for a given parent based on the explicit
-    # `parent_auth0_ids` link, without requiring JWT authentication.
+    # Securely fetches learners for a user, identified either by a URL
+    # parameter or a JWT token.
     def index
-      # The user's identity is established by `set_user!` using the URL parameter.
-      # The query is secure because it ONLY finds learners who have the parent's
-      # specific `auth0_id` in their `parent_auth0_ids` array. This prevents
-      # any possibility of leaking learners from other parents or schools.
-      learners = Learner.where(:parent_auth0_ids.in => [@user.auth0_id]).active
+      # Renders learners. The JSON shape is adjusted for backward compatibility.
+      if legacy_my_learners_route?
+        render json: {
+          learners: @learners.map(&:to_api_hash),
+          learner_count: @learners.count # Legacy key is "learner_count"
+        }, status: :ok
+      else
+        render json: {
+          learners: @learners.map(&:to_api_hash),
+          count: @learners.count # New key is "count"
+        }, status: :ok
+      end
+    end
 
+    # GET /api/v1/parents/:parent_auth0_id/profile (Legacy)
+    #
+    # Renders the parent's profile and learner count in the exact legacy format
+    # to ensure the frontend continues to work.
+    def profile
       render json: {
-        learners: learners.map(&:to_api_hash),
-        count: learners.count
+        parent: @user.to_api_hash, # The exact legacy JSON shape
+        learner_count: @learners.count
       }, status: :ok
     end
 
     private
 
-    def set_user!
-      # Find the user (parent) directly from the `parent_auth0_id` URL parameter.
-      @user = User.find_by(auth0_id: params[:parent_auth0_id])
+    # Determines if the request is for the old, token-based route.
+    def legacy_my_learners_route?
+      params[:parent_auth0_id].blank?
+    end
 
-      # If no user is found with that ID, return a 404 error.
-      render json: { error: 'Parent not found' }, status: :not_found unless @user
+    # A single, unified method to find the user and their learners,
+    # handling both authentication methods.
+    def set_user_and_learners!
+      user_auth0_id = if legacy_my_learners_route?
+        # Legacy Mode: Get user ID from the JWT token provided by `authorize`.
+        @decoded_token.token['sub']
+      else
+        # New Mode: Get user ID from the URL parameter.
+        params[:parent_auth0_id]
+      end
+
+      @user = User.find_by(auth0_id: user_auth0_id)
+      return render json: { error: 'Parent not found' }, status: :not_found unless @user
+
+      # The learner query is ALWAYS secure, regardless of how the user was identified.
+      @learners = Learner.where(:parent_auth0_ids.in => [@user.auth0_id]).active
     end
   end
 end
