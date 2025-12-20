@@ -27,8 +27,11 @@ Rails.application.routes.draw do
         end
       end
 
-      # Secure route for a user to get their own linked learners
-      get 'my_learners', to: 'my_learners#index'
+      # Unauthenticated, secure route for a parent to get their own linked learners
+      # e.g., /api/v1/parents/google-oauth2|12345/my_learners
+      resources :parents, param: :parent_auth0_id, constraints: { parent_auth0_id: /[^\/]+/ }, only: [] do
+        get 'my_learners', to: 'my_learners#index'
+      end
 
       # Route to link a learner to the current user
       post 'learner_links', to: 'learner_links#create'

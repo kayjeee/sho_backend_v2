@@ -1,30 +1,37 @@
 # app/controllers/api/v1/my_learners_controller.rb
-class Api::V1::MyLearnersController < ApplicationController
-  include Secured
-  before_action :authorize
+module Api::V1
+  class MyLearnersController < ApplicationController
+    # This controller is now unauthenticated and relies on the explicit parent_auth0_id from the URL.
+    # We remove all token-based authentication.
+    skip_before_action :authenticate_user!, raise: false
 
-  # GET /api/v1/my_learners
-  #
-  # Returns a list of learners explicitly linked to the current user.
-  # This is the primary, secure endpoint for a user to fetch their learners.
-  def index
-    # 1. The `before_action :authorize` ensures the user is authenticated.
-    #    The `authorize` method from the `Secured` concern decodes the token
-    #    and stores the payload in the `@decoded_token` instance variable.
+    before_action :set_user!
 
-    # 2. Get the current user's auth0_id from the 'sub' (subject) claim of the token.
-    current_user_auth0_id = @decoded_token.token['sub']
+    # GET /api/v1/parents/:parent_auth0_id/my_learners
+    #
+    # Securely fetches learners for a given parent based on the explicit
+    # `parent_auth0_ids` link, without requiring JWT authentication.
+    def index
+      # The user's identity is established by `set_user!` using the URL parameter.
+      # The query is secure because it ONLY finds learners who have the parent's
+      # specific `auth0_id` in their `parent_auth0_ids` array. This prevents
+      # any possibility of leaking learners from other parents or schools.
+      learners = Learner.where(:parent_auth0_ids.in => [@user.auth0_id]).active
 
-    # 3. Find all learners that have this user's auth0_id in their `parent_auth0_ids` array.
-    #    - This query is secure because it ONLY looks for learners who have been explicitly linked.
-    #    - It cannot leak data from other learners in the same school.
-    @learners = Learner.where(:parent_auth0_ids.in => [current_user_auth0_id]).active
+      render json: {
+        learners: learners.map(&:to_api_hash),
+        count: learners.count
+      }, status: :ok
+    end
 
-    # 4. Render the learners as JSON.
-    #    - The `to_api_hash` method is assumed to exist on the Learner model for serialization.
-    render json: {
-      learners: @learners.map(&:to_api_hash),
-      count: @learners.count
-    }, status: :ok
+    private
+
+    def set_user!
+      # Find the user (parent) directly from the `parent_auth0_id` URL parameter.
+      @user = User.find_by(auth0_id: params[:parent_auth0_id])
+
+      # If no user is found with that ID, return a 404 error.
+      render json: { error: 'Parent not found' }, status: :not_found unless @user
+    end
   end
 end

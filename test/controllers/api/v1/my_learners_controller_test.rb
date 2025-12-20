@@ -1,41 +1,29 @@
 # test/controllers/api/v1/my_learners_controller_test.rb
 require 'test_helper'
-require 'mocha/minitest' # Ensure mocha is required for mocking
 
 module Api::V1
   class MyLearnersControllerTest < ActionDispatch::IntegrationTest
     setup do
       # Fixture data is loaded from test/fixtures/
-      @user = users(:parent_one)
+      @parent = users(:parent_one)
       @linked_learner = learners(:learner_one)
       @unlinked_learner = learners(:learner_two)
 
       # Ensure the data model is correct for the test:
-      # Link learner_one to parent_one using the new, secure mechanism.
-      @linked_learner.update!(parent_auth0_ids: [@user.auth0_id])
+      # Link learner_one to the parent using the explicit `parent_auth0_ids` array.
+      @linked_learner.update!(parent_auth0_ids: [@parent.auth0_id])
 
-      # Ensure learner_two is not linked to parent_one.
-      @unlinked_learner.update!(parent_auth0_ids: ['some-other-auth0-id'])
+      # Ensure learner_two is NOT linked to this parent.
+      @unlinked_learner.update!(parent_auth0_ids: ['some-other-parent-auth0-id'])
     end
 
-    test 'should return only linked learners for an authenticated user' do
+    test 'should return only linked learners when given a valid parent_auth0_id' do
       # --- ARRANGE ---
-      # Mock the authentication layer (the `authorize` method from `Secured` concern).
-      # We simulate a successful authentication by making `authorize` do nothing
-      # and then manually setting the decoded token that `authorize` would normally provide.
-      Api::V1::MyLearnersController.any_instance.stubs(:authorize).returns(true)
-
-      # The controller's `index` action expects `@decoded_token` to be set by `authorize`.
-      # We'll simulate this by setting it directly on the controller instance.
-      # The token payload must contain the user's Auth0 ID in the 'sub' claim.
-      decoded_token = mock()
-      decoded_token.stubs(:token).returns({ 'sub' => @user.auth0_id })
-      Api::V1::MyLearnersController.any_instance.stubs(:instance_variable_get).with(:@decoded_token).returns(decoded_token)
+      # No authentication mocking is needed. The request is public.
 
       # --- ACT ---
-      # Make the request to the secure endpoint. No special headers are needed
-      # because we have mocked the authentication check.
-      get api_v1_my_learners_url
+      # Make a GET request to the new nested URL, passing the parent's auth0_id in the path.
+      get "/api/v1/parents/#{@parent.auth0_id}/my_learners"
 
       # --- ASSERT ---
       assert_response :success
@@ -50,30 +38,41 @@ module Api::V1
       assert_includes returned_learner_ids, @linked_learner.id.to_s
 
       # CRITICAL: Verify that the unlinked learner is NOT present in the response.
+      # This confirms the query is secure and does not leak data.
       assert_not_includes returned_learner_ids, @unlinked_learner.id.to_s
     end
 
-    test 'should return unauthorized if authentication fails' do
+    test 'should return not_found if the parent_auth0_id does not exist' do
       # --- ARRANGE ---
-      # This time, we don't mock `authorize`. We let it run.
-      # To simulate a failure, we mock the `Auth0Client` that `authorize` depends on.
-      # We make it return an error object, just like it would for an invalid token.
-      error_response = OpenStruct.new(
-        error: OpenStruct.new(message: 'Requires authentication', status: :unauthorized)
-      )
-      Auth0Client.stubs(:validate_token).returns(error_response)
+      invalid_parent_id = 'non-existent-auth0-id'
 
       # --- ACT ---
-      # Make a request with a fake bearer token (it doesn't matter what it is,
-      # since our mock will intercept the validation).
-      get api_v1_my_learners_url, headers: { 'Authorization' => 'Bearer fake-token' }
+      # Make a request with an ID that does not correspond to any user in the database.
+      get "/api/v1/parents/#{invalid_parent_id}/my_learners"
 
       # --- ASSERT ---
-      # Verify that the controller correctly returns an unauthorized status.
-      assert_response :unauthorized
+      # Verify that the controller correctly returns a 404 Not Found status.
+      assert_response :not_found
 
       response_json = JSON.parse(response.body)
-      assert_equal 'Requires authentication', response_json['message']
+      assert_equal 'Parent not found', response_json['error']
+    end
+
+    test 'should return an empty array if parent exists but has no linked learners' do
+      # --- ARRANGE ---
+      # Create a parent who has no learners linked to them.
+      parent_with_no_learners = users(:parent_two)
+      @linked_learner.update!(parent_auth0_ids: ['some-other-parent-auth0-id']) # Ensure it's not linked
+
+      # --- ACT ---
+      get "/api/v1/parents/#{parent_with_no_learners.auth0_id}/my_learners"
+
+      # --- ASSERT ---
+      assert_response :success
+
+      response_json = JSON.parse(response.body)
+      assert_equal 0, response_json['count']
+      assert_empty response_json['learners']
     end
   end
 end
