@@ -13,6 +13,10 @@ module Api::V1
     # GET /api/v1/parents/:auth0_id/my_learners (New)
     # GET /api/v1/my_learners (Legacy)
     def index
+      # This guard clause prevents the action from running if a before_action
+      # (like `set_user_from_param`) has already rendered an error.
+      return if performed?
+
       if legacy_my_learners_route?
         render json: { learners: @learners.map(&:to_api_hash), learner_count: @learners.count }, status: :ok
       else
@@ -22,6 +26,9 @@ module Api::V1
 
     # GET /api/v1/parents/:auth0_id/profile (Legacy)
     def profile
+      # This guard clause is the critical fix for the NoMethodError on nil:NilClass bug.
+      return if performed?
+
       render json: { parent: @user.to_api_hash, learner_count: @learners.count }, status: :ok
     end
 
@@ -47,7 +54,8 @@ module Api::V1
 
     # Finds learners for the `@user` after they have been identified.
     def find_learners
-      return unless @user # Halt if user wasn't found in a preceding filter.
+      # This check ensures we don't try to find learners if the user lookup failed.
+      return unless @user
       @learners = Learner.where(:parent_auth0_ids.in => [@user.auth0_id]).active
     end
   end
