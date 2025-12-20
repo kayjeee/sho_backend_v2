@@ -1,55 +1,30 @@
 # app/controllers/api/v1/my_learners_controller.rb
-module Api::V1
-  class MyLearnersController < ApplicationController
-    skip_before_action :authenticate_user!, raise: false
-    before_action :set_user
+class Api::V1::MyLearnersController < ApplicationController
+  include Secured
+  before_action :authorize
 
-    def index
-      return render_user_not_found unless @user
+  # GET /api/v1/my_learners
+  #
+  # Returns a list of learners explicitly linked to the current user.
+  # This is the primary, secure endpoint for a user to fetch their learners.
+  def index
+    # 1. The `before_action :authorize` ensures the user is authenticated.
+    #    The `authorize` method from the `Secured` concern decodes the token
+    #    and stores the payload in the `@decoded_token` instance variable.
 
-      learners = fetch_linked_learners
+    # 2. Get the current user's auth0_id from the 'sub' (subject) claim of the token.
+    current_user_auth0_id = @decoded_token.token['sub']
 
-      response = {
-        learners: learners.map(&:to_api_hash),
-        learner_count: learners.count
-      }
+    # 3. Find all learners that have this user's auth0_id in their `parent_auth0_ids` array.
+    #    - This query is secure because it ONLY looks for learners who have been explicitly linked.
+    #    - It cannot leak data from other learners in the same school.
+    @learners = Learner.where(:parent_auth0_ids.in => [current_user_auth0_id]).active
 
-      # Backward compatibility for /profile
-      if params[:parent_id] && request.path.include?('/profile')
-        response[:parent] = @user.to_api_hash
-      end
-
-      render json: response, status: :ok
-    end
-
-    private
-
-    def fetch_linked_learners
-      # ✅ HARD RULE: no learner_ids = no learners
-      return Learner.none unless @user.learner_ids.present?
-
-      Learner.where(:id.in => @user.learner_ids)
-    end
-
-    def set_user
-      @user =
-        if params[:parent_id]
-          User.find_by(auth0_id: params[:parent_id])
-        else
-          current_user
-        end
-    end
-
-    def current_user
-      if params[:user_email]
-        User.find_by(email: params[:user_email])
-      elsif request.headers['X-User-Email']
-        User.find_by(email: request.headers['X-User-Email'])
-      end
-    end
-
-    def render_user_not_found
-      render json: { error: 'User not found' }, status: :not_found
-    end
+    # 4. Render the learners as JSON.
+    #    - The `to_api_hash` method is assumed to exist on the Learner model for serialization.
+    render json: {
+      learners: @learners.map(&:to_api_hash),
+      count: @learners.count
+    }, status: :ok
   end
 end

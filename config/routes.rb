@@ -27,11 +27,11 @@ Rails.application.routes.draw do
         end
       end
 
+      # Secure route for a user to get their own linked learners
       get 'my_learners', to: 'my_learners#index'
 
-      # Legacy parent routes for backward compatibility
-      get 'parents/:parent_id/learners', to: 'my_learners#index', constraints: { parent_id: /[^\/]+/ }
-      get 'parents/:parent_id/profile', to: 'my_learners#index', constraints: { parent_id: /[^\/]+/ }
+      # Route to link a learner to the current user
+      post 'learner_links', to: 'learner_links#create'
 
       # Invites Routes with PR code and short link functionality
       resources :invites, only: [:create, :show, :update] do
@@ -157,7 +157,6 @@ Rails.application.routes.draw do
       end
 
       # LEARNERS
-      post 'learners/link', to: 'learner_links#create'
       resources :learners, only: [:index, :show, :create, :update, :destroy] do
         collection do
           post :bulk_upload

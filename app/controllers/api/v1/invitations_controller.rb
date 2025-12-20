@@ -1,10 +1,13 @@
 # app/controllers/api/v1/invitations_controller.rb
 class Api::V1::InvitationsController < ApplicationController
-  skip_before_action :authenticate_user!, raise: false
+  include Secured
+  before_action :authorize, only: [:create, :verify] # Protect create and verify actions
 
+  # GET /invitations/:token/verify_with_details (Does not require auth)
+  # This is a public endpoint to let a user see invitation details before signing up.
   def verify_with_details
     token = params[:token]
-    invitation = Invitation.find_by(token: token)
+    invitation = Invitation.find_by(token: token, status: 'pending')
 
     if invitation
       render json: {
@@ -13,7 +16,7 @@ class Api::V1::InvitationsController < ApplicationController
           id: invitation.id.to_s,
           recipient_phone_number: invitation.recipient_phone_number,
           school_id: invitation.school_id.to_s,
-          learner_ids: invitation.learner_ids,
+          learner_number: invitation.learner_number, # Use learner_number for consistency
           parent_name: invitation.parent_name
         }
       }
@@ -22,11 +25,16 @@ class Api::V1::InvitationsController < ApplicationController
     end
   end
 
+  # POST /api/v1/invitations (Requires auth)
+  # Creates an invitation. The sender is the authenticated user.
   def create
+    current_user_auth0_id = @decoded_token.token['sub']
+    sender = User.find_by(auth0_id: current_user_auth0_id)
+
     Rails.logger.info "🔹 [InvitationsController] Creating learner-centric invitation with params: #{params}"
     
     invitation_service = UserServices::InvitationService.new(
-      sender: current_user,
+      sender: sender,
       recipient_phone_number: params[:phone_number],
       school_id: params[:school_id],
       learner_number: params[:learner_number],
@@ -59,48 +67,35 @@ class Api::V1::InvitationsController < ApplicationController
     end
   end
 
+  # POST /api/v1/invitations/verify (Requires auth)
+  # Verifies an invitation token and links the learner to the authenticated user.
   def verify
     token = params[:token]
     invitation = Invitation.find_by(token: token, status: 'pending')
 
     unless invitation
-      render json: { success: false, message: 'Invalid or expired invitation link.' }, status: :not_found and return
+      return render json: { success: false, message: 'Invalid or expired invitation link.' }, status: :not_found
     end
 
     learner = Learner.find_by(school_id: invitation.school_id, accession_number: invitation.learner_number)
 
     unless learner
-      render json: { success: false, message: 'Learner not found for this invitation.' }, status: :not_found and return
+      return render json: { success: false, message: 'Learner not found for this invitation.' }, status: :not_found
     end
 
-    # Link the learner to the current user
-    unless current_user
-      render json: { success: false, message: 'User not found for this invitation.' }, status: :not_found and return
-    end
+    # Get the authenticated user's ID from the token provided by the `authorize` action
+    current_user_auth0_id = @decoded_token.token['sub']
 
-    if !current_user.learner_ids.include?(learner.id.to_s)
-      current_user.learner_ids << learner.id.to_s
-      current_user.save
-    end
+    # Correctly link the learner by adding the user's auth0_id to the learner's parent array
+    learner.add_to_set(parent_auth0_ids: current_user_auth0_id)
 
     invitation.update(status: 'verified')
 
     render json: {
       success: true,
       message: 'User linked to learner successfully.',
-      user: { auth0_id: current_user.auth0_id },
       learner: { learner_number: learner.accession_number, school_id: learner.school_id.to_s },
       linked: true
     }, status: :ok
-  end
-
-  private
-
-  def current_user
-    @current_user ||= if params[:user_email]
-      User.find_by(email: params[:user_email])
-    elsif request.headers['X-User-Email']
-      User.find_by(email: request.headers['X-User-Email'])
-    end
   end
 end
