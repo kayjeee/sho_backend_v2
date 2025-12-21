@@ -9,8 +9,8 @@ module Api::V1
       @school = schools(:school_one)
       @learner = learners(:learner_one)
 
-      # Ensure learner starts unassigned and in the correct school
-      @learner.update!(school_id: @school.id, auth0Id: nil, userAuth0Id: nil)
+      # Ensure learner starts unlinked and in the correct school
+      @learner.update!(school_id: @school.id, parent_auth0_ids: [])
     end
 
     def mock_authentication(user)
@@ -20,9 +20,9 @@ module Api::V1
       Api::V1::LearnerLinksController.any_instance.stubs(:instance_variable_get).with(:@decoded_token).returns(decoded_token)
     end
 
-    test "should link learner by setting auth0Id on the learner document" do
+    test "should link learner by adding user's ID to parent_auth0_ids array" do
       mock_authentication(@user)
-      assert_nil @learner.auth0Id
+      assert_empty @learner.parent_auth0_ids
 
       post api_v1_learner_links_url, params: {
         accession_number: @learner.accession_number,
@@ -31,11 +31,11 @@ module Api::V1
 
       assert_response :created
       @learner.reload
-      assert_equal @user.auth0_id, @learner.auth0Id
+      assert_includes @learner.parent_auth0_ids, @user.auth0_id
     end
 
-    test "should return ok if learner is already linked to the same user via auth0Id" do
-      @learner.update!(auth0Id: @user.auth0_id)
+    test "should return ok if learner is already linked to the user" do
+      @learner.update!(parent_auth0_ids: [@user.auth0_id])
       mock_authentication(@user)
 
       post api_v1_learner_links_url, params: {
@@ -45,31 +45,6 @@ module Api::V1
 
       assert_response :ok
       assert_equal 'Learner already linked to your account', JSON.parse(response.body)['message']
-    end
-
-    test "should return ok if learner is already linked to the same user via userAuth0Id" do
-      @learner.update!(userAuth0Id: @user.auth0_id)
-      mock_authentication(@user)
-
-      post api_v1_learner_links_url, params: {
-        accession_number: @learner.accession_number,
-        school_id: @school.id.to_s
-      }
-
-      assert_response :ok
-      assert_equal 'Learner already linked to your account', JSON.parse(response.body)['message']
-    end
-
-    test "should return conflict if learner is already assigned to another parent" do
-      @learner.update!(auth0Id: 'some-other-parent-id')
-      mock_authentication(@user)
-
-      post api_v1_learner_links_url, params: {
-        accession_number: @learner.accession_number,
-        school_id: @school.id.to_s
-      }
-
-      assert_response :conflict
     end
   end
 end

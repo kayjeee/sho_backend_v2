@@ -44,8 +44,8 @@ class Api::V1::InvitationsController < ApplicationController
 
     current_user_auth0_id = @decoded_token.token['sub']
 
-    # Corrected Logic: Update the learner's `auth0Id` field directly.
-    if learner.update(auth0Id: current_user_auth0_id)
+    # Correct Logic: Add the user's ID to the `parent_auth0_ids` array.
+    if learner.add_to_set(parent_auth0_ids: current_user_auth0_id)
       invitation.update(status: 'verified')
       render json: { success: true, message: 'User linked to learner successfully.' }, status: :ok
     else
