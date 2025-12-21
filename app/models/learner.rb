@@ -24,13 +24,15 @@ class Learner
   field :date_of_birth,   type: Date
   field :parent_info,     type: Hash, default: {}
   field :parent_ids,      type: Array, default: []
+  field :parent_auth0_ids, type: Array, default: []
   field :enrollment_date, type: Date
   field :mobile_sync_id,  type: String
   field :last_sync_at,    type: DateTime
+  field :school_id,       type: String
 
   # ===================== VALIDATIONS ======================
   validates :first_name, :last_name, presence: true
-  validates :accession_number, uniqueness: { scope: :school_id }, allow_blank: true
+  validates :accession_number, presence: true, uniqueness: { scope: :school_id }
 
   GENDERS  = { 'male' => 0, 'female' => 1, 'other' => 2 }.freeze
   STATUSES = { 'active' => 0, 'inactive' => 1, 'graduated' => 2 }.freeze
@@ -54,7 +56,6 @@ class Learner
   index({ parent_ids: 1 })
 
   # ======================= CALLBACKS =======================
-  before_validation :set_default_accession_number, if: -> { accession_number.blank? }
   before_validation :sanitize_phone_numbers
 
   # ========================= SCOPES =========================
@@ -95,10 +96,7 @@ class Learner
 
     return false if school_id_string.blank?
 
-    school_bson_id = parse_bson_id(school_id_string)
-    return false unless school_bson_id
-
-    school_to_add = School.find_by(_id: school_bson_id)
+    school_to_add = School.find_by(_id: school_id_string)
 
     unless school_to_add
       Rails.logger.warn "⚠️ Learner#add_school: School with ID '#{school_id_string}' not found."
@@ -172,15 +170,6 @@ class Learner
 
   private
 
-  # Generates a default accession number if missing
-  def set_default_accession_number
-    timestamp     = Time.now.to_i.to_s.last(6)
-    random_suffix = rand(100..999)
-    school_prefix = school_name&.first(3)&.upcase || 'STD'
-
-    self.accession_number = "#{school_prefix}#{timestamp}#{random_suffix}"
-  end
-
   # Sanitize phone number fields removing unwanted characters
   def sanitize_phone_numbers
     %w[phone tel_emergency tel_home whatsapp telegram].each do |field|
@@ -192,19 +181,4 @@ class Learner
     end
   end
 
-  # Safely parse BSON ObjectId from string or BSON::ObjectId
-  def parse_bson_id(id_string)
-    case id_string
-    when BSON::ObjectId
-      id_string
-    when String
-      BSON::ObjectId.from_string(id_string.strip)
-    else
-      BSON::ObjectId.from_string(id_string.to_s.strip)
-    end
-  rescue BSON::ObjectId::Invalid => e
-    Rails.logger.error "❌ Learner#parse_bson_id: Invalid BSON ID '#{id_string}'. Error: #{e.message}"
-    errors.add(:school, 'Invalid school ID format.')
-    nil
-  end
 end

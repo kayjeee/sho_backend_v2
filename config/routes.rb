@@ -27,8 +27,22 @@ Rails.application.routes.draw do
         end
       end
 
-      get 'parents/:parent_id/learners', to: 'parents#learners', constraints: { parent_id: /[^\/]+/ }
-      get 'parents/:parent_id/profile', to: 'parents#profile', constraints: { parent_id: /[^\/]+/ }
+      # --- Parent and Learner Routes ---
+
+      # New, secure, unauthenticated route for fetching learners
+      get 'parents/:auth0_id/my_learners',
+          to: 'my_learners#index',
+          constraints: { auth0_id: /[^\/]+/ }
+
+      # Legacy route for backward compatibility
+      get 'parents/:auth0_id/profile',
+          to: 'my_learners#profile',
+          constraints: { auth0_id: /[^\/]+/ }
+
+      # The legacy GET /my_learners route has been removed.
+
+      # Route to link a learner to the current user (requires auth)
+      post 'learner_links', to: 'learner_links#create'
 
       # Invites Routes with PR code and short link functionality
       resources :invites, only: [:create, :show, :update] do

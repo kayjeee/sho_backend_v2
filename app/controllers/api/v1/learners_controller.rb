@@ -116,14 +116,14 @@ class Api::V1::LearnersController < ApplicationController
     learners_data.each do |row|
       begin
         accession = row[:accessionNumber] || row["accessionNumber"]
-        school_id = row[:school_id] || row["school_id"] || params[:school_id]
-        raise ArgumentError, "accessionNumber and school_id are required" if accession.blank? || school_id.blank?
+        school_id_str = row[:school_id] || row["school_id"] || params[:school_id]
+        raise ArgumentError, "accessionNumber and school_id are required" if accession.blank? || school_id_str.blank?
 
         learner_hash = {
           first_name: row[:firstName] || row["firstName"],
           last_name: row[:lastName] || row["lastName"],
           accession_number: accession,
-          school_id: school_id,
+          school_id: school_id_str,
           grade_id: row[:gradeId] || row["gradeId"],
           gender: map_gender(row[:gender] || row["gender"]),
           status: map_status(row[:status] || row["status"]) || 0,

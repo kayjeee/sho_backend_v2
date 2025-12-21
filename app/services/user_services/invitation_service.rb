@@ -1,23 +1,28 @@
 # app/services/user_services/invitation_service.rb
 module UserServices
   class InvitationService
-    def initialize(sender:, recipient_phone_number:, school_id:, role: 'parent', learner_ids: [], parent_name: nil, grade_id: nil)
+    def initialize(sender:, recipient_phone_number:, school_id:, learner_number:, role: 'parent', parent_name: nil, grade_id: nil)
       @sender = sender
       @recipient_phone_number = recipient_phone_number
       @school_id = school_id
+      @learner_number = learner_number
       @role = role
-      @learner_ids = learner_ids || []
       @parent_name = parent_name
       @grade_id = grade_id
     end
 
     def call
-      Rails.logger.info "🔹 [InvitationService] Creating invitation for #{@recipient_phone_number}"
+      Rails.logger.info "🔹 [InvitationService] Creating invitation for learner #{@learner_number} at school #{@school_id}"
 
       school = School.find(@school_id)
-      learners = find_learners(school)
-      learner_ids = learners.map { |learner| learner.id.to_s }
-      learner_names = learners.map(&:full_name)
+      learner = Learner.find_by(school_id: school.id, accession_number: @learner_number)
+
+      unless learner
+        Rails.logger.error "❌ [InvitationService] Learner not found with number: #{@learner_number}"
+        invitation = Invitation.new
+        invitation.errors.add(:learner, 'not found')
+        return invitation
+      end
 
       invitation = Invitation.create!(
         sender: @sender,
@@ -25,8 +30,9 @@ module UserServices
         school: school,
         role: @role,
         token: generate_token,
-        learner_ids: learner_ids,
-        learner_names: learner_names,
+        learner_number: @learner_number,
+        learner_ids: [learner.id.to_s],
+        learner_names: [learner.full_name],
         parent_name: @parent_name,
         grade_id: @grade_id
       )
