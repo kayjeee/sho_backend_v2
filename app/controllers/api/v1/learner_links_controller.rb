@@ -5,7 +5,7 @@ module Api::V1
     before_action :authorize
 
     # POST /api/v1/learner_links
-    # Creates a link between the currently authenticated user and a learner.
+    # Assigns a learner to the currently authenticated user.
     def create
       if params[:accession_number].blank? || params[:school_id].blank?
         return render json: { error: 'accession_number and school_id are required' }, status: :unprocessable_entity
@@ -20,14 +20,18 @@ module Api::V1
 
       current_user_auth0_id = @decoded_token.token['sub']
 
-      # Check if the link already exists in the array.
-      if learner.parent_auth0_ids.include?(current_user_auth0_id)
+      # Check if the learner is already linked to this parent (checking both legacy fields).
+      if [learner.try(:auth0Id), learner.try(:userAuth0Id)].include?(current_user_auth0_id)
         return render json: { message: 'Learner already linked to your account' }, status: :ok
       end
 
-      # Correct Logic: Add the user's ID to the `parent_auth0_ids` array.
-      # `add_to_set` is an atomic operation that ensures the ID is added only if it's not already present.
-      if learner.add_to_set(parent_auth0_ids: current_user_auth0_id)
+      # Check if the learner is already assigned to a different parent.
+      if learner.try(:auth0Id).present? || learner.try(:userAuth0Id).present?
+        return render json: { error: 'Learner is already assigned to another parent' }, status: :conflict
+      end
+
+      # Correctly assign the learner to the current user by updating the `auth0Id` field.
+      if learner.update(auth0Id: current_user_auth0_id)
         render json: { message: 'Learner linked successfully' }, status: :created
       else
         render json: { error: 'Failed to link learner', details: learner.errors.full_messages }, status: :unprocessable_entity

@@ -24,7 +24,6 @@ class Learner
   field :date_of_birth,   type: Date
   field :parent_info,     type: Hash, default: {}
   field :parent_ids,      type: Array, default: []
-  field :parent_auth0_ids, type: Array, default: []
   field :enrollment_date, type: Date
   field :mobile_sync_id,  type: String
   field :last_sync_at,    type: DateTime

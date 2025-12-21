@@ -12,33 +12,30 @@ module Api::V1
       @parent.schools.add(@school)
       @parent.schools.delete(@other_school)
 
-      # Learner linked via the new, correct array model
-      @learner_new_model = learners(:learner_one)
-      @learner_new_model.update!(parent_auth0_ids: [@parent.auth0_id], school_id: @school.id)
+      # Learner linked via `auth0Id`
+      @learner1 = learners(:learner_one)
+      @learner1.update!(auth0Id: @parent.auth0_id, school_id: @school.id)
 
-      # Learner linked via a legacy field for backward compatibility testing
-      @learner_legacy_model = learners(:learner_two)
-      @learner_legacy_model.update!(auth0Id: @parent.auth0_id, school_id: @school.id, parent_auth0_ids: [])
+      # Learner linked via `userAuth0Id`
+      @learner2 = learners(:learner_two)
+      @learner2.update!(userAuth0Id: @parent.auth0_id, school_id: @school.id)
 
-      # Learner linked but in the wrong school, to test security
+      # Learner linked but in the wrong school
       @learner_wrong_school = learners(:learner_three)
-      @learner_wrong_school.update!(parent_auth0_ids: [@parent.auth0_id], school_id: @other_school.id)
+      @learner_wrong_school.update!(auth0Id: @parent.auth0_id, school_id: @other_school.id)
     end
 
-    test 'should return all valid learners, including new and legacy models' do
+    test 'should return all valid learners from correct school' do
       get "/api/v1/parents/#{@parent.auth0_id}/my_learners"
 
       assert_response :success
       response_json = JSON.parse(response.body)
 
-      # Should find 2 learners: one via the new array, one via the legacy field.
       assert_equal 2, response_json['learner_count']
 
       returned_ids = response_json['learners'].map { |l| l['id'] }
-      assert_includes returned_ids, @learner_new_model.id.to_s
-      assert_includes returned_ids, @learner_legacy_model.id.to_s
-
-      # CRITICAL: Should NOT include the learner from the wrong school.
+      assert_includes returned_ids, @learner1.id.to_s
+      assert_includes returned_ids, @learner2.id.to_s
       assert_not_includes returned_ids, @learner_wrong_school.id.to_s
     end
 
@@ -52,7 +49,6 @@ module Api::V1
 
       assert_response :success
       response_json = JSON.parse(response.body)
-
       assert_equal 2, response_json['learner_count']
     end
 
