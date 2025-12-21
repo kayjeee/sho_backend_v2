@@ -24,13 +24,20 @@ module Api::V1
     def find_learners
       return unless @user
 
-      # CRITICAL: Only query by parent_auth0_ids, NOT auth0Id/userAuth0Id
       school_id_strings = @user.school_ids.map(&:to_s)
 
-      @learners = Learner.where(
-        :parent_auth0_ids.in => [@user.auth0_id],  # This is the key filter
+      # Build a query that finds learners who are:
+      # 1. Active
+      # 2. Belong to one of the parent's schools
+      # 3. Are linked to the parent via either the new `parent_auth0_ids` array
+      #    OR the legacy `auth0Id`/`userAuth0Id` fields.
+      @learners = Learner.active.where(
         :school_id.in => school_id_strings
-      ).select { |l| l.status == "active" }
+      ).or(
+        { :parent_auth0_ids.in => [@user.auth0_id] },
+        { auth0Id: @user.auth0_id },
+        { userAuth0Id: @user.auth0_id }
+      )
 
       Rails.logger.info "Parent #{@user.auth0_id} has #{@learners.count} learners"
     end

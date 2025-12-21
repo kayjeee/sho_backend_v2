@@ -28,7 +28,7 @@ class Learner
   field :enrollment_date, type: Date
   field :mobile_sync_id,  type: String
   field :last_sync_at,    type: DateTime
-  field :school_id,       type: BSON::ObjectId
+  field :school_id,       type: String
 
   # ===================== VALIDATIONS ======================
   validates :first_name, :last_name, presence: true
@@ -96,10 +96,7 @@ class Learner
 
     return false if school_id_string.blank?
 
-    school_bson_id = parse_bson_id(school_id_string)
-    return false unless school_bson_id
-
-    school_to_add = School.find_by(_id: school_bson_id)
+    school_to_add = School.find_by(_id: school_id_string)
 
     unless school_to_add
       Rails.logger.warn "⚠️ Learner#add_school: School with ID '#{school_id_string}' not found."
@@ -184,19 +181,4 @@ class Learner
     end
   end
 
-  # Safely parse BSON ObjectId from string or BSON::ObjectId
-  def parse_bson_id(id_string)
-    case id_string
-    when BSON::ObjectId
-      id_string
-    when String
-      BSON::ObjectId.from_string(id_string.strip)
-    else
-      BSON::ObjectId.from_string(id_string.to_s.strip)
-    end
-  rescue BSON::ObjectId::Invalid => e
-    Rails.logger.error "❌ Learner#parse_bson_id: Invalid BSON ID '#{id_string}'. Error: #{e.message}"
-    errors.add(:school, 'Invalid school ID format.')
-    nil
-  end
 end
