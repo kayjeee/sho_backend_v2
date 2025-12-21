@@ -21,16 +21,18 @@ module Api::V1
       render json: { error: 'Parent not found' }, status: :not_found and return unless @user
     end
 
-    # Corrected `find_learners` to use the definitive array model.
     def find_learners
       return unless @user
 
-      # This query now ONLY looks in the `parent_auth0_ids` array, establishing
-      # it as the single source of truth for the parent-learner link.
+      # CRITICAL: Only query by parent_auth0_ids, NOT auth0Id/userAuth0Id
+      school_id_strings = @user.school_ids.map(&:to_s)
+
       @learners = Learner.where(
-        :parent_auth0_ids.in => [@user.auth0_id],
-        :school_id.in        => @user.school_ids.map(&:to_s) # Ensure IDs are strings for matching
-      ).active
+        :parent_auth0_ids.in => [@user.auth0_id],  # This is the key filter
+        :school_id.in => school_id_strings
+      ).select { |l| l.status == "active" }
+
+      Rails.logger.info "Parent #{@user.auth0_id} has #{@learners.count} learners"
     end
   end
 end
