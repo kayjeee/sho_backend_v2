@@ -39,7 +39,8 @@ Rails.application.routes.draw do
           to: 'my_learners#profile',
           constraints: { auth0_id: /[^\/]+/ }
 
-      # The legacy GET /my_learners route is now unsupported.
+      # Legacy authenticated route for backward compatibility
+      get 'my_learners', to: 'my_learners#index'
 
       # Route to link a learner to the current user (requires auth)
       post 'learner_links', to: 'learner_links#create'
