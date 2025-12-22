@@ -24,28 +24,17 @@ module Api::V1
     def find_learners
       return unless @user
 
-      # Convert ObjectIds to strings (critical fix!)
       school_id_strings = @user.school_ids.map(&:to_s)
 
-      # CORRECT QUERY: Only use parent_auth0_ids for parent-child relationship
-      # This returns 11 learners, not 89+
-      @learners = Learner.active.where(
+      # TEMPORARY: Remove .active scope
+      @learners = Learner.where(
         :parent_auth0_ids.in => [@user.auth0_id],
-        :school_id.in => school_id_strings
+        :school_id.in => school_id_strings,
+        status: "active"  # Use string directly
       )
 
-      # Debug info
-      Rails.logger.info "=== MyLearners Query ==="
-      Rails.logger.info "Parent: #{@user.auth0_id}"
-      Rails.logger.info "Schools: #{school_id_strings}"
-      Rails.logger.info "Found: #{@learners.count} learners"
-
-      # Log each learner found
-      @learners.each do |learner|
-        Rails.logger.info "  - #{learner.firstName} #{learner.lastName}"
-        Rails.logger.info "    parent_auth0_ids: #{learner.parent_auth0_ids.inspect}"
-        Rails.logger.info "    school_id: #{learner.school_id}"
-      end
+      # Debug
+      Rails.logger.info "Query result: #{@learners.count} learners"
     end
   end
 end
