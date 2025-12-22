@@ -26,20 +26,15 @@ module Api::V1
 
       school_id_strings = @user.school_ids.map(&:to_s)
 
-      # Build a query that finds learners who are:
-      # 1. Active
-      # 2. Belong to one of the parent's schools
-      # 3. Are linked to the parent via either the new `parent_auth0_ids` array
-      #    OR the legacy `auth0Id`/`userAuth0Id` fields.
-      @learners = Learner.active.where(
-        :school_id.in => school_id_strings
-      ).or(
-        { :parent_auth0_ids.in => [@user.auth0_id] },
-        { auth0Id: @user.auth0_id },
-        { userAuth0Id: @user.auth0_id }
+      # TEMPORARY: Remove .active scope
+      @learners = Learner.where(
+        :parent_auth0_ids.in => [@user.auth0_id],
+        :school_id.in => school_id_strings,
+        status: "active"  # Use string directly
       )
 
-      Rails.logger.info "Parent #{@user.auth0_id} has #{@learners.count} learners"
+      # Debug
+      Rails.logger.info "Query result: #{@learners.count} learners"
     end
   end
 end
