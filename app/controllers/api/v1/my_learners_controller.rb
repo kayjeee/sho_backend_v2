@@ -24,22 +24,28 @@ module Api::V1
     def find_learners
       return unless @user
 
+      # Convert ObjectIds to strings (critical fix!)
       school_id_strings = @user.school_ids.map(&:to_s)
 
-      # Build a query that finds learners who are:
-      # 1. Active
-      # 2. Belong to one of the parent's schools
-      # 3. Are linked to the parent via either the new `parent_auth0_ids` array
-      #    OR the legacy `auth0Id`/`userAuth0Id` fields.
+      # CORRECT QUERY: Only use parent_auth0_ids for parent-child relationship
+      # This returns 11 learners, not 89+
       @learners = Learner.active.where(
+        :parent_auth0_ids.in => [@user.auth0_id],
         :school_id.in => school_id_strings
-      ).or(
-        { :parent_auth0_ids.in => [@user.auth0_id] },
-        { auth0Id: @user.auth0_id },
-        { userAuth0Id: @user.auth0_id }
       )
 
-      Rails.logger.info "Parent #{@user.auth0_id} has #{@learners.count} learners"
+      # Debug info
+      Rails.logger.info "=== MyLearners Query ==="
+      Rails.logger.info "Parent: #{@user.auth0_id}"
+      Rails.logger.info "Schools: #{school_id_strings}"
+      Rails.logger.info "Found: #{@learners.count} learners"
+
+      # Log each learner found
+      @learners.each do |learner|
+        Rails.logger.info "  - #{learner.firstName} #{learner.lastName}"
+        Rails.logger.info "    parent_auth0_ids: #{learner.parent_auth0_ids.inspect}"
+        Rails.logger.info "    school_id: #{learner.school_id}"
+      end
     end
   end
 end

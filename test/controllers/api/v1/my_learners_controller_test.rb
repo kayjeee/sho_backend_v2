@@ -68,17 +68,17 @@ module Api::V1
       )
     end
 
-    test 'should return all active, linked learners from both legacy and new models' do
+    test 'should return only active, linked learners from the new model' do
       get "/api/v1/parents/#{@parent.auth0_id}/my_learners"
 
       assert_response :success
       response_json = JSON.parse(response.body)
 
-      assert_equal 3, response_json['learner_count'], "Expected 3 learners, but found #{response_json['learner_count']}"
+      assert_equal 1, response_json['learner_count'], "Expected 1 learner, but found #{response_json['learner_count']}"
 
       returned_ids = response_json['learners'].map { |l| l['id'] }
-      assert_includes returned_ids, @learner_legacy_auth0Id.id.to_s
-      assert_includes returned_ids, @learner_legacy_userAuth0Id.id.to_s
+      assert_not_includes returned_ids, @learner_legacy_auth0Id.id.to_s
+      assert_not_includes returned_ids, @learner_legacy_userAuth0Id.id.to_s
       assert_includes returned_ids, @learner_new_model.id.to_s
       assert_not_includes returned_ids, @unlinked_learner.id.to_s
       assert_not_includes returned_ids, @learner_wrong_school.id.to_s
@@ -89,7 +89,7 @@ module Api::V1
       get "/api/v1/parents/#{@parent.auth0_id}/profile"
       assert_response :success
       response_json = JSON.parse(response.body)
-      assert_equal 3, response_json['learner_count']
+      assert_equal 1, response_json['learner_count']
     end
 
     test 'should return not_found for a non-existent auth0_id' do
