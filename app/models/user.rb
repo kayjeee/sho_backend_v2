@@ -13,6 +13,7 @@ class User
   field :status,           type: String, default: 'active'
   field :last_login,       type: Time
   field :phone_number,     type: String
+  field :invited_via,      type: String
 
   # ===================== VALIDATIONS ======================
   validates :email,        presence: true, uniqueness: true
@@ -400,6 +401,8 @@ class User
       auth0_id: auth0_id,
       name: name,
       email: email,
+      phone: phone_number,
+      invited_via: invited_via,
       roles: roles,
       school_ids: school_ids&.map(&:to_s),
       status: status,

@@ -44,6 +44,9 @@ Rails.application.routes.draw do
       # Route to link a learner to the current user (requires auth)
       post 'learner_links', to: 'learner_links#create'
 
+      # Route for parent onboarding after registration
+      post 'parent_onboarding', to: 'parent_onboarding#create'
+
       # Invites Routes with PR code and short link functionality
       resources :invites, only: [:create, :show, :update] do
         member do

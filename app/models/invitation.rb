@@ -7,6 +7,7 @@ class Invitation
   field :token, type: String
   field :status, type: String, default: 'pending'
   field :recipient_phone_number, type: String
+  field :invited_via, type: String
   field :role, type: String, default: 'parent' # Add role field
   field :learner_number, type: String
   field :learner_ids, type: Array, default: []
