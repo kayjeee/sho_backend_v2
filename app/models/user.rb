@@ -398,10 +398,11 @@ class User
   # Enhanced API serialization including onboarding status
   def to_api_hash
     base_hash = {
+      id: id.to_s,
       auth0_id: auth0_id,
       name: name,
       email: email,
-      phone: phone_number,
+      phone_number: phone_number,
       invited_via: invited_via,
       roles: roles,
       school_ids: school_ids&.map(&:to_s),
