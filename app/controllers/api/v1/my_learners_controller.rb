@@ -11,7 +11,7 @@ module Api::V1
     end
 
     def profile
-      render json: { parent: @user.to_api_hash, learner_count: @learners.count }, status: :ok
+      render json: { parent: @user.to_api_hash, learners: @learners.map(&:to_api_hash), learner_count: @learners.count }, status: :ok
     end
 
     private
