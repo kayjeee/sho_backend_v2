@@ -1,14 +1,15 @@
-# app/models/learner.rb
+# app/models/learner.rb - COMPLETE FIXED VERSION
 class Learner
   include Mongoid::Document
   include Mongoid::Timestamps
+  include Mongoid::Attributes::Dynamic  # ADD THIS LINE
 
   # ======================== LEGACY FIELDS ========================
-   field :firstName,        as: :first_name, type: String
+  field :firstName,        as: :first_name, type: String
   field :lastName,         as: :last_name, type: String
   field :accession_number, type: String
   field :gender,           type: Integer, default: 0
-  field :status,           type: Integer, default: 0
+  field :status,           type: Integer, default: 0  # KEEP as Integer for consistency
   field :phone,            type: String
   field :tel_emergency,    type: String
   field :tel_home,         type: String
@@ -16,9 +17,8 @@ class Learner
   field :telegram,         type: String
 
   # ======================== GRADE FIELD WITH ALIAS ========================
-  # Database field is 'gradeId' (camelCase) but we want to use 'grade_id' (snake_case) in code
   field :gradeId, type: String
-  alias_attribute :grade_id, :gradeId  # ← ADD THIS LINE
+  alias_attribute :grade_id, :gradeId
 
   # ======================== NEW MOBILE FIELDS ========================
   field :date_of_birth,   type: Date
@@ -28,7 +28,16 @@ class Learner
   field :enrollment_date, type: Date
   field :mobile_sync_id,  type: String
   field :last_sync_at,    type: DateTime
-  field :school_id,       type: String
+  
+  # ======================== CRITICAL FIX ========================
+  # Keep overwrite: true but change type to match your data
+  # Your data shows "active" (string) but model expects 0 (integer)
+  field :school_id, type: String, overwrite: true
+
+  # ======================== AUTH0 FIELDS ========================
+  # ADD THESE - they exist in your MongoDB but weren't in your model!
+  field :auth0Id, type: String
+  field :userAuth0Id, type: String
 
   # ===================== VALIDATIONS ======================
   validates :first_name, :last_name, presence: true
@@ -51,38 +60,62 @@ class Learner
   index({ school_id: 1 })
   index({ mobile_sync_id: 1 }, { unique: true, sparse: true })
   index({ school_id: 1, last_sync_at: 1 })
-  # Update the grade index to use the actual database field name
-  index({ gradeId: 1 })  # ← UPDATE THIS INDEX
+  index({ gradeId: 1 })
   index({ parent_ids: 1 })
+  index({ parent_auth0_ids: 1 })
+  # Add indexes for auth0 fields
+  index({ auth0Id: 1 })
+  index({ userAuth0Id: 1 })
 
   # ======================= CALLBACKS =======================
   before_validation :sanitize_phone_numbers
 
   # ========================= SCOPES =========================
-  scope :active,    -> { where(status: STATUSES['active']) }
-  scope :inactive,  -> { where(status: STATUSES['inactive']) }
+  # FIXED: Handle BOTH integer 0 AND string "active"
+  scope :active, -> { 
+    where("$or" => [
+      {status: STATUSES['active']},  # Integer 0
+      {status: "active"}             # String "active"
+    ])
+  }
+  scope :inactive, -> { where(status: STATUSES['inactive']) }
   scope :graduated, -> { where(status: STATUSES['graduated']) }
   scope :by_school, ->(school_id) { where(school_id: school_id) }
-  scope :by_grade,  ->(grade_id)  { where(gradeId: grade_id) }  # ← UPDATE THIS SCOPE
+  scope :by_grade, ->(grade_id) { where(gradeId: grade_id) }
 
   # ======================== METHODS =========================
 
   # Gender helpers
-  def male?         = gender == GENDERS['male']
-  def female?       = gender == GENDERS['female']
+  def male? = gender == GENDERS['male']
+  def female? = gender == GENDERS['female']
   def other_gender? = gender == GENDERS['other']
 
   def gender_text
     GENDERS.key(gender)&.capitalize || 'Unknown'
   end
 
-  # Status helpers
-  def active?    = status == STATUSES['active']
-  def inactive?  = status == STATUSES['inactive']
-  def graduated? = status == STATUSES['graduated']
+  # Status helpers - handle BOTH integer and string
+  def active?
+    status == STATUSES['active'] || status.to_s == "active"
+  end
+
+  def inactive?
+    status == STATUSES['inactive'] || status.to_s == "inactive"
+  end
+
+  def graduated?
+    status == STATUSES['graduated'] || status.to_s == "graduated"
+  end
 
   def status_text
-    STATUSES.key(status)&.capitalize || 'Unknown'
+    case status
+    when Integer
+      STATUSES.key(status)&.capitalize || 'Unknown'
+    when String
+      status.capitalize
+    else
+      'Unknown'
+    end
   end
 
   # Concatenate full name
@@ -135,7 +168,7 @@ class Learner
     tel_emergency.presence || primary_contact
   end
 
-  # Serialize to API hash
+  # Serialize to API hash - COMPLETE VERSION
   def to_api_hash
     {
       id: id.to_s,
@@ -149,7 +182,7 @@ class Learner
       status_text: status_text,
       school_id: school_id&.to_s,
       school_name: school_name,
-      grade_id: grade_id&.to_s,  # This will work with the alias
+      grade_id: grade_id&.to_s,
       grade_name: grade_name,
       contact: {
         phone: phone,
@@ -163,9 +196,48 @@ class Learner
       enrollment_date: enrollment_date,
       mobile_sync_id: mobile_sync_id,
       last_sync_at: last_sync_at,
+      parent_auth0_ids: parent_auth0_ids,
+      # Add auth0 fields
+      auth0_id: auth0Id,
+      user_auth0_id: userAuth0Id,
       created_at: created_at,
       updated_at: updated_at
     }
+  end
+
+  # Add parent auth0_id to learner
+  def add_parent(auth0_id)
+    return false if auth0_id.blank?
+    
+    if parent_auth0_ids.exclude?(auth0_id)
+      self.parent_auth0_ids = parent_auth0_ids + [auth0_id]
+      save
+    else
+      true
+    end
+  end
+
+  # Remove parent auth0_id from learner
+  def remove_parent(auth0_id)
+    return false if auth0_id.blank?
+    
+    if parent_auth0_ids.include?(auth0_id)
+      self.parent_auth0_ids = parent_auth0_ids - [auth0_id]
+      save
+    else
+      true
+    end
+  end
+
+  # Get all parents as User objects
+  def parents
+    return [] if parent_auth0_ids.blank?
+    User.where(:auth0_id.in => parent_auth0_ids)
+  end
+
+  # Check if user is a parent of this learner
+  def parent?(user)
+    user && parent_auth0_ids.include?(user.auth0_id)
   end
 
   private
@@ -180,5 +252,4 @@ class Learner
       send("#{field}=", sanitized.strip)
     end
   end
-
 end
