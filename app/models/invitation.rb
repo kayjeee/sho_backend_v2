@@ -8,6 +8,7 @@ class Invitation
   field :status, type: String, default: 'pending'
   field :recipient_phone_number, type: String
   field :role, type: String, default: 'parent' # Add role field
+  field :invited_via, type: String, default: 'whatsapp'
   field :learner_number, type: String
   field :learner_ids, type: Array, default: []
   field :learner_names, type: Array, default: []

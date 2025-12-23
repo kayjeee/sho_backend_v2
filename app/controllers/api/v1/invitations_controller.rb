@@ -20,7 +20,8 @@ class Api::V1::InvitationsController < ApplicationController
 
     invitation_service = UserServices::InvitationService.new(
       sender: sender, recipient_phone_number: params[:phone_number], school_id: params[:school_id],
-      learner_number: params[:learner_number], role: params[:role] || 'parent', parent_name: params[:parent_name], grade_id: params[:grade_id]
+      learner_number: params[:learner_number], role: params[:role] || 'parent', parent_name: params[:parent_name], grade_id: params[:grade_id],
+      invited_via: params[:invited_via]
     )
     
     invitation = invitation_service.call
@@ -47,6 +48,16 @@ class Api::V1::InvitationsController < ApplicationController
     # Correct Logic: Add the user's ID to the `parent_auth0_ids` array.
     if learner.add_to_set(parent_auth0_ids: current_user_auth0_id)
       invitation.update(status: 'verified')
+
+      # Persist the invited phone number to the user if it's missing
+      user = User.find_by(auth0_id: current_user_auth0_id)
+      if user
+        user_updates = {}
+        user_updates[:phone_number] = invitation.recipient_phone_number if user.phone_number.blank? && invitation.recipient_phone_number.present?
+        user_updates[:invited_via] = invitation.invited_via if user.invited_via.blank? && invitation.invited_via.present?
+        user.update(user_updates) if user_updates.any?
+      end
+
       render json: { success: true, message: 'User linked to learner successfully.' }, status: :ok
     else
       render json: { success: false, error: 'Failed to link learner', details: learner.errors.full_messages }, status: :unprocessable_entity

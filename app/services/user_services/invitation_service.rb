@@ -1,7 +1,7 @@
 # app/services/user_services/invitation_service.rb
 module UserServices
   class InvitationService
-    def initialize(sender:, recipient_phone_number:, school_id:, learner_number:, role: 'parent', parent_name: nil, grade_id: nil)
+    def initialize(sender:, recipient_phone_number:, school_id:, learner_number:, role: 'parent', parent_name: nil, grade_id: nil, invited_via: 'whatsapp')
       @sender = sender
       @recipient_phone_number = recipient_phone_number
       @school_id = school_id
@@ -9,6 +9,7 @@ module UserServices
       @role = role
       @parent_name = parent_name
       @grade_id = grade_id
+      @invited_via = invited_via
     end
 
     def call
@@ -34,7 +35,8 @@ module UserServices
         learner_ids: [learner.id.to_s],
         learner_names: [learner.full_name],
         parent_name: @parent_name,
-        grade_id: @grade_id
+        grade_id: @grade_id,
+        invited_via: @invited_via
       )
 
       Rails.logger.info "✅ [InvitationService] Invitation created: #{invitation.id} with token: #{invitation.token}"
