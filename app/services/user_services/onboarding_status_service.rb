@@ -3,12 +3,6 @@ module UserServices
   class OnboardingStatusService
     Result = Struct.new(:success?, :data, :errors, :message, :metadata, keyword_init: true)
 
-    # List of valid onboarding steps
-    VALID_STEPS = %w[create_grades upload_learners send_invites admin_onboarding parent_onboarding guest_onboarding].freeze
-    
-    # Steps that require specific metadata validation
-    STEPS_REQUIRING_VALIDATION = %w[create_grades].freeze
-
     def initialize(user:, context: {})
       @user = user
       @context = context
@@ -62,7 +56,7 @@ module UserServices
         )
         
       rescue StandardError => e
-        Rails.logger.error "❌ OnboardingStatusService: Error getting status: #{e.message}\n#{e.backtrace.first(5).join("\n")}"
+        Rails.logger.error "❌ OnboardingStatusService: Error getting status: #{e.message}"
         Result.new(
           success?: false,
           errors: [e.message],
@@ -114,7 +108,7 @@ module UserServices
         end
         
       rescue StandardError => e
-        Rails.logger.error "🔥 OnboardingStatusService: Unexpected error updating status: #{e.message}\n#{e.backtrace.first(5).join("\n")}"
+        Rails.logger.error "🔥 OnboardingStatusService: Unexpected error updating status: #{e.message}"
         Result.new(
           success?: false,
           errors: [e.message],
@@ -128,15 +122,11 @@ module UserServices
       metadata ||= {}
       Rails.logger.debug "✅ OnboardingStatusService: Completing step '#{step_name}' for user #{@user.auth0_id}"
 
-      # Normalize metadata to handle various input formats
-      normalized_metadata = normalize_metadata(metadata)
-      Rails.logger.debug "📦 Normalized metadata: #{normalized_metadata.inspect}"
-      
       # Auto-infer school_id for create_grades if user has exactly one school
-      if step_name == 'create_grades' && normalized_metadata['school_id'].blank?
+      if step_name == 'create_grades' && metadata['school_id'].blank?
         if @user.schools.count == 1
-          normalized_metadata['school_id'] = @user.schools.first.id.to_s
-          Rails.logger.info "  -> Inferred school_id: #{normalized_metadata['school_id']} for user #{@user.auth0_id}"
+          metadata['school_id'] = @user.schools.first.id.to_s
+          Rails.logger.info "  -> Inferred school_id: #{metadata['school_id']} for user #{@user.auth0_id}"
         end
       end
       
@@ -144,21 +134,21 @@ module UserServices
         @user.ensure_onboarding_status
         
         # Validate step name and prerequisites
-        validation_result = validate_step_completion(step_name, normalized_metadata)
+        validation_result = validate_step_completion(step_name)
         return validation_result unless validation_result.success?
         
         # Store completion metadata
         completion_metadata = {
           completed_at: Time.current.iso8601,
           context: @context,
-          user_provided_metadata: normalized_metadata
+          user_provided_metadata: metadata
         }
         
         # Complete the step
         @user.complete_onboarding_step!(step_name, metadata: completion_metadata)
         
         # Handle step-specific side effects
-        handle_step_side_effects(step_name, normalized_metadata)
+        handle_step_side_effects(step_name, metadata)
         
         Rails.logger.info "🎯 OnboardingStatusService: Step '#{step_name}' completed for user #{@user.auth0_id}"
         
@@ -181,7 +171,7 @@ module UserServices
           message: "Step completion validation failed"
         )
       rescue StandardError => e
-        Rails.logger.error "🔥 OnboardingStatusService: Unexpected error completing step: #{e.message}\n#{e.backtrace.first(5).join("\n")}"
+        Rails.logger.error "🔥 OnboardingStatusService: Unexpected error completing step: #{e.message}"
         Result.new(
           success?: false,
           errors: [e.message],
@@ -224,7 +214,7 @@ module UserServices
         )
         
       rescue StandardError => e
-        Rails.logger.error "🔥 OnboardingStatusService: Unexpected error skipping step: #{e.message}\n#{e.backtrace.first(5).join("\n")}"
+        Rails.logger.error "🔥 OnboardingStatusService: Unexpected error skipping step: #{e.message}"
         Result.new(
           success?: false,
           errors: [e.message],
@@ -288,7 +278,7 @@ module UserServices
         end
         
       rescue StandardError => e
-        Rails.logger.error "🔥 OnboardingStatusService: Unexpected error completing onboarding: #{e.message}\n#{e.backtrace.first(5).join("\n")}"
+        Rails.logger.error "🔥 OnboardingStatusService: Unexpected error completing onboarding: #{e.message}"
         Result.new(
           success?: false,
           errors: [e.message],
@@ -328,7 +318,7 @@ module UserServices
         )
         
       rescue StandardError => e
-        Rails.logger.error "🔥 OnboardingStatusService: Unexpected error resetting onboarding: #{e.message}\n#{e.backtrace.first(5).join("\n")}"
+        Rails.logger.error "🔥 OnboardingStatusService: Unexpected error resetting onboarding: #{e.message}"
         Result.new(
           success?: false,
           errors: [e.message],
@@ -338,53 +328,6 @@ module UserServices
     end
 
     private
-
-    # Normalize metadata to handle various input formats
-    def normalize_metadata(metadata)
-      case metadata
-      when String
-        begin
-          metadata = JSON.parse(metadata)
-        rescue JSON::ParserError
-          Rails.logger.warn "⚠️ Failed to parse metadata as JSON, treating as empty"
-          metadata = {}
-        end
-      when ActionController::Parameters
-        metadata = metadata.to_unsafe_hash
-      when Hash
-        # Already a hash, no conversion needed
-      else
-        metadata = metadata.to_h if metadata.respond_to?(:to_h)
-      end
-      
-      # Convert to a consistent hash with string keys
-      hash = metadata.to_h.transform_keys(&:to_s)
-      
-      # Handle common key variations
-      normalized = {}
-      
-      # Extract grades - handle both 'grades' and 'Grades'
-      grades_key = hash.keys.find { |k| k.downcase == 'grades' }
-      normalized['grades'] = Array.wrap(hash[grades_key]).compact if grades_key && hash[grades_key].present?
-      
-      # Extract school_id - handle multiple possible formats
-      school_id_key = hash.keys.find { |k| k.downcase.include?('school') && k.downcase.include?('id') }
-      if school_id_key && hash[school_id_key].present?
-        normalized['school_id'] = hash[school_id_key].to_s
-      elsif hash['schoolId'].present?
-        normalized['school_id'] = hash['schoolId'].to_s
-      elsif hash['school_id'].present?
-        normalized['school_id'] = hash['school_id'].to_s
-      end
-      
-      # Copy any other metadata
-      hash.each do |key, value|
-        next if key.downcase == 'grades' || key.downcase.include?('school')
-        normalized[key] = value
-      end
-      
-      normalized
-    end
 
     # Gather contextual data for enhanced status information
     def gather_context_data
@@ -487,11 +430,11 @@ module UserServices
       Result.new(success?: true, message: "Role validation passed")
     end
 
-    # Validate step completion prerequisites (updated to accept metadata)
-    def validate_step_completion(step_name, metadata = {})
-      step_name = step_name.to_s
+    # Validate step completion prerequisites
+    def validate_step_completion(step_name)
+      valid_steps = %w[create_grades upload_learners send_invites admin_onboarding parent_onboarding guest_onboarding]
       
-      unless VALID_STEPS.include?(step_name)
+      unless valid_steps.include?(step_name.to_s)
         return Result.new(
           success?: false,
           errors: ["Invalid step name: #{step_name}"],
@@ -500,39 +443,12 @@ module UserServices
       end
       
       # Check role-specific step validation
-      if step_name.include?('_onboarding')
+      if step_name.to_s.include?('_onboarding')
         role_validation = validate_role_specific_step(step_name)
         return role_validation unless role_validation.success?
       end
       
-      # Validate step-specific metadata if required
-      if STEPS_REQUIRING_VALIDATION.include?(step_name)
-        metadata_validation = validate_step_metadata(step_name, metadata)
-        return metadata_validation unless metadata_validation.success?
-      end
-      
       Result.new(success?: true, message: "Step validation passed")
-    end
-
-    # Validate step-specific metadata
-    def validate_step_metadata(step_name, metadata)
-      errors = []
-      
-      case step_name
-      when 'create_grades'
-        errors << "Grades are required" if metadata['grades'].blank?
-        errors << "School ID is required" if metadata['school_id'].blank?
-      end
-      
-      if errors.any?
-        Result.new(
-          success?: false,
-          errors: errors,
-          message: "Step metadata validation failed"
-        )
-      else
-        Result.new(success?: true, message: "Metadata validation passed")
-      end
     end
 
     # Validate role-specific step completion
@@ -616,8 +532,7 @@ module UserServices
     def handle_step_side_effects(step_name, metadata)
       case step_name.to_s
       when 'create_grades'
-        # Trigger grade creation in database
-        create_grades_from_metadata(metadata)
+        # Could trigger grade creation analytics, notifications, etc.
         Rails.logger.debug "🎯 Handling create_grades side effects"
       when 'upload_learners'
         # Could trigger learner import analytics, welcome emails, etc.
@@ -625,39 +540,6 @@ module UserServices
       when 'send_invites'
         # Could trigger invitation analytics, follow-up scheduling, etc.
         Rails.logger.debug "📧 Handling send_invites side effects"
-      end
-    end
-
-    # Create grades from metadata
-    def create_grades_from_metadata(metadata)
-      grades = Array.wrap(metadata['grades']).compact
-      school_id = metadata['school_id']
-      
-      return unless grades.any? && school_id.present?
-      
-      current_year = Date.current.year
-      academic_year_start = Date.new(current_year, 1, 1)
-      academic_year_end = Date.new(current_year, 12, 31)
-      
-      grades.each do |grade_name|
-        begin
-          grade = Grade.where(name: grade_name, school_id: school_id).first_or_create!(
-            grade_level: grade_name.to_s,
-            description: "Auto-created during onboarding",
-            capacity: 30,
-            status: 0,
-            min_age: 5,
-            max_age: 18,
-            fees: 0.0,
-            academic_year_start: academic_year_start,
-            academic_year_end: academic_year_end,
-            curriculum_info: {},
-            schedule_info: {}
-          )
-          Rails.logger.info "✅ Grade '#{grade_name}' ensured for school #{school_id} (id: #{grade.id})"
-        rescue => e
-          Rails.logger.error "🔥 Error creating grade '#{grade_name}' for school #{school_id}: #{e.message}"
-        end
       end
     end
 
