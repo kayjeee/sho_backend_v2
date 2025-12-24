@@ -130,6 +130,143 @@ class OnboardingStatus
     save
   end
 
+  # NEW: Convert to API-friendly hash format
+  def to_api_hash
+    {
+      id: id.to_s,
+      current_step: current_step,
+      completed_steps: completed_steps || [],
+      skipped_steps: skipped_steps || [],
+      completion_percentage: completion_percentage.to_f,
+      total_steps_count: total_steps_count.to_i,
+      started_at: started_at&.iso8601,
+      completed_at: completed_at&.iso8601,
+      completed: completed || false,
+      
+      # Step-specific booleans
+      create_grades: create_grades || false,
+      upload_learners: upload_learners || false,
+      send_invites: send_invites || false,
+      admin_onboarding_completed: admin_onboarding_completed || false,
+      parent_onboarding_completed: parent_onboarding_completed || false,
+      guest_onboarding_completed: guest_onboarding_completed || false,
+      
+      # Client metadata
+      client_metadata: client_metadata || {},
+      
+      # Progress information
+      progress: {
+        steps_completed: (completed_steps || []).count,
+        steps_skipped: (skipped_steps || []).count,
+        total_steps: total_steps_count.to_i,
+        percentage: completion_percentage.to_f
+      },
+      
+      # Additional useful information
+      next_step: next_step,
+      is_started: started_at.present?,
+      is_completed: completed || false,
+      time_to_complete: calculate_time_to_complete,
+      
+      # Timestamps
+      created_at: created_at&.iso8601,
+      updated_at: updated_at&.iso8601
+    }
+  end
+
+  # NEW: Determine the next step to complete
+  def next_step
+    return nil if completed
+    
+    user = self._parent
+    return nil unless user
+    
+    if user.admin?
+      return 'create_grades' unless create_grades
+      return 'upload_learners' unless upload_learners
+      return 'send_invites' unless send_invites
+      return 'admin_onboarding' unless admin_onboarding_completed
+    elsif user.parent?
+      return 'parent_onboarding' unless parent_onboarding_completed
+    elsif user.guest?
+      return 'guest_onboarding' unless guest_onboarding_completed
+    end
+    
+    nil
+  end
+
+  # NEW: Calculate time taken to complete onboarding
+  def calculate_time_to_complete
+    return nil unless started_at && completed_at
+    (completed_at - started_at).to_i
+  end
+
+  # NEW: Reset onboarding status
+  def reset!(reset_by: nil, reason: nil)
+    self.current_step = nil
+    self.completed_steps = []
+    self.skipped_steps = []
+    self.completion_percentage = 0
+    self.started_at = Time.current
+    self.completed_at = nil
+    self.completed = false
+    
+    # Reset all step booleans
+    self.create_grades = false
+    self.upload_learners = false
+    self.send_invites = false
+    self.admin_onboarding_completed = false
+    self.parent_onboarding_completed = false
+    self.guest_onboarding_completed = false
+    
+    # Add reset metadata
+    self.client_metadata['reset_info'] = {
+      reset_by: reset_by,
+      reason: reason,
+      reset_at: Time.current.iso8601
+    }
+    
+    save
+  end
+
+  # NEW: Skip a step with reason
+  def skip_step!(step_name, reason: nil)
+    skipped_step = {
+      step: step_name,
+      reason: reason,
+      skipped_at: Time.current.iso8601
+    }
+    
+    self.skipped_steps << skipped_step unless skipped_steps.any? { |s| s['step'] == step_name }
+    save
+  end
+
+  # NEW: Check if a step is completed
+  def step_completed?(step_name)
+    completed_steps.include?(step_name)
+  end
+
+  # NEW: Check if a step is skipped
+  def step_skipped?(step_name)
+    skipped_steps.any? { |s| s['step'] == step_name }
+  end
+
+  # NEW: Get completion status as text
+  def status_text
+    if completed
+      'Completed'
+    elsif started_at.present?
+      'In Progress'
+    else
+      'Not Started'
+    end
+  end
+
+  # NEW: Get percentage as formatted string
+  def percentage_formatted
+    "#{completion_percentage}%"
+  end
+
   private
 
   def set_total_steps_based_on_user_roles
