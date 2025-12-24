@@ -188,7 +188,6 @@ class User
     # Set initial configuration based on user roles
     configure_initial_onboarding_state
     
-    onboarding_status.save!
     Rails.logger.info "🆕 Initialized onboarding status for new user #{auth0_id}"
   end
 
