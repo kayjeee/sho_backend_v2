@@ -55,7 +55,8 @@ class User
 
   # ======================== CALLBACKS =======================
   before_save :log_school_id_changes, if: :school_ids_changed?
-  
+  before_save :normalize_roles
+
   # Onboarding callbacks
   after_initialize :ensure_onboarding_status
   after_create :initialize_onboarding_status
@@ -495,19 +496,19 @@ class User
   # ==================== UTILITY METHODS ====================
 
   def admin?
-    roles.include?('admin')
+    roles.map(&:downcase).include?('admin')
   end
 
   def parent?
-    roles.include?('parent')
+    roles.map(&:downcase).include?('parent')
   end
 
   def guest?
-    roles.include?('guest')
+    roles.map(&:downcase).include?('guest')
   end
 
   def has_role?(role)
-    roles.include?(role.to_s)
+    roles.map(&:downcase).include?(role.to_s.downcase)
   end
 
   def add_role(role)
@@ -539,6 +540,10 @@ class User
   end
 
   private
+
+  def normalize_roles
+    self.roles = roles.map(&:downcase).uniq if roles.present?
+  end
 
   def log_school_id_changes
     old_school_ids, new_school_ids = changes_to_save['school_ids']

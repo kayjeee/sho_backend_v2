@@ -5,7 +5,14 @@ class Api::V1::UsersController < ApplicationController
 # POST /api/v1/users
 # app/controllers/api/v1/users_controller.rb
 def create
-  service = UserServices::CreateUserService.new(user_params: user_params)
+  normalized_params = user_params.to_h
+  if normalized_params[:roles].is_a?(String)
+    normalized_params[:roles] = normalized_params[:roles].split(',').map(&:strip).map(&:downcase)
+  elsif normalized_params[:roles].is_a?(Array)
+    normalized_params[:roles] = normalized_params[:roles].map(&:strip).map(&:downcase)
+  end
+
+  service = UserServices::CreateUserService.new(user_params: normalized_params)
   result = service.call
 
   if result.success?

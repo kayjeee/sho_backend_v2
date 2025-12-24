@@ -23,7 +23,10 @@ module UserServices
         end
       end
 
+      was_new_record = user.new_record?
       if user.save
+        user.initialize_onboarding_status if was_new_record
+
         if invitation&.persisted?
           invitation.update(status: 'accepted')
 
@@ -32,7 +35,7 @@ module UserServices
             learner_ids: invitation.learner_ids
           ).call
         end
-        Result.new(success?: true, user: user, errors: [])
+        Result.new(success?: true, user: user.reload.to_api_hash, errors: [])
       else
         Result.new(success?: false, user: nil, errors: user.errors.full_messages)
       end
