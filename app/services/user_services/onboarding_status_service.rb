@@ -17,7 +17,7 @@ module UserServices
       new(user: user, context: context).update_status(updates)
     end
 
-    def self.complete_step(user:, step_name:, metadata: {}, context: {})
+    def self.complete_step(user:, step_name:, metadata: nil, context: {})
       new(user: user, context: context).complete_step(step_name, metadata)
     end
 
@@ -118,7 +118,8 @@ module UserServices
     end
 
     # Complete a specific step with comprehensive validation and side effects
-    def complete_step(step_name, metadata = {})
+    def complete_step(step_name, metadata = nil)
+      metadata ||= {}
       Rails.logger.debug "✅ OnboardingStatusService: Completing step '#{step_name}' for user #{@user.auth0_id}"
       
       begin
