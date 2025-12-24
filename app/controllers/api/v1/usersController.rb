@@ -6,10 +6,14 @@ class Api::V1::UsersController < ApplicationController
 # app/controllers/api/v1/users_controller.rb
 def create
   normalized_params = user_params.to_h
-  if normalized_params[:roles].is_a?(String)
-    normalized_params[:roles] = normalized_params[:roles].split(',').map(&:strip).map(&:downcase)
-  elsif normalized_params[:roles].is_a?(Array)
-    normalized_params[:roles] = normalized_params[:roles].map(&:strip).map(&:downcase)
+  roles = normalized_params[:roles]
+
+  if roles.is_a?(String)
+    normalized_params[:roles] = roles.split(',').map(&:strip).map(&:downcase)
+  elsif roles.is_a?(Array)
+    normalized_params[:roles] = roles.map(&:strip).map(&:downcase)
+  else
+    normalized_params[:roles] = []
   end
 
   service = UserServices::CreateUserService.new(user_params: normalized_params)

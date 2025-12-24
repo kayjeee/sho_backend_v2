@@ -5,7 +5,7 @@ module UserServices
 
     def initialize(user:, new_roles:)
       @user = user
-      @new_roles = new_roles || []
+      @new_roles = Array(new_roles).map(&:downcase)
     end
 
     def self.call(user:, new_roles:)
