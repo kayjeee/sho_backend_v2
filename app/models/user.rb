@@ -59,7 +59,7 @@ class User
 
   # Onboarding callbacks
   after_initialize :ensure_onboarding_status
-  after_create :initialize_onboarding_status
+  before_create :initialize_onboarding_status
 
   # ======================== SCOPES ========================
   scope :active, -> { where(status: 'active') }
@@ -194,31 +194,11 @@ class User
 
   # Configure initial onboarding state based on user roles and context
   def configure_initial_onboarding_state
-    user_roles = roles || []
-    onboarding = onboarding_status
-    
-    # Set current step based on primary role
-    case
-    when user_roles.include?('admin')
-      onboarding.current_step = 'create_grades'
-      onboarding.total_steps_count = 4 # create_grades, upload_learners, send_invites, admin_onboarding
-    when user_roles.include?('parent')
-      onboarding.current_step = 'parent_onboarding'
-      onboarding.total_steps_count = 1 # Only parent-specific onboarding
-    when user_roles.include?('guest')
-      onboarding.current_step = 'guest_onboarding'
-      onboarding.total_steps_count = 1 # Only guest-specific onboarding
-    else
-      onboarding.current_step = 'create_grades'
-      onboarding.total_steps_count = 3 # Default steps without role-specific
-    end
-    
-    # Set client metadata for tracking
-    onboarding.client_metadata = {
-      'initialized_at' => Time.current.iso8601,
-      'user_roles' => user_roles,
-      'initialization_context' => determine_initialization_context
-    }
+    onboarding = self.onboarding_status
+    onboarding.client_metadata ||= {}
+    onboarding.client_metadata['initialized_at'] = Time.current.iso8601
+    onboarding.client_metadata['user_roles'] = self.roles
+    onboarding.client_metadata['initialization_context'] = determine_initialization_context
   end
 
   # Determine the context in which onboarding was initialized
