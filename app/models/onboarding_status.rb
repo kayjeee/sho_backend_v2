@@ -39,6 +39,31 @@ class OnboardingStatus
   before_save :set_timestamps
   after_initialize :set_defaults
 
+  # NEW: Add to_api_hash method for API serialization
+  def to_api_hash
+    {
+      id: id.to_s,
+      current_step: current_step,
+      completed_steps: completed_steps || [],
+      skipped_steps: skipped_steps || [],
+      completion_percentage: completion_percentage.to_f,
+      total_steps_count: total_steps_count.to_i,
+      started_at: started_at,
+      completed_at: completed_at,
+      completed: completed || false,
+      create_grades: create_grades || false,
+      upload_learners: upload_learners || false,
+      send_invites: send_invites || false,
+      admin_onboarding_completed: admin_onboarding_completed || false,
+      parent_onboarding_completed: parent_onboarding_completed || false,
+      guest_onboarding_completed: guest_onboarding_completed || false,
+      # Include client metadata if needed
+      client_metadata: client_metadata || {},
+      created_at: created_at,
+      updated_at: updated_at
+    }.compact
+  end
+
   # FIXED: Proper completion percentage calculation
   def calculate_completion_percentage
     return 100 if completed
@@ -104,6 +129,40 @@ class OnboardingStatus
     save
   end
 
+  # Skip a step
+  def skip_step!(step_name)
+    skipped_steps << step_name unless skipped_steps.include?(step_name)
+    save
+  end
+
+  # Check if step is completed
+  def step_completed?(step_name)
+    completed_steps.include?(step_name)
+  end
+
+  # Check if step is skipped
+  def step_skipped?(step_name)
+    skipped_steps.include?(step_name)
+  end
+
+  # Get next step
+  def next_step
+    user = self._parent
+    return unless user
+
+    if user.admin?
+      return 'upload_learners' if !upload_learners && create_grades
+      return 'send_invites' if !send_invites && upload_learners
+      return 'admin_onboarding' if !admin_onboarding_completed && send_invites
+    elsif user.parent?
+      return 'parent_onboarding' unless parent_onboarding_completed
+    elsif user.guest?
+      return 'guest_onboarding' unless guest_onboarding_completed
+    end
+    
+    'completed'
+  end
+
   # Auto-complete if all steps are done
   def auto_complete_if_ready!
     return if completed
@@ -127,6 +186,33 @@ class OnboardingStatus
     self.completed_at = Time.current
     self.completion_percentage = 100
     self.current_step = 'completed'
+    save
+  end
+
+  # Reset onboarding
+  def reset!
+    self.completed_steps = []
+    self.skipped_steps = []
+    self.completed = false
+    self.completed_at = nil
+    self.completion_percentage = 0
+    self.create_grades = false
+    self.upload_learners = false
+    self.send_invites = false
+    self.admin_onboarding_completed = false
+    self.parent_onboarding_completed = false
+    self.guest_onboarding_completed = false
+    
+    # Reset current step based on user role
+    set_current_step_based_on_user_roles
+    
+    save
+  end
+
+  # Update client metadata
+  def update_client_metadata(metadata)
+    self.client_metadata ||= {}
+    self.client_metadata.merge!(metadata)
     save
   end
 

@@ -67,6 +67,14 @@ class User
   scope :admins, -> { where(roles: 'admin') }
   scope :parents, -> { where(roles: 'parent') }
   scope :guests, -> { where(roles: 'guest') }
+  
+  # Onboarding scopes
+  scope :needs_onboarding, -> { where('onboarding_status.completed' => false) }
+  scope :completed_onboarding, -> { where('onboarding_status.completed' => true) }
+  scope :in_onboarding_progress, -> { 
+    where('onboarding_status.completed' => false, 'onboarding_status.started_at'.ne => nil) 
+  }
+  scope :not_started_onboarding, -> { where('onboarding_status.started_at' => nil) }
 
   # ===================== GRADE-RELATED METHODS =====================
 
@@ -200,6 +208,9 @@ class User
     onboarding.client_metadata['initialized_at'] = Time.current.iso8601
     onboarding.client_metadata['user_roles'] = self.roles
     onboarding.client_metadata['initialization_context'] = determine_initialization_context
+    
+    # Save the onboarding status if user is being created
+    onboarding.save if self.new_record?
   end
 
   # Determine the context in which onboarding was initialized
@@ -207,7 +218,7 @@ class User
     # This can be enhanced based on how users are created in your system
     if schools.any?
       'existing_school_association'
-    elsif created_at > 1.hour.ago
+    elsif created_at && created_at > 1.hour.ago
       'new_user_registration'
     else
       'retroactive_initialization'
@@ -224,7 +235,7 @@ class User
         onboarding_status.assign_attributes(attrs)
       else
         # Handle camelCase input from API
-        onboarding_status.assign_attributes_from_api(attrs)
+        assign_onboarding_attributes_from_api(attrs)
       end
       
       onboarding_status.auto_complete_if_ready!
@@ -236,6 +247,18 @@ class User
     rescue => e
       Rails.logger.error "❌ Failed to update onboarding status for user #{auth0_id}: #{e.message}"
       raise e
+    end
+  end
+
+  # Helper method to assign attributes from API (camelCase to snake_case)
+  def assign_onboarding_attributes_from_api(attrs)
+    return unless attrs.is_a?(Hash)
+    
+    attrs.each do |key, value|
+      snake_key = key.to_s.underscore
+      if onboarding_status.respond_to?("#{snake_key}=")
+        onboarding_status.send("#{snake_key}=", value)
+      end
     end
   end
 
@@ -308,7 +331,7 @@ class User
       }
       
       onboarding_status.client_metadata["#{step_name}_skipped"] = skip_data
-      onboarding_status.skip_step!(step_name, reason: reason)
+      onboarding_status.skip_step!(step_name)
       
       Rails.logger.info "⏭️ User #{auth0_id} skipped onboarding step: #{step_name} (#{reason})"
       
@@ -345,7 +368,7 @@ class User
     {
       user_id: auth0_id,
       completion_percentage: onboarding_status.completion_percentage,
-      steps_completed: onboarding_status.steps_completed_count,
+      steps_completed: onboarding_status.completed_steps.count,
       total_steps: onboarding_status.total_steps_count,
       current_step: onboarding_status.current_step,
       started_at: onboarding_status.started_at,
@@ -403,8 +426,34 @@ class User
     base_hash[:needsOnboarding] = needs_onboarding?
     base_hash[:canAccessMainFeatures] = can_access_main_features?
     base_hash[:onboardingProgress] = onboarding_progress
+    base_hash[:currentOnboardingStep] = current_onboarding_step
     
-    base_hash
+    # Additional useful fields
+    base_hash[:admin] = admin?
+    base_hash[:parent] = parent?
+    base_hash[:guest] = guest?
+    base_hash[:displayName] = display_name
+    
+    base_hash.compact
+  end
+
+  # Alternative simplified API hash for certain endpoints
+  def to_simple_api_hash
+    {
+      id: id.to_s,
+      auth0_id: auth0_id,
+      name: name,
+      email: email,
+      roles: roles,
+      displayName: display_name,
+      onboardingProgress: onboarding_progress,
+      needsOnboarding: needs_onboarding?
+    }.compact
+  end
+
+  # For compatibility with legacy endpoints
+  def to_json_hash
+    to_api_hash
   end
 
   # ================== CLASS METHODS FOR BULK OPERATIONS ==================
@@ -474,6 +523,34 @@ class User
     (total_percentage / users_with_onboarding.count).round(2)
   end
 
+  # Find or create user from Auth0 data
+  def self.from_auth0(auth0_data)
+    auth0_id = auth0_data['sub']
+    email = auth0_data['email']
+    
+    user = find_by(auth0_id: auth0_id) || find_by(email: email)
+    
+    if user
+      # Update existing user
+      user.update!(
+        name: auth0_data['name'] || user.name,
+        email: email,
+        last_login: Time.current
+      )
+    else
+      # Create new user
+      user = create!(
+        auth0_id: auth0_id,
+        email: email,
+        name: auth0_data['name'] || email.split('@').first,
+        last_login: Time.current,
+        roles: ['user'] # Default role
+      )
+    end
+    
+    user
+  end
+
   # ==================== UTILITY METHODS ====================
 
   def admin?
@@ -486,6 +563,10 @@ class User
 
   def guest?
     roles.map(&:downcase).include?('guest')
+  end
+
+  def teacher?
+    roles.map(&:downcase).include?('teacher')
   end
 
   def has_role?(role)
@@ -518,6 +599,24 @@ class User
     else
       {}
     end
+  end
+
+  # Check if onboarding step is completed
+  def onboarding_step_completed?(step_name)
+    ensure_onboarding_status
+    onboarding_status.step_completed?(step_name)
+  end
+
+  # Check if onboarding step is skipped
+  def onboarding_step_skipped?(step_name)
+    ensure_onboarding_status
+    onboarding_status.step_skipped?(step_name)
+  end
+
+  # Get next onboarding step
+  def next_onboarding_step
+    ensure_onboarding_status
+    onboarding_status.next_step
   end
 
   private
@@ -576,5 +675,8 @@ class User
     
     # Trigger general step completion analytics
     # AnalyticsService.track_onboarding_step_completion(self, step_name, metadata)
+    
+    # Update user's last activity
+    touch(:updated_at)
   end
 end
