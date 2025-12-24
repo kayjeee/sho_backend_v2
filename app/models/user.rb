@@ -194,6 +194,8 @@ class User
 
   # Configure initial onboarding state based on user roles and context
   def configure_initial_onboarding_state
+    # This method now primarily serves to set metadata.
+    # The core logic for setting steps is now in OnboardingStatus.set_defaults.
     onboarding = self.onboarding_status
     onboarding.client_metadata ||= {}
     onboarding.client_metadata['initialized_at'] = Time.current.iso8601
