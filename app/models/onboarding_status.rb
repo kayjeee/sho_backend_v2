@@ -34,9 +34,14 @@ class OnboardingStatus
     less_than_or_equal_to: 100
   }
 
+  validates :total_steps_count, numericality: {
+    greater_than: 0
+  }
+
   # Callbacks
   before_save :calculate_completion_percentage
   before_save :set_timestamps
+  before_save :ensure_total_steps_count
   after_initialize :set_defaults
 
   # FIXED: Proper completion percentage calculation
@@ -45,24 +50,31 @@ class OnboardingStatus
     return 0 if total_steps_count.zero?
 
     # Count actual completed steps from boolean fields
-    completed_count = 0
-    completed_count += 1 if create_grades
-    completed_count += 1 if upload_learners
-    completed_count += 1 if send_invites
-
-    # Only count role-specific onboarding if user has that role
-    user = self._parent
-    if user
-      completed_count += 1 if admin_onboarding_completed && user.admin?
-      completed_count += 1 if parent_onboarding_completed && user.parent?
-      completed_count += 1 if guest_onboarding_completed && user.guest?
-    end
+    completed_count = steps_completed_count
 
     # Calculate percentage (0-100)
     percentage = (completed_count.to_f / total_steps_count * 100).round
 
     # Cap at 100%
     self.completion_percentage = [percentage, 100].min
+  end
+
+  # Count completed steps properly
+  def steps_completed_count
+    count = 0
+    count += 1 if create_grades
+    count += 1 if upload_learners
+    count += 1 if send_invites
+
+    # Only count role-specific onboarding if user has that role
+    user = self._parent
+    if user
+      count += 1 if admin_onboarding_completed && user.admin?
+      count += 1 if parent_onboarding_completed && user.parent?
+      count += 1 if guest_onboarding_completed && user.guest?
+    end
+
+    count
   end
 
   # FIXED: Initialize with proper values
@@ -74,12 +86,19 @@ class OnboardingStatus
       self.skipped_steps ||= []
 
       # Set total steps based on user roles
-      set_total_steps_based_on_user_roles
+      ensure_total_steps_count
       set_current_step_based_on_user_roles
     end
   end
 
-  # Add this method to the User model if not present
+  # CRITICAL FIX: Ensure total_steps_count is never 0
+  def ensure_total_steps_count
+    if total_steps_count == 0
+      set_total_steps_based_on_user_roles
+    end
+  end
+
+  # FIXED: Add this method to the User model if not present
   def assign_attributes_from_api(attrs)
     return unless attrs.is_a?(Hash)
 
@@ -92,7 +111,7 @@ class OnboardingStatus
   end
 
   # Complete a step
-  def complete_step!(step_name)
+  def complete_step!(step_name, metadata: {})
     completed_steps << step_name unless completed_steps.include?(step_name)
 
     # Set boolean flag if it exists
@@ -100,6 +119,15 @@ class OnboardingStatus
     if respond_to?("#{step_method}=")
       send("#{step_method}=", true)
     end
+
+    # Store metadata if provided
+    if metadata.any?
+      self.client_metadata ||= {}
+      self.client_metadata["#{step_name}_metadata"] = metadata
+    end
+
+    # Auto-complete if ready
+    auto_complete_if_ready!
 
     save
   end
@@ -128,6 +156,84 @@ class OnboardingStatus
     self.completion_percentage = 100
     self.current_step = 'completed'
     save
+  end
+
+  # ADD THIS: Skip step method that service expects
+  def skip_step!(step_name, reason: nil)
+    skip_data = {
+      step: step_name,
+      reason: reason,
+      skipped_at: Time.current.iso8601
+    }
+
+    self.skipped_steps ||= []
+    self.skipped_steps << skip_data
+
+    # Store in metadata
+    self.client_metadata ||= {}
+    self.client_metadata["#{step_name}_skipped"] = {
+      reason: reason,
+      skipped_at: Time.current.iso8601
+    }
+
+    save
+  end
+
+  # ADD THIS: Reset method
+  def reset!
+    self.attributes = {
+      create_grades: false,
+      upload_learners: false,
+      send_invites: false,
+      admin_onboarding_completed: false,
+      parent_onboarding_completed: false,
+      guest_onboarding_completed: false,
+      current_step: nil,
+      completed_steps: [],
+      skipped_steps: [],
+      completion_percentage: 0,
+      completed: false,
+      completed_at: nil
+    }
+
+    # Reinitialize based on user roles
+    set_total_steps_based_on_user_roles
+    set_current_step_based_on_user_roles
+
+    save
+  end
+
+  # ADD THIS: API serialization method
+  def to_api_hash
+    {
+      create_grades: create_grades,
+      upload_learners: upload_learners,
+      send_invites: send_invites,
+      admin_onboarding_completed: admin_onboarding_completed,
+      parent_onboarding_completed: parent_onboarding_completed,
+      guest_onboarding_completed: guest_onboarding_completed,
+      current_step: current_step,
+      completed_steps: completed_steps,
+      skipped_steps: skipped_steps,
+      completion_percentage: completion_percentage,
+      started_at: started_at&.iso8601,
+      completed_at: completed_at&.iso8601,
+      total_steps_count: total_steps_count,
+      completed: completed,
+      client_metadata: client_metadata
+    }
+  end
+
+  # ADD THIS: Calculate next step
+  def next_step
+    steps = %w[create_grades upload_learners send_invites admin_onboarding]
+    current_index = steps.index(current_step)
+
+    if current_index && current_index < steps.size - 1
+      steps[current_index + 1]
+    else
+      current_step
+    end
   end
 
   private
