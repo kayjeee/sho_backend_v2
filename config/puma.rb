@@ -39,3 +39,15 @@ plugin :solid_queue if ENV["SOLID_QUEUE_IN_PUMA"]
 # Specify the PID file. Defaults to tmp/pids/server.pid in development.
 # In other environments, only set the PID file if requested.
 pidfile ENV["PIDFILE"] if ENV["PIDFILE"]
+
+# Preload the application code in the master process before forking worker processes.
+# This improves boot time and memory usage.
+preload_app!
+
+# This hook runs in each worker process after it has been forked.
+# We reload routes here to re-establish any connections or state that
+# might have been lost during the fork, ensuring each worker has a fresh
+# and complete set of routes.
+on_worker_boot do
+  Rails.application.reload_routes!
+end
