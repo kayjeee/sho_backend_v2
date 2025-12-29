@@ -25,36 +25,37 @@ class Api::V1::InvitationsController < ApplicationController
   # Create an invitation (Public – sender passed explicitly)
   # Supports single and multiple learners
   # ------------------------------------------------------------
-  def create
-    sender = User.find_by(auth0_id: params[:sender_id])
-    return render json: { success: false, errors: ['Sender not found'] }, status: :unprocessable_entity unless sender
+  # app/controllers/api/v1/invitations_controller.rb
+def create
+  # Find sender (don't fail if not found)
+  sender = User.find_by(auth0_id: params[:sender_id])
+  
+  invitation = UserServices::InvitationService.new(
+    sender_id: params[:sender_id],
+    phone_number: params[:phone_number],
+    school_id: params[:school_id],
+    learner_number: params[:learner_number],
+    learner_numbers: params[:learner_numbers],
+    role: params[:role],
+    parent_name: params[:parent_name],
+    grade_id: params[:grade_id],
+    invited_via: params[:invited_via]
+  ).call
 
-    invitation = UserServices::InvitationService.new(
-      sender_id: params[:sender_id],
-      phone_number: params[:phone_number],
-      school_id: params[:school_id],
-      learner_number: params[:learner_number],     # ✅ single learner support
-      learner_numbers: params[:learner_numbers],   # ✅ multiple learners support
-      role: params[:role],
-      parent_name: params[:parent_name],
-      grade_id: params[:grade_id],
-      invited_via: params[:invited_via]
-    ).call
+  # ✅ ALWAYS SUCCESS if invitation is created
+  render json: {
+    success: true,
+    message: 'Invitation sent successfully.',
+    invitation: invitation.to_api_hash # This now includes token!
+  }, status: :created
 
-    if invitation.persisted?
-      render json: {
-        success: true,
-        message: 'Invitation sent successfully.',
-        invitation: invitation.to_api_hash
-      }, status: :created
-    else
-      render json: {
-        success: false,
-        errors: invitation.errors.full_messages
-      }, status: :unprocessable_entity
-    end
-  end
-
+rescue => e
+  Rails.logger.error "Invitation creation failed: #{e.message}"
+  render json: {
+    success: false,
+    message: e.message
+  }, status: :unprocessable_entity
+end
   # ------------------------------------------------------------
   # Verify & accept invitation (Public – auth0_id passed explicitly)
   # Works with multiple learners

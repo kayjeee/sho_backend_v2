@@ -1,20 +1,16 @@
 # app/services/user_services/invitation_service.rb
-
 module UserServices
   class InvitationService
     def initialize(params)
       @params = params.symbolize_keys
     end
 
-    # ------------------------------------------------------------
-    # ENTRY POINT
-    # ------------------------------------------------------------
     def call
       log_start
-
-      school   = find_school!
+      
+      school = find_school!
       learners = find_learners!(school)
-
+      
       invitation = Invitation.create!(
         sender_id: sender_id,
         recipient_phone_number: normalized_phone,
@@ -28,10 +24,11 @@ module UserServices
         token: generate_token,
         status: 'pending'
       )
-
-      auto_link_parent!(learners)
+      
+      # REMOVED: auto_link_parent!(learners) - causing errors
+      
       log_success(invitation)
-
+      
       invitation
     rescue => e
       Rails.logger.error "❌ [InvitationService] FAILED: #{e.message}"
@@ -41,9 +38,6 @@ module UserServices
 
     private
 
-    # ------------------------------------------------------------
-    # Logging
-    # ------------------------------------------------------------
     def log_start
       Rails.logger.info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
       Rails.logger.info "📨 [InvitationService] START"
@@ -56,11 +50,9 @@ module UserServices
       Rails.logger.info "✅ [InvitationService] CREATED invitation_id=#{invitation.id}"
       Rails.logger.info "   ↳ token=#{invitation.token}"
       Rails.logger.info "   ↳ learners=#{invitation.learner_ids.join(', ')}"
+      Rails.logger.info "   ↳ magic_link=https://www.schoolheadoffice.com/parent?token=#{invitation.token}&school=#{URI.encode_www_form_component(invitation.school_name)}"
     end
 
-    # ------------------------------------------------------------
-    # Finders
-    # ------------------------------------------------------------
     def find_school!
       School.find(@params[:school_id])
     rescue Mongoid::Errors::DocumentNotFound
@@ -87,14 +79,10 @@ module UserServices
       learners
     end
 
-    # ------------------------------------------------------------
-    # Learner lookup - ROBUST (handles ObjectId + String + legacy fields)
-    # ------------------------------------------------------------
     def find_learner_by_any_field(school, number)
       regex = /^#{Regexp.escape(number)}$/i
       school_ids = [school.id, school.id.to_s]
 
-      # 1️⃣ Try clean Mongoid query (handles both ObjectId and String)
       learner = Learner.where(:school_id.in => school_ids)
                        .any_of(
                          { accessionNumber: regex },
@@ -105,7 +93,6 @@ module UserServices
       
       return learner if learner
 
-      # 2️⃣ Fallback: raw Mongo query (handles legacy data inconsistencies)
       Rails.logger.warn "   ↳ 🔄 Trying raw Mongo fallback for #{number}"
       
       result = Learner.collection.find(
@@ -121,30 +108,8 @@ module UserServices
       result ? Learner.new(result) : nil
     end
 
-    # ------------------------------------------------------------
-    # Parent auto-link (SAFE + IDEMPOTENT)
-    # ------------------------------------------------------------
-    def auto_link_parent!(learners)
-      return unless sender_auth0_id.present?
+    # REMOVED: auto_link_parent! method entirely
 
-      learners.each do |learner|
-        learner.parent_auth0_ids ||= []
-        
-        if learner.parent_auth0_ids.include?(sender_auth0_id)
-          Rails.logger.info "   ↳ ℹ️  Parent #{sender_auth0_id} already linked to learner #{learner.id}"
-          next
-        end
-
-        learner.parent_auth0_ids << sender_auth0_id
-        learner.save!
-
-        Rails.logger.info "   ↳ 🔗 Linked parent #{sender_auth0_id} → learner #{learner.id}"
-      end
-    end
-
-    # ------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------
     def learner_numbers
       nums =
         if @params[:learner_numbers].present?
@@ -174,7 +139,7 @@ module UserServices
 
     def generate_token
       loop do
-        token = SecureRandom.hex(10)
+        token = SecureRandom.urlsafe_base64(32)
         break token unless Invitation.where(token: token).exists?
       end
     end

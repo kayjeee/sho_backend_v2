@@ -16,15 +16,13 @@ class Invitation
   field :invited_via, type: String, default: 'whatsapp'
   field :parent_name, type: String
   field :grade_id, type: String
+  field :sender_email, type: String # ✅ ADDED for WhatsApp service
 
   # ===================== LEARNER INFORMATION =====================
-  # Legacy field for backward compatibility (single learner)
-  field :learner_number, type: String
-  
-  # New fields for multiple learner support
-  field :learner_numbers, type: Array, default: []       # Array of accession numbers
-  field :learner_ids, type: Array, default: []           # Array of learner MongoDB IDs
-  field :learner_names, type: Array, default: []         # Array of learner full names
+  field :learner_number, type: String # Legacy single learner
+  field :learner_numbers, type: Array, default: []
+  field :learner_ids, type: Array, default: []
+  field :learner_names, type: Array, default: []
 
   # ===================== TIMESTAMP FIELDS =====================
   field :accepted_at, type: Time
@@ -34,6 +32,7 @@ class Invitation
   field :metadata, type: Hash, default: {}
   field :notes, type: String
   field :invitation_type, type: String, default: 'standard'
+  field :magic_link_sent_at, type: Time # ✅ ADDED for tracking
 
   # ===================== VALIDATIONS =====================
   validates :token, presence: true, uniqueness: true
@@ -54,16 +53,16 @@ class Invitation
   index({ created_at: -1 })
   index({ expires_at: 1 })
   index({ accepted_at: 1 })
+  index({ magic_link_sent_at: 1 }) # ✅ ADDED
   
-  # Multi-field indexes for common queries
+  # Multi-field indexes
   index({ status: 1, expires_at: 1 })
   index({ school_id: 1, status: 1 })
   index({ recipient_phone_number: 1, status: 1 })
-  
-  # Indexes for learner arrays
   index({ learner_ids: 1 })
   index({ learner_numbers: 1 })
   index({ learner_ids: 1, status: 1 })
+  index({ token: 1, status: 1 }) # ✅ ADDED for faster lookup
 
   # ===================== CALLBACKS =====================
   before_validation :generate_token, unless: :token?
@@ -77,7 +76,7 @@ class Invitation
   scope :expired, -> { where(status: 'expired') }
   scope :rejected, -> { where(status: 'rejected') }
   scope :cancelled, -> { where(status: 'cancelled') }
-  scope :active, -> { where(status: 'pending').where(:expires_at.gt => Time.current) }
+  scope :active, -> { pending.where(:expires_at.gt => Time.current) }
   scope :inactive, -> { where(:status.in => ['accepted', 'rejected', 'cancelled', 'expired']) }
   
   scope :by_school, ->(school_id) { where(school_id: school_id) }
@@ -85,26 +84,26 @@ class Invitation
   scope :by_recipient_phone, ->(phone) { where(recipient_phone_number: phone) }
   scope :by_learner_id, ->(learner_id) { where(learner_ids: learner_id) }
   scope :by_learner_number, ->(number) { where(learner_numbers: number) }
+  scope :with_token, ->(token) { where(token: token) } # ✅ ADDED
   
   scope :recent, -> { order(created_at: :desc) }
   scope :expiring_soon, ->(hours = 24) { 
     pending.where(:expires_at.lte => hours.hours.from_now, :expires_at.gt => Time.current) 
   }
   scope :expired_auto, -> { pending.where(:expires_at.lte => Time.current) }
+  scope :not_sent, -> { where(magic_link_sent_at: nil) } # ✅ ADDED
 
   # ===================== CLASS METHODS =====================
   
-  # Generate a unique invitation token
   def self.generate_token
+    # More secure token for magic links
     SecureRandom.urlsafe_base64(32)
   end
 
-  # Find by token with case-insensitive match
   def self.find_by_token(token)
     where(token: /^#{Regexp.escape(token)}$/i).first
   end
 
-  # Create multiple invitations for bulk operations
   def self.create_for_learners(learners_data, invitation_params)
     invitations = []
     
@@ -114,7 +113,7 @@ class Invitation
           learner_ids: [learner_data[:id]],
           learner_numbers: [learner_data[:accession_number]],
           learner_names: [learner_data[:name]],
-          learner_number: learner_data[:accession_number] # Legacy compatibility
+          learner_number: learner_data[:accession_number]
         ))
         
         invitations << invitation if invitation.save
@@ -124,75 +123,75 @@ class Invitation
     invitations
   end
 
+  def self.build_magic_link(token, school_name)
+    # ✅ CRITICAL FIX: Builds the proper magic link query string
+    return nil unless token.present? && school_name.present?
+    
+    encoded_school = URI.encode_www_form_component(school_name.to_s.strip)
+    "?token=#{token}&school=#{encoded_school}"
+  end
+
   # ===================== INSTANCE METHODS =====================
 
-  # Check if invitation is still valid for acceptance
   def valid_invitation?
     status == 'pending' && !expired?
   end
 
-  # Check if invitation has expired
   def expired?
     expires_at.present? && expires_at <= Time.current
   end
 
-  # Mark invitation as accepted
   def accept!
     update(status: 'accepted', accepted_at: Time.current)
   end
 
-  # Mark invitation as expired
   def expire!
     update(status: 'expired')
   end
 
-  # Mark invitation as rejected
   def reject!
     update(status: 'rejected')
   end
 
-  # Cancel the invitation
   def cancel!
     update(status: 'cancelled')
   end
 
-  # Extend invitation expiration
   def extend_expiration!(days = 7)
     update(expires_at: (expires_at || Time.current) + days.days)
   end
 
-  # Resend invitation with new token
   def resend!
     new_token = self.class.generate_token
     update(
       token: new_token,
       status: 'pending',
       expires_at: 7.days.from_now,
-      accepted_at: nil
+      accepted_at: nil,
+      magic_link_sent_at: nil # Reset sent flag
     )
   end
 
-  # Get sender's full name
+  def mark_as_sent!
+    update(magic_link_sent_at: Time.current)
+  end
+
   def sender_name
     sender&.full_name || sender&.name || 'System'
   end
 
-  # Get school name
   def school_name
     school&.schoolName || school&.name || 'Unknown School'
   end
 
-  # Check if invitation is for multiple learners
   def multiple_learners?
     learner_ids.present? && learner_ids.size > 1
   end
 
-  # Get count of learners
   def learner_count
     learner_ids&.size || (learner_number.present? ? 1 : 0)
   end
 
-  # Format learner names for display
   def learner_names_display
     return 'No learners' if learner_names.blank?
     
@@ -206,7 +205,6 @@ class Invitation
     end
   end
 
-  # Get primary learner (for backward compatibility)
   def primary_learner
     {
       id: learner_ids&.first,
@@ -215,7 +213,6 @@ class Invitation
     }
   end
 
-  # Add a learner to the invitation
   def add_learner(learner_id, learner_number, learner_name)
     self.learner_ids ||= []
     self.learner_numbers ||= []
@@ -226,14 +223,12 @@ class Invitation
       self.learner_numbers << learner_number
       self.learner_names << learner_name
       
-      # Set legacy field if this is the first learner
       self.learner_number = learner_number if self.learner_number.blank?
     end
     
     save
   end
 
-  # Remove a learner from the invitation
   def remove_learner(learner_id)
     return false unless learner_ids.include?(learner_id)
     
@@ -242,16 +237,16 @@ class Invitation
     self.learner_numbers.delete_at(index)
     self.learner_names.delete_at(index)
     
-    # Update legacy field if needed
     self.learner_number = learner_numbers.first if learner_number == learner_id.to_s
     
     save
   end
 
-  # Serialize to API hash
-  def to_api_hash(include_token: false)
+  # ✅ FIXED: Token is now ALWAYS included in API response
+  def to_api_hash(include_token: true) # Changed default to true
     hash = {
       id: id.to_s,
+      token: token, # ✅ CRITICAL FIX: Always include token
       recipient_phone_number: recipient_phone_number,
       role: role,
       status: status,
@@ -261,6 +256,7 @@ class Invitation
       school_name: school_name,
       sender_id: sender_id&.to_s,
       sender_name: sender_name,
+      sender_email: sender_email, # ✅ ADDED
       learner_number: learner_number,
       learner_numbers: learner_numbers,
       learner_ids: learner_ids,
@@ -274,66 +270,68 @@ class Invitation
       valid: valid_invitation?,
       invitation_type: invitation_type,
       metadata: metadata,
+      magic_link_sent_at: magic_link_sent_at&.iso8601, # ✅ ADDED
       created_at: created_at&.iso8601,
       updated_at: updated_at&.iso8601
     }
     
-    hash[:token] = token if include_token
+    # Build magic link for convenience
+    hash[:magic_link_query] = self.class.build_magic_link(token, school_name)
+    hash[:full_magic_link] = "https://www.schoolheadoffice.com/parent#{hash[:magic_link_query]}"
+    
     hash
   end
 
-  # Get simplified representation for notifications
   def to_notification_hash
     {
       id: id.to_s,
+      token: token, # ✅ ADDED
       recipient_phone_number: recipient_phone_number,
       learner_names: learner_names_display,
       school_name: school_name,
       expires_at: expires_at&.strftime('%b %d, %Y'),
-      invitation_link: Rails.application.routes.url_helpers.accept_invitation_url(token: token)
+      invitation_link: Rails.application.routes.url_helpers.accept_invitation_url(token: token),
+      magic_link_query: self.class.build_magic_link(token, school_name)
     }
+  end
+
+  # ✅ NEW: Simple method to check if magic link was sent
+  def magic_link_sent?
+    magic_link_sent_at.present?
   end
 
   private
 
-  # Generate unique token
   def generate_token
-    self.token = self.class.generate_token
+    self.token ||= self.class.generate_token
   end
 
-  # Set default expiration time
   def set_default_expiration
     self.expires_at ||= 7.days.from_now
   end
 
-  # Update status if invitation has expired
   def update_status_if_expired
     if status == 'pending' && expired?
       update_columns(status: 'expired') rescue nil
     end
   end
 
-  # Sync legacy fields with new array fields for backward compatibility
   def sync_legacy_learner_fields
-    # If we have array data but no legacy field, set it from first element
     if learner_number.blank? && learner_numbers.present?
       self.learner_number = learner_numbers.first
     end
     
-    # If we only have legacy field, populate arrays
     if learner_number.present? && learner_ids.blank?
       self.learner_ids = [learner_number]
       self.learner_numbers = [learner_number]
-      self.learner_names = [learner_number] # Default name
+      self.learner_names = [learner_number]
     end
   end
 
-  # Validate learner data consistency
   def validate_learner_data_consistency
     return if learner_ids.blank? && learner_number.blank?
     
     if learner_ids.present?
-      # All arrays should have same length
       if learner_numbers.present? && learner_ids.length != learner_numbers.length
         errors.add(:learner_numbers, "must have same count as learner_ids")
       end
@@ -344,13 +342,12 @@ class Invitation
     end
   end
 
-  # Validate phone number format
   def validate_phone_number_format
     return if recipient_phone_number.blank?
     
-    # Basic phone validation - adjust based on your requirements
-    unless recipient_phone_number.match?(/\A\+?[\d\s\-\(\)]{10,}\z/)
-      errors.add(:recipient_phone_number, "is not a valid phone number")
+    # South African phone number validation
+    unless recipient_phone_number.match?(/\A27\d{9}\z/) # 27 + 9 digits
+      errors.add(:recipient_phone_number, "must be a valid South African number (27XXXXXXXXX)")
     end
   end
 end
