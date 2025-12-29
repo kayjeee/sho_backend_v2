@@ -17,7 +17,7 @@ module UserServices
       new(user: user, context: context).update_status(updates)
     end
 
-    def self.complete_step(user:, step_name:, metadata: {}, context: {})
+    def self.complete_step(user:, step_name:, metadata: nil, context: {})
       new(user: user, context: context).complete_step(step_name, metadata)
     end
 
@@ -118,8 +118,17 @@ module UserServices
     end
 
     # Complete a specific step with comprehensive validation and side effects
-    def complete_step(step_name, metadata = {})
+    def complete_step(step_name, metadata = nil)
+      metadata ||= {}
       Rails.logger.debug "✅ OnboardingStatusService: Completing step '#{step_name}' for user #{@user.auth0_id}"
+
+      # Auto-infer school_id for create_grades if user has exactly one school
+      if step_name == 'create_grades' && metadata['school_id'].blank?
+        if @user.schools.count == 1
+          metadata['school_id'] = @user.schools.first.id.to_s
+          Rails.logger.info "  -> Inferred school_id: #{metadata['school_id']} for user #{@user.auth0_id}"
+        end
+      end
       
       begin
         @user.ensure_onboarding_status

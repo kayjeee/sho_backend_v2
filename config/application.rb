@@ -76,5 +76,14 @@ module ShoBackendV2
       host: ENV.fetch("APP_HOST", "example.com"),
       protocol: "https"
     }
+
+    # Force eager loading of routes to prevent intermittent "No route matches" errors.
+    # This ensures the routes file is on the eager load path.
+    config.eager_load_paths << Rails.root.join('config/routes.rb')
+
+    # Explicitly reload routes after the application initializes to resolve any loading race conditions.
+    config.after_initialize do
+      Rails.application.reload_routes!
+    end
   end
 end

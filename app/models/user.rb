@@ -13,6 +13,7 @@ class User
   field :status,           type: String, default: 'active'
   field :last_login,       type: Time
   field :phone_number,     type: String
+  field :invited_via,      type: String
 
   # ===================== VALIDATIONS ======================
   validates :email,        presence: true, uniqueness: true
@@ -54,10 +55,11 @@ class User
 
   # ======================== CALLBACKS =======================
   before_save :log_school_id_changes, if: :school_ids_changed?
-  
+  before_save :normalize_roles
+
   # Onboarding callbacks
   after_initialize :ensure_onboarding_status
-  after_create :initialize_onboarding_status
+  before_create :initialize_onboarding_status
 
   # ======================== SCOPES ========================
   scope :active, -> { where(status: 'active') }
@@ -186,37 +188,18 @@ class User
     # Set initial configuration based on user roles
     configure_initial_onboarding_state
     
-    onboarding_status.save!
     Rails.logger.info "🆕 Initialized onboarding status for new user #{auth0_id}"
   end
 
   # Configure initial onboarding state based on user roles and context
   def configure_initial_onboarding_state
-    user_roles = roles || []
-    onboarding = onboarding_status
-    
-    # Set current step based on primary role
-    case
-    when user_roles.include?('admin')
-      onboarding.current_step = 'create_grades'
-      onboarding.total_steps_count = 4 # create_grades, upload_learners, send_invites, admin_onboarding
-    when user_roles.include?('parent')
-      onboarding.current_step = 'parent_onboarding'
-      onboarding.total_steps_count = 1 # Only parent-specific onboarding
-    when user_roles.include?('guest')
-      onboarding.current_step = 'guest_onboarding'
-      onboarding.total_steps_count = 1 # Only guest-specific onboarding
-    else
-      onboarding.current_step = 'create_grades'
-      onboarding.total_steps_count = 3 # Default steps without role-specific
-    end
-    
-    # Set client metadata for tracking
-    onboarding.client_metadata = {
-      'initialized_at' => Time.current.iso8601,
-      'user_roles' => user_roles,
-      'initialization_context' => determine_initialization_context
-    }
+    # This method now primarily serves to set metadata.
+    # The core logic for setting steps is now in OnboardingStatus.set_defaults.
+    onboarding = self.onboarding_status
+    onboarding.client_metadata ||= {}
+    onboarding.client_metadata['initialized_at'] = Time.current.iso8601
+    onboarding.client_metadata['user_roles'] = self.roles
+    onboarding.client_metadata['initialization_context'] = determine_initialization_context
   end
 
   # Determine the context in which onboarding was initialized
@@ -397,9 +380,12 @@ class User
   # Enhanced API serialization including onboarding status
   def to_api_hash
     base_hash = {
+      id: id.to_s,
       auth0_id: auth0_id,
       name: name,
       email: email,
+      phone_number: phone_number,
+      invited_via: invited_via,
       roles: roles,
       school_ids: school_ids&.map(&:to_s),
       status: status,
@@ -491,19 +477,19 @@ class User
   # ==================== UTILITY METHODS ====================
 
   def admin?
-    roles.include?('admin')
+    roles.map(&:downcase).include?('admin')
   end
 
   def parent?
-    roles.include?('parent')
+    roles.map(&:downcase).include?('parent')
   end
 
   def guest?
-    roles.include?('guest')
+    roles.map(&:downcase).include?('guest')
   end
 
   def has_role?(role)
-    roles.include?(role.to_s)
+    roles.map(&:downcase).include?(role.to_s.downcase)
   end
 
   def add_role(role)
@@ -535,6 +521,10 @@ class User
   end
 
   private
+
+  def normalize_roles
+    self.roles = roles.map(&:downcase).uniq if roles.present?
+  end
 
   def log_school_id_changes
     old_school_ids, new_school_ids = changes_to_save['school_ids']
