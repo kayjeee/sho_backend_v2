@@ -1,18 +1,18 @@
-# app/models/learner.rb - COMPLETE FIXED VERSION
+# app/models/learner.rb
 class Learner
   include Mongoid::Document
   include Mongoid::Timestamps
-  include Mongoid::Attributes::Dynamic  # ADD THIS LINE
+  include Mongoid::Attributes::Dynamic
 
   # ======================== LEGACY FIELDS ========================
   field :firstName,        as: :first_name, type: String
   field :lastName,         as: :last_name, type: String
-  field :accession_number, type: String
-  field :gender,           type: Integer, default: 0
-  field :status,           type: Integer, default: 0  # KEEP as Integer for consistency
+  field :accessionNumber,  as: :accession_number, type: String
+  field :gender,           type: String  # Changed from Integer to String
+  field :status,           type: String, default: 'active'  # Changed from Integer to String
   field :phone,            type: String
-  field :tel_emergency,    type: String
-  field :tel_home,         type: String
+  field :telEmergency,     as: :tel_emergency, type: String
+  field :telHome,          as: :tel_home, type: String
   field :whatsapp,         type: String
   field :telegram,         type: String
 
@@ -30,24 +30,29 @@ class Learner
   field :last_sync_at,    type: DateTime
   
   # ======================== CRITICAL FIX ========================
-  # Keep overwrite: true but change type to match your data
-  # Your data shows "active" (string) but model expects 0 (integer)
+  # Changed from BSON::ObjectId to String to match actual data
   field :school_id, type: String, overwrite: true
 
   # ======================== AUTH0 FIELDS ========================
-  # ADD THESE - they exist in your MongoDB but weren't in your model!
   field :auth0Id, type: String
   field :userAuth0Id, type: String
+
+  # ======================== ADDITIONAL FIELDS ========================
+  field :schoolName, type: String
+  field :schoolEmail, type: String
+  field :userEmail, type: String
+  field :province, type: String
 
   # ===================== VALIDATIONS ======================
   validates :first_name, :last_name, presence: true
   validates :accession_number, presence: true, uniqueness: { scope: :school_id }
 
-  GENDERS  = { 'male' => 0, 'female' => 1, 'other' => 2 }.freeze
-  STATUSES = { 'active' => 0, 'inactive' => 1, 'graduated' => 2 }.freeze
+  # Gender and status are now strings
+  GENDERS  = %w[M F male female other].freeze
+  STATUSES = %w[active inactive graduated].freeze
 
-  validates :gender, inclusion: { in: GENDERS.values }
-  validates :status, inclusion: { in: STATUSES.values }
+  validates :gender, inclusion: { in: GENDERS }, allow_nil: true
+  validates :status, inclusion: { in: STATUSES }, allow_nil: true
 
   # ===================== ASSOCIATIONS =====================
   belongs_to :school,     class_name: 'School', optional: true
@@ -55,15 +60,14 @@ class Learner
   belongs_to :grade,      class_name: 'Grade',  optional: true
 
   # ======================== INDEXES ========================
-  index({ school_id: 1, accession_number: 1 }, unique: true, sparse: true)
-  index({ first_name: 1, last_name: 1 })
+  index({ school_id: 1, accessionNumber: 1 }, unique: true, sparse: true)
+  index({ firstName: 1, lastName: 1 })
   index({ school_id: 1 })
   index({ mobile_sync_id: 1 }, { unique: true, sparse: true })
   index({ school_id: 1, last_sync_at: 1 })
   index({ gradeId: 1 })
   index({ parent_ids: 1 })
   index({ parent_auth0_ids: 1 })
-  # Add indexes for auth0 fields
   index({ auth0Id: 1 })
   index({ userAuth0Id: 1 })
 
@@ -71,51 +75,51 @@ class Learner
   before_validation :sanitize_phone_numbers
 
   # ========================= SCOPES =========================
-  # FIXED: Handle BOTH integer 0 AND string "active"
-  scope :active, -> { 
-    where("$or" => [
-      {status: STATUSES['active']},  # Integer 0
-      {status: "active"}             # String "active"
-    ])
-  }
-  scope :inactive, -> { where(status: STATUSES['inactive']) }
-  scope :graduated, -> { where(status: STATUSES['graduated']) }
+  scope :active, -> { where(status: 'active') }
+  scope :inactive, -> { where(status: 'inactive') }
+  scope :graduated, -> { where(status: 'graduated') }
   scope :by_school, ->(school_id) { where(school_id: school_id) }
   scope :by_grade, ->(grade_id) { where(gradeId: grade_id) }
 
   # ======================== METHODS =========================
 
   # Gender helpers
-  def male? = gender == GENDERS['male']
-  def female? = gender == GENDERS['female']
-  def other_gender? = gender == GENDERS['other']
-
-  def gender_text
-    GENDERS.key(gender)&.capitalize || 'Unknown'
+  def male?
+    %w[M male].include?(gender)
   end
 
-  # Status helpers - handle BOTH integer and string
+  def female?
+    %w[F female].include?(gender)
+  end
+
+  def other_gender?
+    gender == 'other'
+  end
+
+  def gender_text
+    case gender
+    when 'M', 'male' then 'Male'
+    when 'F', 'female' then 'Female'
+    when 'other' then 'Other'
+    else 'Unknown'
+    end
+  end
+
+  # Status helpers
   def active?
-    status == STATUSES['active'] || status.to_s == "active"
+    status == 'active'
   end
 
   def inactive?
-    status == STATUSES['inactive'] || status.to_s == "inactive"
+    status == 'inactive'
   end
 
   def graduated?
-    status == STATUSES['graduated'] || status.to_s == "graduated"
+    status == 'graduated'
   end
 
   def status_text
-    case status
-    when Integer
-      STATUSES.key(status)&.capitalize || 'Unknown'
-    when String
-      status.capitalize
-    else
-      'Unknown'
-    end
+    status&.capitalize || 'Unknown'
   end
 
   # Concatenate full name
@@ -150,7 +154,7 @@ class Learner
 
   # Helper for school name for API or UI
   def school_name
-    school&.schoolName || school&.name
+    schoolName || school&.schoolName || school&.name
   end
 
   # Helper for grade name for API or UI
@@ -168,7 +172,7 @@ class Learner
     tel_emergency.presence || primary_contact
   end
 
-  # Serialize to API hash - COMPLETE VERSION
+  # Serialize to API hash
   def to_api_hash
     {
       id: id.to_s,
@@ -182,6 +186,7 @@ class Learner
       status_text: status_text,
       school_id: school_id&.to_s,
       school_name: school_name,
+      school_email: schoolEmail,
       grade_id: grade_id&.to_s,
       grade_name: grade_name,
       contact: {
@@ -197,9 +202,10 @@ class Learner
       mobile_sync_id: mobile_sync_id,
       last_sync_at: last_sync_at,
       parent_auth0_ids: parent_auth0_ids,
-      # Add auth0 fields
       auth0_id: auth0Id,
       user_auth0_id: userAuth0Id,
+      user_email: userEmail,
+      province: province,
       created_at: created_at,
       updated_at: updated_at
     }
