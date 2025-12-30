@@ -11,6 +11,7 @@ Rails.application.routes.draw do
           get :roles
           post :add_role
           patch :update_roles
+          patch :update_profile
           get :schools
           patch :add_school
           get :onboarding_required
