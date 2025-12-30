@@ -526,25 +526,12 @@ class User
     self.roles = roles.map(&:downcase).uniq if roles.present?
   end
 
-  def log_school_id_changes
-    old_school_ids, new_school_ids = changes_to_save['school_ids']
-
-    old_school_ids = old_school_ids || []
-    new_school_ids = new_school_ids || []
-
-    old_school_ids_str = old_school_ids.map(&:to_s)
-    new_school_ids_str = new_school_ids.map(&:to_s)
-
-    added   = new_school_ids_str - old_school_ids_str
-    removed = old_school_ids_str - new_school_ids_str
-
-    Rails.logger.debug "🔄 User#log_school_id_changes: Associated schools updated for user #{id}:"
-    Rails.logger.debug "  OLD (IDs): #{old_school_ids_str.inspect}"
-    Rails.logger.debug "  NEW (IDs): #{new_school_ids_str.inspect}"
-    Rails.logger.debug "  ➕ ADDED (IDs): #{added.inspect}"   if added.any?
-    Rails.logger.debug "  ➖ REMOVED (IDs): #{removed.inspect}" if removed.any?
+  # ✅ CORRECT - Mongoid method
+def log_school_id_changes
+  if changes['school_ids']
+    Rails.logger.debug "🏫 School IDs changed: #{changes['school_ids']}"
   end
-
+end
   # Handle post-step completion actions
   def handle_step_completion(step_name, metadata)
     case step_name.to_s
