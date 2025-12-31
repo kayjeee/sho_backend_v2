@@ -152,11 +152,14 @@ class Api::V1::UsersController < ApplicationController
 
   # Used ONLY for profile updates
   def profile_params
-    params.require(:user).permit(
-      :name,
-      :phone_number
-    )
-  end
+  user = params.require(:user)
+
+  {
+    name: [user[:first_name], user[:last_name]].compact.join(" "),
+    phone_number: user[:phone]
+  }.compact
+end
+
 
   def set_user
     Rails.logger.debug "🔍 Looking up user by auth0_id: #{params[:id]}"
