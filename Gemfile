@@ -13,11 +13,9 @@ gem 'rack-cors'
 
 # Database
 gem "mongoid"
-# Add to Gemfile
-gem 'pg'
+
 # Authentication & Security
 gem 'jwt'
-gem 'rack-cors'
 
 # Serialization
 gem 'active_model_serializers'
@@ -25,8 +23,6 @@ gem 'active_model_serializers'
 # File Processing
 gem 'roo'
 gem 'csv'
-
-
 
 # Performance
 gem "bootsnap", require: false
@@ -39,7 +35,7 @@ gem "kamal", require: false
 gem "tzinfo-data", platforms: [:jruby]
 
 group :development, :test do
-  gem "debug", platforms: %i[ mri windows ], require: "debug/prelude"
+  gem "debug", platforms: %i[mri windows], require: "debug/prelude"
   gem "brakeman", require: false
   gem "rubocop-rails-omakase", require: false
 end

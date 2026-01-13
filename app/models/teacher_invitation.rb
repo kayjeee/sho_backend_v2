@@ -4,214 +4,101 @@ class TeacherInvitation
   include Mongoid::Timestamps
 
   # ======================== FIELDS ========================
-  field :teacher_email,         type: String
-  field :invitation_token,      type: String
-  field :status,                type: Integer, default: 0
-  field :assigned_grades,       type: Array, default: []
-  field :invitation_data,       type: Hash, default: {}
-  field :invited_at,            type: DateTime
-  field :expires_at,            type: DateTime
-  field :accepted_at,           type: DateTime
+  # Core fields
+  field :token, type: String
+  field :status, type: String, default: 'pending'   # pending, accepted, declined, expired, cancelled
+  field :role, type: String, default: 'teacher'
 
-  # ===================== CONSTANTS =======================
-  STATUSES = {
-    'pending' => 0,
-    'accepted' => 1,
-    'declined' => 2,
-    'expired' => 3,
-    'cancelled' => 4
-  }.freeze
+  # Sender information
+  field :sender_id, type: BSON::ObjectId
 
-  # ===================== VALIDATIONS ======================
-  validates :teacher_email,     presence: true, format: { with: URI::MailTo::EMAIL_REGEXP }
-  validates :invitation_token,  presence: true, uniqueness: true
-  validates :status,            inclusion: { in: STATUSES.values }
-  validates :expires_at,        presence: true
-  validates :school_id,         presence: true
-  validates :invited_by_id,     presence: true
+  # Recipient information
+  field :recipient_phone_number, type: String
+  field :phone_number, type: String
+  field :country_code, type: String
+  field :country_name, type: String
 
-  validate :expiration_date_future
-  validate :grades_belong_to_school
+  # School and grade information
+  field :school_id, type: String
+  field :grade_id, type: String
+  field :grade_ids, type: Array, default: []
 
-  # ===================== ASSOCIATIONS =====================
-  belongs_to :school,           class_name: 'School'
-  belongs_to :invited_by,       class_name: 'User'
-  belongs_to :teacher,          class_name: 'User', optional: true
+  # Invitation metadata
+  field :invited_via, type: String, default: 'whatsapp'
+  field :invited_at, type: Time
+  field :accepted_at, type: Time
+  field :expired_at, type: Time
+  field :cancelled_at, type: Time
 
   # ======================== INDEXES =======================
-  index({ invitation_token: 1 }, { unique: true })
-  index({ school_id: 1, status: 1 })
-  index({ teacher_email: 1, school_id: 1 })
-  index({ expires_at: 1 })
+  index({ token: 1 }, { unique: true })
+  index({ status: 1 })
+  index({ school_id: 1 })
+  index({ recipient_phone_number: 1 })
 
-  # ========================= SCOPES ========================
-  scope :pending,               -> { where(status: 0) }
-  scope :accepted,              -> { where(status: 1) }
-  scope :declined,              -> { where(status: 2) }
-  scope :expired,               -> { where(status: 3) }
-  scope :cancelled,             -> { where(status: 4) }
-  scope :active,                -> { where(status: [0, 1]) }
-  scope :by_school,             ->(school_id) { where(school_id: school_id) }
-  scope :expiring_soon,         -> { pending.where(:expires_at.lte => 24.hours.from_now) }
+  # ===================== VALIDATIONS ======================
+  validates :token, presence: true, uniqueness: true
+  validates :status, inclusion: { in: %w[pending accepted declined expired cancelled] }
+  validates :recipient_phone_number, presence: true
+  validates :school_id, presence: true
 
-  # ======================== CALLBACKS =======================
-  before_validation :generate_token, if: -> { invitation_token.blank? }
+  # ===================== ASSOCIATIONS =====================
+  belongs_to :sender, class_name: 'User', optional: true, foreign_key: :sender_id
+
+  # ========================= SCOPES =======================
+  scope :pending, -> { where(status: 'pending') }
+  scope :accepted, -> { where(status: 'accepted') }
+  scope :expired, -> { where(status: 'expired') }
+  scope :for_school, ->(school_id) { where(school_id: school_id.to_s) }
+
+  # ========================= CALLBACKS ====================
+  before_validation :generate_token, if: -> { token.blank? }
   before_validation :set_invited_at, if: -> { invited_at.blank? }
-  before_validation :set_expiration, if: -> { expires_at.blank? }
-  before_save :check_expiration
 
-  # ========================= METHODS ========================
-
-  # Status helper methods
-  def pending?
-    status == 0
-  end
-
-  def accepted?
-    status == 1
-  end
-
-  def declined?
-    status == 2
-  end
-
-  def expired?
-    status == 3 || expires_at < Time.current
-  end
-
-  def cancelled?
-    status == 4
-  end
-
-  def status_text
-    STATUSES.key(status) || 'unknown'
-  end
+  # ========================= METHODS ======================
+  # Status helpers
+  def pending?; status == 'pending'; end
+  def accepted?; status == 'accepted'; end
+  def declined?; status == 'declined'; end
+  def expired?; status == 'expired' || (expired_at.present? && expired_at < Time.current); end
+  def cancelled?; status == 'cancelled'; end
 
   # Invitation actions
-  def accept!(teacher_params = {})
-    return false unless pending? && !expired?
-
-    transaction do
-      # Find or create teacher user
-      teacher_user = User.find_by(email: teacher_email)
-
-      if teacher_user.nil?
-        teacher_user = User.create!(
-          email: teacher_email,
-          name: teacher_params[:name] || teacher_email.split('@').first.humanize,
-          roles: ['Teacher'],
-          **teacher_params
-        )
-      end
-
-      # Add school to teacher's schools
-      teacher_user.add_school(school_id.to_s)
-
-      # Create teacher-school role
-      UserSchoolRole.create!(
-        user: teacher_user,
-        school: school,
-        role: 'Teacher',
-        status: 0,
-        assigned_at: Time.current
-      )
-
-      # Create grade assignments
-      assigned_grades.each do |grade_id|
-        TeacherGradeAssignment.create!(
-          teacher: teacher_user,
-          grade_id: grade_id,
-          school: school,
-          assigned_by: invited_by,
-          role_type: 'primary',
-          status: 0,
-          assigned_at: Time.current
-        )
-      end
-
-      update!(
-        status: 1,
-        accepted_at: Time.current,
-        teacher: teacher_user
-      )
-
-      Rails.logger.info "✅ Teacher invitation accepted: #{teacher_email} for school #{school.schoolName}"
-      true
-    end
-  rescue => e
-    Rails.logger.error "❌ Failed to accept teacher invitation #{invitation_token}: #{e.message}"
-    false
+  def accept!
+    update!(status: 'accepted', accepted_at: Time.current)
   end
 
-  def decline!(reason = nil)
-    return false unless pending?
-
-    update!(
-      status: 2,
-      invitation_data: invitation_data.merge(declined_reason: reason)
-    )
-
-    Rails.logger.info "❌ Teacher invitation declined: #{teacher_email} for school #{school.schoolName}"
-    true
+  def decline!
+    update!(status: 'declined')
   end
 
-  def cancel!(reason = nil)
-    return false unless pending?
-
-    update!(
-      status: 4,
-      invitation_data: invitation_data.merge(cancelled_reason: reason)
-    )
-
-    Rails.logger.info "🚫 Teacher invitation cancelled: #{teacher_email} for school #{school.schoolName}"
-    true
+  def cancel!
+    update!(status: 'cancelled', cancelled_at: Time.current)
   end
 
-  # Utility methods
-  def assigned_grade_names
-    return [] if assigned_grades.empty?
-
-    Grade.where(:_id.in => assigned_grades.map { |id| BSON::ObjectId.from_string(id) })
-         .pluck(:name)
+  def expire!
+    update!(status: 'expired', expired_at: Time.current)
   end
 
-  def days_until_expiry
-    return 0 if expired?
-    ((expires_at - Time.current) / 1.day).ceil
-  end
-
-  def invitation_url
-    Rails.application.routes.url_helpers.accept_teacher_invitation_url(
-      token: invitation_token,
-      host: Rails.application.config.app_host
-    )
-  rescue
-    nil
-  end
-
+  # API serialization
   def to_api_hash
     {
       id: id.to_s,
-      invitation_token: invitation_token,
-      teacher_email: teacher_email,
+      token: token,
       status: status,
-      status_text: status_text,
-      school: {
-        id: school_id.to_s,
-        name: school&.schoolName
-      },
-      assigned_grades: assigned_grades,
-      assigned_grade_names: assigned_grade_names,
-      invited_by: {
-        id: invited_by_id.to_s,
-        name: invited_by&.name
-      },
-      teacher: teacher&.name,
+      role: role,
+      recipient_phone_number: recipient_phone_number,
+      phone_number: phone_number,
+      school_id: school_id,
+      grade_id: grade_id,
+      grade_ids: grade_ids,
+      invited_via: invited_via,
+      country_code: country_code,
+      country_name: country_name,
       invited_at: invited_at,
-      expires_at: expires_at,
       accepted_at: accepted_at,
-      days_until_expiry: days_until_expiry,
-      invitation_data: invitation_data,
+      expired_at: expired_at,
+      cancelled_at: cancelled_at,
       created_at: created_at,
       updated_at: updated_at
     }
@@ -220,38 +107,10 @@ class TeacherInvitation
   private
 
   def generate_token
-    self.invitation_token = SecureRandom.urlsafe_base64(32)
+    self.token = SecureRandom.urlsafe_base64(32)
   end
 
   def set_invited_at
     self.invited_at = Time.current
-  end
-
-  def set_expiration
-    self.expires_at = 14.days.from_now # Teachers get longer to respond
-  end
-
-  def check_expiration
-    if pending? && expires_at < Time.current
-      self.status = 3 # expired
-    end
-  end
-
-  def expiration_date_future
-    return unless expires_at
-    if expires_at < Time.current
-      errors.add(:expires_at, 'must be in the future')
-    end
-  end
-
-  def grades_belong_to_school
-    return if assigned_grades.empty?
-
-    valid_grade_ids = Grade.where(school_id: school_id).pluck(:id).map(&:to_s)
-    invalid_ids = assigned_grades.reject { |gid| valid_grade_ids.include?(gid.to_s) }
-
-    if invalid_ids.any?
-      errors.add(:assigned_grades, "contain invalid grades not belonging to this school: #{invalid_ids.join(', ')}")
-    end
   end
 end
