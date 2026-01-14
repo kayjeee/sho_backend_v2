@@ -1,10 +1,15 @@
+# Define a list of allowed origins. We start with localhost, which is used for local development.
+origins = ['http://localhost:3000']
+
+# Add origins from the environment variable, splitting by comma, if it exists.
+if ENV['ALLOWED_ORIGINS']
+  origins.concat(ENV['ALLOWED_ORIGINS'].split(','))
+end
+
 Rails.application.config.middleware.insert_before 0, Rack::Cors do
   allow do
-    # ✅ Include both www and non-www domains
-    origins 'https://www.schoolheadoffice.com',
-            'https://schoolheadoffice.com',
-            'https://schoolheadoffficeinvitations.vercel.app',
-            'http://localhost:3000'
+    # Set the allowed origins for CORS, ensuring no duplicates.
+    origins origins.uniq
 
     resource '*',
       headers: :any,
