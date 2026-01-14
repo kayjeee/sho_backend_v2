@@ -84,7 +84,7 @@ class Invitation
   scope :by_recipient_phone, ->(phone) { where(recipient_phone_number: phone) }
   scope :by_learner_id, ->(learner_id) { where(learner_ids: learner_id) }
   scope :by_learner_number, ->(number) { where(learner_numbers: number) }
-  scope :with_token, ->(token) { where(token: token) } # ✅ ADDED
+  scope :with_token, ->(token) { where(token: token) } # ✅ CHANGED: Use exact match
   
   scope :recent, -> { order(created_at: :desc) }
   scope :expiring_soon, ->(hours = 24) { 
@@ -100,8 +100,9 @@ class Invitation
     SecureRandom.urlsafe_base64(32)
   end
 
+  # ✅ CHANGED: Use exact match instead of regex to avoid issues
   def self.find_by_token(token)
-    where(token: /^#{Regexp.escape(token)}$/i).first
+    where(token: token).first
   end
 
   def self.create_for_learners(learners_data, invitation_params)
@@ -129,6 +130,11 @@ class Invitation
     
     encoded_school = URI.encode_www_form_component(school_name.to_s.strip)
     "?token=#{token}&school=#{encoded_school}"
+  end
+
+  # ✅ ADDED: Override Mongoid's find_by to not raise exceptions
+  def self.find_by(conditions = {})
+    where(conditions).first
   end
 
   # ===================== INSTANCE METHODS =====================
@@ -312,7 +318,8 @@ class Invitation
 
   def update_status_if_expired
     if status == 'pending' && expired?
-      update_columns(status: 'expired') rescue nil
+      self.status = 'expired'
+      save(validate: false) rescue nil
     end
   end
 

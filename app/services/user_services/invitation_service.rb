@@ -3,31 +3,21 @@ module UserServices
   class InvitationService
     ServiceResult = Struct.new(:success, :errors, :invitation, keyword_init: true)
     
-    def initialize(
-      sender: nil,
-      phone_number: nil,
-      recipient_phone_number: nil,
-      school_id:,
-      learner_numbers: nil,
-      learner_number: nil,
-      role: 'parent',
-      parent_name: nil,
-      grade_id: nil,
-      invited_via: 'whatsapp',
-      country_code: nil,
-      country_name: nil
-    )
-      @sender = sender
-      @recipient_phone_number = phone_number || recipient_phone_number
-      @school_id = school_id.to_s
-      @learner_numbers = learner_numbers || Array(learner_number).compact
-      @role = role
-      @parent_name = parent_name
-      @grade_id = grade_id
-      @invited_via = invited_via
-      @country_code = country_code
-      @country_name = country_name
+    def initialize(params)
+      @params = params.symbolize_keys
       @errors = []
+      
+      # Extract parameters with defaults
+      @sender = @params[:sender]
+      @recipient_phone_number = @params[:phone_number] || @params[:recipient_phone_number]
+      @school_id = @params[:school_id].to_s
+      @learner_numbers = @params[:learner_numbers] || Array(@params[:learner_number]).compact
+      @role = @params[:role] || 'parent'
+      @parent_name = @params[:parent_name]
+      @grade_id = @params[:grade_id]
+      @invited_via = @params[:invited_via] || 'whatsapp'
+      @country_code = @params[:country_code]
+      @country_name = @params[:country_name]
       
       Rails.logger.info "🔧 InvitationService initialized:"
       Rails.logger.info "   Phone: #{@recipient_phone_number}"
@@ -84,7 +74,10 @@ module UserServices
     end
     
     def generate_token
-      SecureRandom.urlsafe_base64(32)
+      loop do
+        token = SecureRandom.urlsafe_base64(32)
+        break token unless Invitation.where(token: token).exists?
+      end
     end
     
     def validate!

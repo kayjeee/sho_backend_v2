@@ -21,6 +21,7 @@ module UserServices
       @successful_count = 0
       @failed_count = 0
       @failed_invitations = []
+      @created_invitations = [] # Initialize array to store created invitations
     end
     
     def call
@@ -31,6 +32,9 @@ module UserServices
       
       Rails.logger.info "📦 Starting bulk invitation creation for #{@invitations_data.size} invitations"
       start_time = Time.current
+      
+      # Store created invitations
+      @created_invitations = []
       
       # Process in batches for optimal performance
       @invitations_data.each_slice(BATCH_SIZE).with_index do |batch, batch_index|
@@ -45,7 +49,7 @@ module UserServices
       ServiceResult.new(
         success: @failed_count == 0,
         errors: @errors,
-        invitations: nil, # Don't return all invitations to save memory
+        invitations: @created_invitations, # Return created invitations with tokens
         stats: {
           total: @invitations_data.size,
           successful: @successful_count,
@@ -61,6 +65,7 @@ module UserServices
       ServiceResult.new(
         success: false,
         errors: [e.message],
+        invitations: @created_invitations || [],
         stats: {
           total: @invitations_data.size,
           successful: @successful_count,
@@ -151,12 +156,47 @@ module UserServices
         inserted_count = result.inserted_count
         @successful_count += inserted_count
         
+        # Fetch the created invitations to get their IDs and tokens
+        inserted_ids = result.inserted_ids
+        created_records = klass.where(:_id.in => inserted_ids).to_a
+        
+        # Store created invitations with essential data for frontend
+        created_records.each do |invitation|
+          @created_invitations << {
+            id: invitation.id.to_s,
+            token: invitation.token,
+            phone_number: invitation.phone_number || invitation.recipient_phone_number,
+            parent_name: invitation.parent_name,
+            learner_number: invitation.learner_number,
+            learner_numbers: invitation.learner_numbers,
+            status: invitation.status
+          }
+        end
+        
         Rails.logger.info "✅ Inserted #{inserted_count} invitations"
       rescue Mongo::Error::BulkWriteError => e
         # Even with errors, some documents may have been inserted
         successful = e.result['n_inserted'] || 0
         @successful_count += successful
         @failed_count += (invitations.size - successful)
+        
+        # Try to fetch any successfully inserted invitations
+        if e.result['inserted_ids'].present?
+          inserted_ids = e.result['inserted_ids']
+          created_records = klass.where(:_id.in => inserted_ids).to_a
+          
+          created_records.each do |invitation|
+            @created_invitations << {
+              id: invitation.id.to_s,
+              token: invitation.token,
+              phone_number: invitation.phone_number || invitation.recipient_phone_number,
+              parent_name: invitation.parent_name,
+              learner_number: invitation.learner_number,
+              learner_numbers: invitation.learner_numbers,
+              status: invitation.status
+            }
+          end
+        end
         
         Rails.logger.error "⚠️  Batch insert partial failure: #{successful}/#{invitations.size} succeeded"
         @errors << "Batch insert errors: #{e.result['write_errors']&.first(3)}"
