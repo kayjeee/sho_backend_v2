@@ -85,7 +85,15 @@ Rails.application.configure do
 
   # Enable DNS rebinding protection and other `Host` header attacks.
   # Allow Render's domain and any subdomains
-  config.hosts << /.*\.onrender\.com/
+  # config.hosts << /.*\.onrender\.com/
+
+  # Add allowed hosts from environment variable.
+  # The value should be a comma-separated string of domains, e.g., ".railway.app,example.com"
+  if ENV['RAILS_ALLOWED_HOSTS'].present?
+    ENV['RAILS_ALLOWED_HOSTS'].split(',').each do |host|
+      config.hosts << host.strip
+    end
+  end
 
   # Ensure assets are served
   config.public_file_server.enabled = true
