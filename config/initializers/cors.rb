@@ -1,3 +1,5 @@
+puts "DEBUG: ALLOWED_ORIGINS from ENV is: #{ENV['ALLOWED_ORIGINS'].inspect}"
+
 # Define a list of allowed origins. We start with localhost, which is used for local development.
 origins = ['http://localhost:3000']
 

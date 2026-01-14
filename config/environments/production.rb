@@ -83,6 +83,8 @@ Rails.application.configure do
   # This is ActiveRecord-specific, may not apply to MongoDB
   # config.active_record.attributes_for_inspect = [ :id ]
 
+  puts "DEBUG: RAILS_ALLOWED_HOSTS from ENV is: #{ENV['RAILS_ALLOWED_HOSTS'].inspect}"
+
   # Enable DNS rebinding protection and other `Host` header attacks.
   # Allow Render's domain and any subdomains
   # config.hosts << /.*\.onrender\.com/
