@@ -2,9 +2,9 @@
 module UserServices
   class BulkInvitationService
     ServiceResult = Struct.new(:success, :errors, :invitations, :stats, keyword_init: true)
-    
+
     BATCH_SIZE = 500 # MongoDB optimal batch size
-    
+
     def initialize(
       sender:,
       invitations_data:, # Array of invitation hashes
@@ -17,39 +17,36 @@ module UserServices
       @role = role
       @school_id = school_id.to_s
       @invited_via = invited_via
+
       @errors = []
       @successful_count = 0
       @failed_count = 0
       @failed_invitations = []
-      @created_invitations = [] # Initialize array to store created invitations
+      @created_invitations = []
     end
-    
+
     def call
       return ServiceResult.new(
-        success: false, 
+        success: false,
         errors: ["No invitations provided"]
       ) if @invitations_data.empty?
-      
+
       Rails.logger.info "📦 Starting bulk invitation creation for #{@invitations_data.size} invitations"
       start_time = Time.current
-      
-      # Store created invitations
-      @created_invitations = []
-      
-      # Process in batches for optimal performance
+
       @invitations_data.each_slice(BATCH_SIZE).with_index do |batch, batch_index|
         process_batch(batch, batch_index)
       end
-      
+
       elapsed_time = Time.current - start_time
-      
+
       Rails.logger.info "✅ Bulk invitation completed in #{elapsed_time.round(2)}s"
       Rails.logger.info "   Successful: #{@successful_count}, Failed: #{@failed_count}"
-      
+
       ServiceResult.new(
-        success: @failed_count == 0,
+        success: @failed_count.zero?,
         errors: @errors,
-        invitations: @created_invitations, # Return created invitations with tokens
+        invitations: @created_invitations, # <-- REAL MODELS
         stats: {
           total: @invitations_data.size,
           successful: @successful_count,
@@ -61,7 +58,7 @@ module UserServices
     rescue => e
       Rails.logger.error "❌ Bulk invitation service error: #{e.message}"
       Rails.logger.error e.backtrace.first(10).join("\n")
-      
+
       ServiceResult.new(
         success: false,
         errors: [e.message],
@@ -73,18 +70,20 @@ module UserServices
         }
       )
     end
-    
+
     private
-    
+
+    # ------------------------------------------------------------
+    # BATCH PROCESSING
+    # ------------------------------------------------------------
     def process_batch(batch, batch_index)
       Rails.logger.info "🔄 Processing batch #{batch_index + 1} (#{batch.size} invitations)"
-      
-      # Prepare all invitation documents
+
       valid_invitations = []
-      
+
       batch.each_with_index do |invitation_data, index|
         result = prepare_invitation(invitation_data, batch_index, index)
-        
+
         if result[:valid]
           valid_invitations << result[:document]
         else
@@ -95,37 +94,40 @@ module UserServices
           }
         end
       end
-      
-      # Bulk insert valid invitations
-      if valid_invitations.any?
-        insert_batch(valid_invitations)
-      end
+
+      insert_batch(valid_invitations) if valid_invitations.any?
     end
-    
+
+    # ------------------------------------------------------------
+    # VALIDATION
+    # ------------------------------------------------------------
     def prepare_invitation(data, batch_index, index)
       errors = validate_invitation_data(data)
-      
+
       if errors.any?
-        Rails.logger.warn "⚠️  Invalid invitation at batch #{batch_index}, index #{index}: #{errors}"
+        Rails.logger.warn "⚠️ Invalid invitation at batch #{batch_index}, index #{index}: #{errors}"
         return { valid: false, errors: errors }
       end
-      
+
       {
         valid: true,
         document: build_invitation_document(data)
       }
     end
-    
+
     def validate_invitation_data(data)
       errors = []
       errors << "Phone number missing" if data[:phone_number].blank?
       errors << "Learner number(s) missing" if data[:learner_number].blank? && data[:learner_numbers].blank?
       errors
     end
-    
+
+    # ------------------------------------------------------------
+    # DOCUMENT BUILDER
+    # ------------------------------------------------------------
     def build_invitation_document(data)
       learner_numbers = data[:learner_numbers] || Array(data[:learner_number]).compact
-      
+
       {
         sender_id: @sender&.id,
         recipient_phone_number: data[:phone_number],
@@ -145,62 +147,45 @@ module UserServices
         updated_at: Time.current
       }.compact
     end
-    
-    def insert_batch(invitations)
+
+    # ------------------------------------------------------------
+    # DB INSERT
+    # ------------------------------------------------------------
+    def insert_batch(documents)
       klass = @role == 'parent' ? LearnerInvitation : TeacherInvitation
-      
-      begin
-        # Use MongoDB's native bulk insert for maximum performance
-        result = klass.collection.insert_many(invitations, ordered: false)
-        
-        inserted_count = result.inserted_count
-        @successful_count += inserted_count
-        
-        # Fetch the created invitations to get their IDs and tokens
-        inserted_ids = result.inserted_ids
-        created_records = klass.where(:_id.in => inserted_ids).to_a
-        
-        # Store created invitations with essential data for frontend
-        created_records.each do |invitation|
-          @created_invitations << {
-            id: invitation.id.to_s,
-            token: invitation.token,
-            phone_number: invitation.phone_number || invitation.recipient_phone_number,
-            parent_name: invitation.parent_name,
-            learner_number: invitation.learner_number,
-            learner_numbers: invitation.learner_numbers,
-            status: invitation.status
-          }
-        end
-        
-        Rails.logger.info "✅ Inserted #{inserted_count} invitations"
-      rescue Mongo::Error::BulkWriteError => e
-        # Even with errors, some documents may have been inserted
-        successful = e.result['n_inserted'] || 0
-        @successful_count += successful
-        @failed_count += (invitations.size - successful)
-        
-        # Try to fetch any successfully inserted invitations
-        if e.result['inserted_ids'].present?
-          inserted_ids = e.result['inserted_ids']
-          created_records = klass.where(:_id.in => inserted_ids).to_a
-          
-          created_records.each do |invitation|
-            @created_invitations << {
-              id: invitation.id.to_s,
-              token: invitation.token,
-              phone_number: invitation.phone_number || invitation.recipient_phone_number,
-              parent_name: invitation.parent_name,
-              learner_number: invitation.learner_number,
-              learner_numbers: invitation.learner_numbers,
-              status: invitation.status
-            }
-          end
-        end
-        
-        Rails.logger.error "⚠️  Batch insert partial failure: #{successful}/#{invitations.size} succeeded"
-        @errors << "Batch insert errors: #{e.result['write_errors']&.first(3)}"
+
+      result = klass.collection.insert_many(documents, ordered: false)
+
+      inserted_count = result.inserted_count
+      @successful_count += inserted_count
+
+      inserted_ids = result.inserted_ids
+      created_records = klass.where(:_id.in => inserted_ids).to_a
+
+      # ✅ STORE REAL MODELS
+      created_records.each do |invitation|
+        @created_invitations << invitation
       end
+
+      Rails.logger.info "✅ Inserted #{inserted_count} invitations"
+
+    rescue Mongo::Error::BulkWriteError => e
+      successful = e.result['n_inserted'] || 0
+
+      @successful_count += successful
+      @failed_count += (documents.size - successful)
+
+      if e.result['inserted_ids'].present?
+        inserted_ids = e.result['inserted_ids']
+        created_records = klass.where(:_id.in => inserted_ids).to_a
+
+        created_records.each do |invitation|
+          @created_invitations << invitation
+        end
+      end
+
+      Rails.logger.error "⚠️ Batch insert partial failure: #{successful}/#{documents.size} succeeded"
+      @errors << "Batch insert errors: #{e.result['write_errors']&.first(3)}"
     end
   end
 end

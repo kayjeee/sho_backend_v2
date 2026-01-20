@@ -158,7 +158,6 @@ class Api::V1::InvitationsController < ApplicationController
   def bulk_create
     Rails.logger.info "📦 [InvitationsController] Bulk create request"
     Rails.logger.info "   Invitations count: #{bulk_params[:invitations]&.size || 0}"
-    Rails.logger.info "   Sender: #{sender_user&.auth0_id}"
 
     # Validate bulk parameters
     if bulk_params[:invitations].blank?
@@ -168,9 +167,14 @@ class Api::V1::InvitationsController < ApplicationController
       }, status: :unprocessable_entity
     end
 
+    # Find sender user
+    sender = find_sender(bulk_params[:sender_id])
+    
+    Rails.logger.info "   Sender: #{sender&.auth0_id || 'nil'}"
+
     # Process bulk invitations
     result = UserServices::BulkInvitationService.new(
-      sender: sender_user,
+      sender: sender,
       invitations_data: bulk_params[:invitations],
       role: bulk_params[:role] || 'parent',
       school_id: bulk_params[:school_id],
@@ -178,7 +182,7 @@ class Api::V1::InvitationsController < ApplicationController
     ).call
 
     # Handle response based on result
-    if result.success?
+    if result.success
       handle_bulk_success(result)
     else
       handle_bulk_partial_failure(result)
@@ -553,16 +557,23 @@ class Api::V1::InvitationsController < ApplicationController
   # BULK OPERATION HANDLERS
   # ------------------------------------------------------------
   def handle_bulk_success(result)
-    Rails.logger.info "✅ Bulk creation successful: #{result.stats[:successful]}/#{result.stats[:total]}"
-    
-    render json: {
-      success: true,
-      message: "Successfully created #{result.stats[:successful]} invitations",
-      invitations: result.invitations.map { |inv| safe_invitation_hash(inv) },
-      stats: result.stats,
-      magic_links: result.invitations.map { |inv| generate_magic_link(inv) }
-    }, status: :created
+  Rails.logger.info "✅ Bulk creation successful: #{result.stats[:successful]}/#{result.stats[:total]}"
+  
+  # 🔍 DEBUG: Log each invitation and its magic link
+  result.invitations.each do |inv|
+    magic_link = generate_magic_link(inv)
+    Rails.logger.info "🔗 Invitation #{inv.id}: Token=#{inv.token}"
+    Rails.logger.info "🔗 Magic Link: #{magic_link}"
   end
+  
+  render json: {
+    success: true,
+    message: "Successfully created #{result.stats[:successful]} invitations",
+    invitations: result.invitations.map { |inv| safe_invitation_hash(inv) },
+    stats: result.stats,
+    magic_links: result.invitations.map { |inv| generate_magic_link(inv) }
+  }, status: :created
+end
 
   def handle_bulk_partial_failure(result)
     Rails.logger.warn "⚠️ Bulk creation completed with failures: #{result.stats[:failed]}/#{result.stats[:total]}"
@@ -591,19 +602,20 @@ class Api::V1::InvitationsController < ApplicationController
     user
   end
 
-  alias_method :sender_user, :find_sender
-
   # ------------------------------------------------------------
   # MAGIC LINK GENERATION
   # ------------------------------------------------------------
   def generate_magic_link(invitation)
     school_name = safe_school_name(invitation)
-    "https://www.schoolheadoffice.com/parent?token=#{invitation.token}&school=#{URI.encode_www_form_component(school_name)}"
+    token = invitation.is_a?(Hash) ? invitation[:token] : invitation.token
+    "https://www.schoolheadoffice.com/parent?token=#{token}&school=#{URI.encode_www_form_component(school_name)}"
   end
 
   def safe_school_name(invitation)
     begin
-      if invitation.respond_to?(:school_name)
+      if invitation.is_a?(Hash)
+        'Unknown School'
+      elsif invitation.respond_to?(:school_name)
         invitation.school_name
       else
         'Unknown School'

@@ -394,20 +394,23 @@ class LearnerInvitation
     'Unknown School'
   end
 
-  def fetch_sender_name
-    return 'System' unless sender_id.present?
-    
-    sender_user = User.where(id: sender_id).first
-    return 'System' unless sender_user
-    
-    sender_user.full_name ||
-      sender_user.name ||
-      sender_user.email&.split('@')&.first ||
-      'Unknown Sender'
-  rescue => e
-    Rails.logger.error "❌ Error fetching sender name for invitation #{id}: #{e.message}"
-    'System'
-  end
+  # app/models/learner_invitation.rb
+# Replace the fetch_sender_name method with this:
+
+def fetch_sender_name
+  return 'System' unless sender_id.present?
+  
+  sender_user = User.where(id: sender_id).first
+  return 'System' unless sender_user
+  
+  # ✅ FIXED: User model only has 'name' field, not 'full_name'
+  sender_user.name ||
+    sender_user.email&.split('@')&.first ||
+    'Unknown Sender'
+rescue => e
+  Rails.logger.error "❌ Error fetching sender name for invitation #{id}: #{e.message}"
+  'System'
+end
 
   def fetch_grade_name
     return nil unless grade_id.present?
