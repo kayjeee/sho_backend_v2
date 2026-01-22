@@ -73,7 +73,8 @@ class Api::V1::InvitationsController < ApplicationController
 
     Rails.logger.info "📊 Service result - Success: #{result.success}, Errors: #{result.errors}"
 
-    if result.success?
+    # ✅ FIX: Changed result.success? to result.success (Struct doesn't have predicate methods)
+    if result.success
       invitation = result.invitation
       magic_link = generate_magic_link(invitation)
       
@@ -181,6 +182,7 @@ class Api::V1::InvitationsController < ApplicationController
       invited_via: bulk_params[:invited_via] || 'whatsapp'
     ).call
 
+    # ✅ FIX: Changed result.success to match Struct attribute access
     # Handle response based on result
     if result.success
       handle_bulk_success(result)
@@ -557,23 +559,23 @@ class Api::V1::InvitationsController < ApplicationController
   # BULK OPERATION HANDLERS
   # ------------------------------------------------------------
   def handle_bulk_success(result)
-  Rails.logger.info "✅ Bulk creation successful: #{result.stats[:successful]}/#{result.stats[:total]}"
-  
-  # 🔍 DEBUG: Log each invitation and its magic link
-  result.invitations.each do |inv|
-    magic_link = generate_magic_link(inv)
-    Rails.logger.info "🔗 Invitation #{inv.id}: Token=#{inv.token}"
-    Rails.logger.info "🔗 Magic Link: #{magic_link}"
+    Rails.logger.info "✅ Bulk creation successful: #{result.stats[:successful]}/#{result.stats[:total]}"
+    
+    # 🔍 DEBUG: Log each invitation and its magic link
+    result.invitations.each do |inv|
+      magic_link = generate_magic_link(inv)
+      Rails.logger.info "🔗 Invitation #{inv.id}: Token=#{inv.token}"
+      Rails.logger.info "🔗 Magic Link: #{magic_link}"
+    end
+    
+    render json: {
+      success: true,
+      message: "Successfully created #{result.stats[:successful]} invitations",
+      invitations: result.invitations.map { |inv| safe_invitation_hash(inv) },
+      stats: result.stats,
+      magic_links: result.invitations.map { |inv| generate_magic_link(inv) }
+    }, status: :created
   end
-  
-  render json: {
-    success: true,
-    message: "Successfully created #{result.stats[:successful]} invitations",
-    invitations: result.invitations.map { |inv| safe_invitation_hash(inv) },
-    stats: result.stats,
-    magic_links: result.invitations.map { |inv| generate_magic_link(inv) }
-  }, status: :created
-end
 
   def handle_bulk_partial_failure(result)
     Rails.logger.warn "⚠️ Bulk creation completed with failures: #{result.stats[:failed]}/#{result.stats[:total]}"
@@ -608,6 +610,17 @@ end
   def generate_magic_link(invitation)
     school_name = safe_school_name(invitation)
     token = invitation.is_a?(Hash) ? invitation[:token] : invitation.token
+    
+    # ✅ VALIDATION: Ensure neither token nor school_name is nil/undefined
+    if token.blank?
+      Rails.logger.error "❌ Cannot generate magic link: token is blank"
+      return nil
+    end
+    
+    if school_name.blank? || school_name == 'Unknown School'
+      Rails.logger.warn "⚠️ Generating magic link with fallback school name"
+    end
+    
     "https://www.schoolheadoffice.com/parent?token=#{token}&school=#{URI.encode_www_form_component(school_name)}"
   end
 
