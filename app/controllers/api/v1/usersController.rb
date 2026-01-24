@@ -1,21 +1,23 @@
+# app/controllers/api/v1/users_controller.rb
 class Api::V1::UsersController < ApplicationController
   before_action :set_user, only: [:show, :update_roles, :schools, :add_school]
 
   # POST /api/v1/users
-# POST /api/v1/users
-# app/controllers/api/v1/users_controller.rb
-def create
-  service = UserServices::CreateUserService.new(user_params: user_params)
-  result = service.call
+  def create
+    service = UserServices::CreateUserService.new(user_params: user_params)
+    result = service.call
 
-  if result.success?
-    render json: { success: true, data: { user: result.user } }, status: :created
-  else
-    render json: { success: false, errors: result.errors }, status: :unprocessable_entity
+    if result.success?
+      status = result.new_record? ? :created : :ok
+      render json: { 
+        success: true, 
+        data: { user: result.user },
+        new_record: result.new_record?
+      }, status: status
+    else
+      render json: { success: false, errors: result.errors }, status: :unprocessable_entity
+    end
   end
-end
-
-
 
   # GET /api/v1/users/:id
   def show
