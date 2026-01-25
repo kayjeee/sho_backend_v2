@@ -12,6 +12,8 @@ class User
   field :payment_history,  type: Array,  default: []   
   field :status,           type: String, default: 'active'
   field :last_login,       type: Time
+  field :phone,            type: String
+  field :phone_number,     type: String 
 
   # ===================== VALIDATIONS ======================
   validates :email,        presence: true, uniqueness: true

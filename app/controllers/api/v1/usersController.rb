@@ -5,12 +5,12 @@ module Api
     class UsersController < ApplicationController
       wrap_parameters format: [:json]
 
-      before_action :load_user_by_auth0!, only: [:show, :schools, :update_roles, :add_school, :onboarding_status]
+      # Added :update_profile to the auth0 loading sequence
+      before_action :load_user_by_auth0!, only: [:show, :schools, :update_roles, :add_school, :onboarding_status, :update_profile]
       before_action :load_user_by_path!, only: [:show_by_path, :schools_by_path, :onboarding_status_by_path]
 
       # =========================================================
       # POST /api/v1/users
-      # Create new user
       # =========================================================
       def create
         permitted = user_params.to_h
@@ -27,13 +27,12 @@ module Api
           render_error(result.errors, status: :unprocessable_entity)
         end
       rescue => e
-        log_error "CREATE USER ERROR", { error: e.message, backtrace: e.backtrace.first(5), params: params.to_unsafe_h }
+        log_error "CREATE USER ERROR", { error: e.message, backtrace: e.backtrace.first(5) }
         render_error([e.message], status: :unprocessable_entity)
       end
 
       # =========================================================
       # GET /api/v1/users/show?auth0_id=xxx
-      # Fetch user by query
       # =========================================================
       def show
         render_success(user: @user)
@@ -52,33 +51,22 @@ module Api
 
       # =========================================================
       # GET /api/v1/users/me
-      # Fetch current user via token
       # =========================================================
       def me
         auth0_id = extract_auth0_id_from_token || params[:auth0_id]
-
         return render_error(["Authentication required"], status: :unauthorized) if auth0_id.blank?
 
         user = User.find_by(auth0_id: auth0_id)
-
-        if user
-          render_success(user: user)
-        else
-          render_error(["User not found"], status: :not_found)
-        end
+        user ? render_success(user: user) : render_error(["User not found"], status: :not_found)
       end
 
       # =========================================================
       # GET /api/v1/users/schools?auth0_id=xxx
-      # Fetch user's schools
       # =========================================================
       def schools
         fetch_schools_for(@user)
       end
 
-      # =========================================================
-      # DEPRECATED: GET /api/v1/users/:auth0_id/schools
-      # =========================================================
       def schools_by_path
         log_deprecated("/api/v1/users/:auth0_id/schools", params[:auth0_id])
         fetch_schools_for(@user, deprecated_url: "/api/v1/users/schools?auth0_id=xxx")
@@ -92,9 +80,6 @@ module Api
         render_success(onboarding_status: status, completed: status[:completed] || false)
       end
 
-      # =========================================================
-      # DEPRECATED: GET /api/v1/users/:auth0_id/onboarding_status
-      # =========================================================
       def onboarding_status_by_path
         log_deprecated("/api/v1/users/:auth0_id/onboarding_status", params[:auth0_id])
         status = @user.onboarding_status || {}
@@ -102,6 +87,47 @@ module Api
           { onboarding_status: status, completed: status[:completed] || false },
           _deprecated: deprecated_payload("/api/v1/users/onboarding_status?auth0_id=xxx")
         )
+      end
+
+      # =========================================================
+      # PATCH /api/v1/users/update_profile?auth0_id=xxx 
+      # OR PATCH /api/v1/users/:id/update_profile
+      # =========================================================
+      def update_profile
+        # @user is loaded via load_user_by_auth0! before_action
+        log_debug "UPDATE_PROFILE - Received params", params
+        
+        # Extract permitted parameters
+        permitted_params = profile_params
+        
+        log_debug "UPDATE_PROFILE - Permitted params", permitted_params
+        
+        # Try to update the user
+        if @user.update(permitted_params)
+          log_debug "UPDATE_PROFILE - Success", { user_id: @user.id, updated_fields: permitted_params.keys }
+          
+          # Simple render without the problematic render_success method
+          render json: {
+            success: true,
+            data: { 
+              user: {
+                id: @user.id.to_s,
+                auth0_id: @user.auth0_id,
+                name: @user.name,
+                email: @user.email,
+                phone: @user.try(:phone) || @user.try(:phone_number) || nil,
+                phone_number: @user.try(:phone_number) || @user.try(:phone) || nil,
+                roles: @user.roles || [],
+                created_at: @user.created_at,
+                updated_at: @user.updated_at
+              }
+            },
+            message: "Profile updated successfully"
+          }, status: :ok
+        else
+          log_error "UPDATE_PROFILE - Failed", { user_id: @user.id, errors: @user.errors.full_messages }
+          render_error(@user.errors.full_messages, status: :unprocessable_entity)
+        end
       end
 
       # =========================================================
@@ -137,7 +163,7 @@ module Api
       end
 
       # =========================================================
-      # GET /api/v1/users/:id/roles
+      # INTERNAL DB ID ENDPOINTS (Keep for specific internal tools)
       # =========================================================
       def roles
         user = User.find(params[:id])
@@ -146,9 +172,6 @@ module Api
         render_error(["User not found"], status: :not_found)
       end
 
-      # =========================================================
-      # POST /api/v1/users/:id/add_role
-      # =========================================================
       def add_role
         user = User.find(params[:id])
         role = params[:role]
@@ -160,23 +183,6 @@ module Api
         render_error(["User not found"], status: :not_found)
       end
 
-      # =========================================================
-      # PATCH /api/v1/users/:id/update_profile
-      # =========================================================
-      def update_profile
-        user = User.find(params[:id])
-        if user.update(profile_params)
-          render_success(user: user)
-        else
-          render_error(user.errors.full_messages, status: :unprocessable_entity)
-        end
-      rescue Mongoid::Errors::DocumentNotFound
-        render_error(["User not found"], status: :not_found)
-      end
-
-      # =========================================================
-      # GET /api/v1/users/:id/onboarding_required
-      # =========================================================
       def onboarding_required
         user = User.find(params[:id])
         status = user.onboarding_status || {}
@@ -192,29 +198,32 @@ module Api
       # =======================================================
       def load_user_by_auth0!
         auth0_id = extract_auth0_id
-        log_debug "LOAD USER BY QUERY PARAM", { auth0_id: auth0_id }
-        return render_error(["auth0_id is required"], status: :bad_request) if auth0_id.blank?
+        
+        if auth0_id.present?
+          # Try finding by Auth0 ID first
+          @user = User.find_by(auth0_id: auth0_id)
+        elsif params[:id].present?
+          # Fallback to internal ID if it's a member route call
+          @user = User.find(params[:id])
+        end
 
-        @user = User.find_by(auth0_id: auth0_id)
-        render_error(["User not found"], status: :not_found) unless @user
+        render_error(["User not found or auth0_id missing"], status: :not_found) unless @user
+      rescue Mongoid::Errors::DocumentNotFound
+        render_error(["User not found"], status: :not_found)
       end
 
       def load_user_by_path!
-        auth0_id = params[:auth0_id]
-        log_debug "LOAD USER BY PATH PARAM (DEPRECATED)", { auth0_id: auth0_id }
-        return render_error(["auth0_id is required in path"], status: :bad_request) if auth0_id.blank?
-
-        @user = User.find_by(auth0_id: auth0_id)
+        @user = User.find_by(auth0_id: params[:auth0_id])
         render_error(["User not found"], status: :not_found) unless @user
-      end
-
-      def extract_auth0_id_from_token
-        # Implement JWT extraction here
-        nil
       end
 
       def extract_auth0_id
         params[:auth0_id] || params.dig(:user, :auth0_id)
+      end
+
+      def extract_auth0_id_from_token
+        # JWT logic here
+        nil
       end
 
       def extract_school_id
@@ -229,62 +238,49 @@ module Api
       # STRONG PARAMETERS
       # =======================================================
       def user_params
-        params.require(:user).permit(:auth0_id, :email, :name, :first_name, :last_name, :phone, :avatar_url, roles: [])
+        params.require(:user).permit(:auth0_id, :email, :name, :first_name, :last_name, :phone, :phone_number, :avatar_url, roles: [])
       end
 
       def profile_params
-        params.permit(:name, :first_name, :last_name, :email, :phone, :avatar_url, :bio, :timezone, :locale)
+        # ✅ FIXED: Added :phone_number to the permitted parameters
+        params.permit(:name, :first_name, :last_name, :email, :phone, :phone_number, :avatar_url, :bio, :timezone, :locale)
       end
 
       # =======================================================
-      # SERVICE HELPERS
+      # HELPERS
       # =======================================================
       def fetch_schools_for(user, deprecated_url: nil)
         schools_data = UserServices::FetchSchoolsService.call(user: user)
         schools_array = schools_data.is_a?(Mongoid::Criteria) ? schools_data.to_a : Array(schools_data)
-
-        payload = schools_array.empty? ? { schools: [], message: "No schools found for user" } : { schools: schools_array }
+        payload = schools_array.empty? ? { schools: [], message: "No schools found" } : { schools: schools_array }
         payload.merge!(_deprecated: deprecated_payload(deprecated_url)) if deprecated_url
-
         render_success(payload)
-      rescue => e
-        log_error "FETCH SCHOOLS ERROR", { error: e.message, backtrace: e.backtrace.first(5) }
-        render_error(["Failed to fetch schools: #{e.message}"], status: :internal_server_error)
       end
 
       def log_deprecated(endpoint, auth0_id)
-        log_warning "DEPRECATED ENDPOINT USED", { endpoint: endpoint, auth0_id: auth0_id, message: "Please migrate to preferred endpoint" }
+        log_warning "DEPRECATED ENDPOINT", { endpoint: endpoint, auth0_id: auth0_id }
       end
 
       def deprecated_payload(migration_url)
-        { message: "This endpoint is deprecated. Use #{migration_url}", migration_guide: "#{request.base_url}/api/docs#migration" }
+        { message: "Deprecated. Use #{migration_url}", migration_guide: "/api/docs#migration" }
       end
 
-      # =======================================================
-      # RESPONSE HELPERS
-      # =======================================================
       def render_success(payload = {}, status: :ok)
-        render json: { success: true, data: payload }, status: status
+        # ✅ FIXED: Ensure we're handling the payload correctly
+        # If payload is already a hash with keys like :user, :message, etc., use it as is
+        # Otherwise wrap it in a hash
+        data = payload.is_a?(Hash) && payload.keys.any? { |k| k.is_a?(Symbol) || k.is_a?(String) } ? payload : { data: payload }
+        
+        render json: { success: true }.merge(data), status: status
       end
 
       def render_error(errors, status: :bad_request)
         render json: { success: false, errors: Array.wrap(errors).compact }, status: status
       end
 
-      # =======================================================
-      # LOGGING HELPERS
-      # =======================================================
-      def log_debug(action, data = {})
-        Rails.logger.debug "[UsersController] #{action}: #{data.inspect}"
-      end
-
-      def log_warning(action, data = {})
-        Rails.logger.warn "⚠️ [UsersController] #{action}: #{data.inspect}"
-      end
-
-      def log_error(action, data = {})
-        Rails.logger.error "🔥 [UsersController] #{action}: #{data.inspect}"
-      end
+      def log_debug(action, data = {}); Rails.logger.debug "[Users] #{action}: #{data.inspect}"; end
+      def log_warning(action, data = {}); Rails.logger.warn "⚠️ [Users] #{action}: #{data.inspect}"; end
+      def log_error(action, data = {}); Rails.logger.error "🔥 [Users] #{action}: #{data.inspect}"; end
     end
   end
 end
