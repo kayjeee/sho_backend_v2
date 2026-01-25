@@ -2,46 +2,78 @@ Rails.application.routes.draw do
   namespace :api do
     namespace :v1 do
 
-      # ================= ADMIN USERS =================
-      get 'admin_users/schools_for_admin', to: 'admin_users#schools_for_admin'
+      # =========================================================
+      # ADMIN USERS
+      # =========================================================
+      namespace :admin_users do
+        get :schools_for_admin
+      end
 
-      # ================= USERS =================
-      resources :users do
+      # =========================================================
+      # USERS (Auth0-safe — NO auth0_id in URL paths)
+      # =========================================================
+      # Auth0-safe endpoints (query params only) - PREFERRED
+      scope :users, controller: :users do
+        get  :show          # ?auth0_id=
+        get  :schools       # ?auth0_id=
+        get  :me            # token-based
+        put  :update_roles  # ?auth0_id=
+        post :add_school    # ?auth0_id=
+        get  :onboarding_status  # ?auth0_id=
+      end
+
+      # =========================================================
+      # USERS - Backward Compatibility (DEPRECATED)
+      # =========================================================
+      # Support old path-based format during migration
+      # These will be removed in future versions
+      get 'users/:auth0_id', 
+          to: 'users#show_by_path',
+          constraints: { auth0_id: /[^\/]+/ },
+          as: :user_by_auth0_deprecated
+
+      get 'users/:auth0_id/schools',
+          to: 'users#schools_by_path',
+          constraints: { auth0_id: /[^\/]+/ },
+          as: :user_schools_by_auth0_deprecated
+
+      get 'users/:auth0_id/onboarding_status',
+          to: 'users#onboarding_status_by_path',
+          constraints: { auth0_id: /[^\/]+/ },
+          as: :user_onboarding_by_auth0_deprecated
+
+      # Internal DB-only routes (uses internal MongoDB _id)
+      resources :users, only: [:create] do
         member do
-          get :roles
-          post :add_role
-          patch :update_roles
+          # ⚠️ INTERNAL ID ONLY — never auth0_id
+          get   :roles
+          post  :add_role
           patch :update_profile
-          get :schools
-          patch :add_school
-          get :onboarding_required
+          get   :onboarding_required
 
           resource :onboarding_status,
-                   controller: 'onboarding_statuses',
+                   controller: :onboarding_statuses,
                    only: [:show, :update] do
             post :complete_step
             post :skip_step
             post :reset
           end
         end
-
-        collection do
-          get :me
-        end
       end
 
-      # ================= PARENTS & LEARNERS =================
-      get 'parents/:auth0_id/my_learners',
-          to: 'my_learners#index',
-          constraints: { auth0_id: /[^\/]+/ }
+      # =========================================================
+      # PARENTS & LEARNERS (Auth0-safe)
+      # =========================================================
+      scope :parents, controller: :my_learners do
+        get :my_learners, action: :index  # ?auth0_id=
+        get :profile                      # ?auth0_id=
+      end
 
-      get 'parents/:auth0_id/profile',
-          to: 'my_learners#profile',
-          constraints: { auth0_id: /[^\/]+/ }
+      resources :learner_links, only: [:create]
 
-      post 'learner_links', to: 'learner_links#create'
-
-      # ================= INVITES =================
+      # =========================================================
+      # INVITES
+      # =========================================================
       resources :invites, only: [:create, :show, :update] do
         member do
           post :generate_pr_code
@@ -49,58 +81,71 @@ Rails.application.routes.draw do
         end
       end
 
-      # ================= SCHOOLS =================
+      # =========================================================
+      # SCHOOLS
+      # =========================================================
       resources :schools do
         member do
           get :admins
           get :teachers
           get :parents
-          get 'parents/:parent_id', to: 'schools#show_parent'
-
-          get 'debt_summary', to: 'debt_management#summary'
-          get 'debtors', to: 'debt_management#index'
-          get 'accounts/:account_id', to: 'debt_management#show_account'
-          get 'accounts/:account_id/payments', to: 'debt_management#account_payments'
-          post 'accounts/:account_id/payments', to: 'debt_management#create_payment'
+          get 'parents/:parent_id', to: 'schools#show_parent', as: :show_parent
         end
 
         collection do
           get :search
         end
 
+        # Nested resources
         resources :students
-        resources :grades, only: [:index, :create]
+        resources :grades,   only: [:index, :create]
         resources :learners, only: [:index]
+        resources :pr_codes, only: [:index, :show, :create, :destroy]
 
-        resources :transactions do
+        resources :transactions, only: [:index, :show, :create, :update, :destroy] do
           collection do
             get :pending
             get :completed
           end
         end
 
-        resources :pr_codes, only: [:index, :show, :create, :destroy]
+        # Debt management
+        scope :debt_management, controller: :debt_management do
+          get :debt_summary, action: :summary
+          get :debtors, action: :index
+          get 'accounts/:account_id', action: :show_account, as: :debt_account
+          get 'accounts/:account_id/payments', action: :account_payments, as: :debt_account_payments
+          post 'accounts/:account_id/payments', action: :create_payment
+        end
       end
 
-      # ================= PR CODES =================
-      post 'pr_codes/validate', to: 'pr_codes#validate'
-      post 'pr_codes/use', to: 'pr_codes#use'
+      # =========================================================
+      # PR CODES
+      # =========================================================
+      scope :pr_codes, controller: :pr_codes do
+        post :validate
+        post :use
+      end
 
-      # ================= GRADES =================
+      # =========================================================
+      # GRADES
+      # =========================================================
       resources :grades, only: [:show, :update, :destroy] do
         member do
-          get :learners
-          get :teachers
-          get :stats
+          get  :learners
+          get  :teachers
+          get  :stats
           post :invite_learner
           post :invite_teacher
+          
+          # Learner management
+          post   'learners/:learner_id', action: :add_learner, as: :add_learner_to
+          delete 'learners/:learner_id', action: :remove_learner, as: :remove_learner_from
         end
 
-        post   'learners/:learner_id', to: 'grades#add_learner'
-        delete 'learners/:learner_id', to: 'grades#remove_learner'
-
+        # Teacher assignments
         resources :teacher_assignments,
-                  controller: 'teacher_grade_assignments' do
+                  controller: :teacher_grade_assignments do
           member do
             patch :activate
             patch :deactivate
@@ -110,11 +155,13 @@ Rails.application.routes.draw do
         end
       end
 
-      # ================= INVITATIONS =================
+      # =========================================================
+      # INVITATIONS
+      # =========================================================
       resources :invitations, param: :token, only: [:create] do
         collection do
           post :verify
-          post :bulk_create   # ✅ Added bulk_create here
+          post :bulk_create
         end
       end
 
@@ -129,7 +176,7 @@ Rails.application.routes.draw do
         collection do
           get :pending
           get :expired
-          get 'by_grade/:grade_id', action: :by_grade
+          get 'by_grade/:grade_id', action: :by_grade, as: :by_grade
         end
       end
 
@@ -144,11 +191,13 @@ Rails.application.routes.draw do
         collection do
           get :pending
           get :expired
-          get 'by_school/:school_id', action: :by_school
+          get 'by_school/:school_id', action: :by_school, as: :by_school
         end
       end
 
-      # ================= TEACHER GRADE ASSIGNMENTS =================
+      # =========================================================
+      # TEACHER GRADE ASSIGNMENTS
+      # =========================================================
       resources :teacher_grade_assignments do
         member do
           patch :activate
@@ -158,13 +207,15 @@ Rails.application.routes.draw do
         end
 
         collection do
-          get 'by_teacher/:teacher_id', action: :by_teacher
-          get 'by_grade/:grade_id',   action: :by_grade
-          get 'by_school/:school_id', action: :by_school
+          get 'by_teacher/:teacher_id', action: :by_teacher, as: :by_teacher
+          get 'by_grade/:grade_id', action: :by_grade, as: :by_grade
+          get 'by_school/:school_id', action: :by_school, as: :by_school
         end
       end
 
-      # ================= LEARNERS =================
+      # =========================================================
+      # LEARNERS
+      # =========================================================
       resources :learners do
         collection do
           post :bulk_upload
@@ -183,17 +234,21 @@ Rails.application.routes.draw do
         end
       end
 
-      # ================= TRANSACTIONS =================
-      resources :transactions do
+      # =========================================================
+      # TRANSACTIONS
+      # =========================================================
+      resources :transactions, only: [:index, :show, :create, :update, :destroy] do
         member do
           post :process_payment
         end
       end
 
-      # ================= REQUEST ACCESS =================
+      # =========================================================
+      # REQUEST ACCESS
+      # =========================================================
       resources :request_accesses do
         collection do
-          get 'school/:school_id', action: :by_school
+          get 'school/:school_id', action: :by_school, as: :by_school
           get :pending_requests
           get :approved_schools
           post :approve
@@ -201,16 +256,20 @@ Rails.application.routes.draw do
         end
 
         member do
-          get 'users_by_roles', to: 'schools#users_by_roles'
+          get :users_by_roles
         end
       end
 
-      # ================= CONVERSATIONS =================
+      # =========================================================
+      # CONVERSATIONS
+      # =========================================================
       resources :conversations, only: [:index, :show, :create] do
         resources :messages, only: [:index, :create]
       end
 
-      # ================= ASSESSMENTS =================
+      # =========================================================
+      # ASSESSMENTS
+      # =========================================================
       resources :assessments do
         collection do
           post :bulk_upload
@@ -225,7 +284,7 @@ Rails.application.routes.draw do
           post  :duplicate
         end
 
-        resources :results do
+        resources :results, only: [:index, :show, :create, :update, :destroy] do
           collection do
             post :bulk_upload
             get  :statistics
@@ -235,7 +294,9 @@ Rails.application.routes.draw do
         end
       end
 
-      # ================= RESULTS =================
+      # =========================================================
+      # RESULTS
+      # =========================================================
       resources :results do
         collection do
           post :bulk_upload
@@ -250,7 +311,9 @@ Rails.application.routes.draw do
         end
       end
 
-      # ================= SUBJECTS =================
+      # =========================================================
+      # SUBJECTS
+      # =========================================================
       resources :subjects do
         collection do
           post :bulk_upload
@@ -263,7 +326,9 @@ Rails.application.routes.draw do
         end
       end
 
-      # ================= DASHBOARD =================
+      # =========================================================
+      # DASHBOARD
+      # =========================================================
       namespace :dashboard do
         get :overview
         get :learner_statistics
@@ -273,17 +338,21 @@ Rails.application.routes.draw do
         get :grade_statistics
       end
 
-      # ================= REPORTS =================
+      # =========================================================
+      # REPORTS
+      # =========================================================
       namespace :reports do
-        get :learner_performance
-        get :school_performance
-        get :grade_performance
-        get :subject_performance
+        get  :learner_performance
+        get  :school_performance
+        get  :grade_performance
+        get  :subject_performance
         post :generate_custom
-        get 'download/:id', action: :download
+        get  'download/:id', action: :download, as: :download
       end
 
-      # ================= IMPORT / EXPORT =================
+      # =========================================================
+      # IMPORT / EXPORT
+      # =========================================================
       namespace :import_export do
         post :import_learners
         post :import_schools
@@ -293,31 +362,39 @@ Rails.application.routes.draw do
         get  :export_schools
         get  :export_grades
         get  :export_results
-        get 'template/:type', action: :download_template
+        get  'template/:type', action: :download_template, as: :download_template
       end
 
-      # ================= AUTH =================
-      post 'auth/login',          to: 'authentication#login'
-      post 'auth/logout',         to: 'authentication#logout'
-      post 'auth/refresh',        to: 'authentication#refresh'
-      post 'auth/forgot_password',to: 'authentication#forgot_password'
-      post 'auth/reset_password', to: 'authentication#reset_password'
+      # =========================================================
+      # AUTHENTICATION
+      # =========================================================
+      scope :auth, controller: :authentication do
+        post :login
+        post :logout
+        post :refresh
+        post :forgot_password
+        post :reset_password
+      end
 
-      # ================= ADMIN =================
+      # =========================================================
+      # ADMIN
+      # =========================================================
       namespace :admin do
         get  :system_info
         get  :audit_logs
         post :backup_database
         get  :backup_status
-        patch :system_settings, to: 'admin#update_system_settings'
+        patch :system_settings, action: :update_system_settings
       end
 
-      # ================= UPLOADS =================
-      post   'uploads',     to: 'uploads#create'
-      get    'uploads/:id', to: 'uploads#show'
-      delete 'uploads/:id', to: 'uploads#destroy'
+      # =========================================================
+      # UPLOADS
+      # =========================================================
+      resources :uploads, only: [:create, :show, :destroy]
 
-      # ================= NOTIFICATIONS =================
+      # =========================================================
+      # NOTIFICATIONS
+      # =========================================================
       resources :notifications do
         collection do
           patch :mark_all_read
@@ -330,34 +407,41 @@ Rails.application.routes.draw do
         end
       end
 
-      # ================= PUBLIC INVITATIONS =================
-      post 'public/invitations/learner/:token/accept',
-           to: 'public/invitations#accept_learner_invitation'
+      # =========================================================
+      # PUBLIC INVITATIONS
+      # =========================================================
+      namespace :public do
+        namespace :invitations do
+          post   'learner/:token/accept', action: :accept_learner_invitation, as: :accept_learner
+          post   'teacher/:token/accept', action: :accept_teacher_invitation, as: :accept_teacher
+          get    'learner/:token', action: :show_learner_invitation, as: :show_learner
+          get    'teacher/:token', action: :show_teacher_invitation, as: :show_teacher
+        end
+      end
 
-      post 'public/invitations/teacher/:token/accept',
-           to: 'public/invitations#accept_teacher_invitation'
-
-      get 'public/invitations/learner/:token',
-          to: 'public/invitations#show_learner_invitation'
-
-      get 'public/invitations/teacher/:token',
-          to: 'public/invitations#show_teacher_invitation'
-
-      # ================= HEALTH =================
+      # =========================================================
+      # HEALTH CHECK
+      # =========================================================
       get 'health', to: 'home#health'
     end
 
+    # =========================================================
+    # API V2 (Future)
+    # =========================================================
     namespace :v2 do
-      # future endpoints
+      # Future endpoints
     end
   end
 
-  # ================= GLOBAL =================
+  # =========================================================
+  # GLOBAL ROUTES
+  # =========================================================
   root 'api/v1/home#index'
   get 'health', to: 'api/v1/home#health'
-
-  get 'invitations/:token/verify_with_details',
-      to: 'api/v1/invitations#verify_with_details'
-
   get 'api/docs', to: 'api/v1/documentation#index'
+
+  # Global invitation verification
+  get 'invitations/:token/verify_with_details',
+      to: 'api/v1/invitations#verify_with_details',
+      as: :verify_invitation_with_details
 end

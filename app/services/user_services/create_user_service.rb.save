@@ -1,0 +1,198 @@
+# app/services/user_services/create_user_service.rb
+module UserServices
+  class CreateUserService
+    Result = Struct.new(:success?, :user, :errors, :new_record?, keyword_init: true)
+
+    PROVIDERS = %w[google-oauth2 auth0 facebook twitter].freeze
+    PARENT_ROLE = 'parent'.freeze
+
+    def self.call(user_params:)
+      new(user_params).call
+    end
+
+    def initialize(user_params)
+      @raw_params = normalize_input(user_params)
+    end
+
+    def call
+      user = find_or_initialize_user
+      was_new = user.new_record?
+
+      assign_base_attributes(user)
+      invitation = process_invitation(user)
+
+      merge_roles(user, invitation)
+
+      if user.save
+        post_save(user, invitation, was_new)
+        Result.new(
+          success?: true,
+          user: user.reload.to_api_hash,
+          errors: [],
+          new_record?: was_new
+        )
+      else
+        Result.new(
+          success?: false,
+          user: nil,
+          errors: user.errors.full_messages,
+          new_record?: false
+        )
+      end
+    rescue => e
+      Rails.logger.error "💥 [CreateUserService] #{e.message}"
+      Rails.logger.error e.backtrace.first(5).join("\n")
+      Result.new(success?: false, errors: [e.message])
+    end
+
+    private
+
+    attr_reader :raw_params
+
+    # --------------------------------------------------
+    # Normalization
+    # --------------------------------------------------
+    def normalize_input(params)
+      hash =
+        params.is_a?(ActionController::Parameters) ? params.to_h : params
+
+      hash.symbolize_keys.slice(
+        :name,
+        :email,
+        :auth0_id,
+        :roles,
+        :invitation_token
+      )
+    end
+
+    def normalize_roles(roles)
+      Array(roles)
+        .flat_map { |r| r.to_s.split(',') }
+        .map(&:strip)
+        .map(&:downcase)
+        .reject(&:blank?)
+        .uniq
+    end
+
+    # --------------------------------------------------
+    # User lookup
+    # --------------------------------------------------
+    def find_or_initialize_user
+      find_existing_user || User.new(auth0_id: raw_params[:auth0_id])
+    end
+
+    def find_existing_user
+      find_by_auth0_id ||
+        find_by_prefixed_auth0_id ||
+        find_by_email
+    end
+
+    def find_by_auth0_id
+      return if raw_params[:auth0_id].blank?
+      User.where(auth0_id: raw_params[:auth0_id]).first
+    end
+
+    def find_by_prefixed_auth0_id
+      return if raw_params[:auth0_id].blank?
+      return if raw_params[:auth0_id].include?('|')
+
+      PROVIDERS.each do |provider|
+        user = User.where(
+          auth0_id: "#{provider}|#{raw_params[:auth0_id]}"
+        ).first
+        return user if user
+      end
+
+      nil
+    end
+
+    def find_by_email
+      return if raw_params[:email].blank?
+      User.where(email: raw_params[:email]).first
+    end
+
+    # --------------------------------------------------
+    # Assignment
+    # --------------------------------------------------
+    def assign_base_attributes(user)
+      user.name  ||= raw_params[:name]
+      user.email ||= raw_params[:email]
+    end
+
+    # --------------------------------------------------
+    # Invitation handling (PARENT SOURCE OF TRUTH)
+    # --------------------------------------------------
+    def process_invitation(user)
+      token = raw_params[:invitation_token]
+      return nil if token.blank?
+
+      invitation = Invitation.find_by(
+        token: token,
+        :status.in => %w[pending verified]
+      )
+
+      return nil unless invitation
+
+      Rails.logger.info "🎫 Invitation accepted: #{invitation.id}"
+
+      user.phone_number ||= invitation.recipient_phone_number
+      user.invited_via  ||= invitation.invited_via
+
+      attach_school(user, invitation)
+      invitation
+    end
+
+    def attach_school(user, invitation)
+      return if invitation.school_id.blank?
+
+      user.school_ids ||= []
+      school_id = invitation.school_id.to_s
+
+      unless user.school_ids.map(&:to_s).include?(school_id)
+        user.school_ids << BSON::ObjectId.from_string(school_id)
+      end
+    end
+
+    # --------------------------------------------------
+    # Roles (MERGED, NEVER OVERWRITTEN)
+    # --------------------------------------------------
+    def merge_roles(user, invitation)
+      user.roles ||= []
+
+      # Roles from trusted backend (admin creation)
+      backend_roles = normalize_roles(raw_params[:roles])
+
+      # Parent role ONLY from invitation
+      if invitation
+        backend_roles << PARENT_ROLE
+      end
+
+      user.roles |= backend_roles
+    end
+
+    # --------------------------------------------------
+    # Post-save side effects
+    # --------------------------------------------------
+    def post_save(user, invitation, was_new)
+      user.initialize_onboarding_status if was_new
+
+      return unless invitation
+
+      invitation.update(
+        status: 'accepted',
+        accepted_at: Time.current
+      )
+
+      link_learners(user, invitation)
+    end
+
+    def link_learners(user, invitation)
+      return if invitation.learner_ids.blank?
+
+      ParentLinkageService.new(
+        user: user,
+        learner_ids: invitation.learner_ids
+      ).call
+    end
+  end
+end
