@@ -18,23 +18,11 @@ Rails.application.configure do
   # Cache assets for far-future expiry since they are all digest stamped.
   config.public_file_server.headers = { "cache-control" => "public, max-age=#{1.year.to_i}" }
 
-  # Enable serving of images, stylesheets, and JavaScripts from an asset server.
-  # config.asset_host = "http://assets.example.com"
-
-  # Store uploaded files on the local file system (see config/storage.yml for options).
-  # config.active_storage.service = :local
-
   # Assume all access to the app is happening through a SSL-terminating reverse proxy.
-  # Render provides SSL termination, so this can remain true
-  config.assume_ssl = true
-
-  # Force all access to the app over SSL, use Strict-Transport-Security, and use secure cookies.
-  # Set to false initially for testing, then enable after everything works
-  config.force_ssl = true
+  # Disabled to prevent 403 errors behind reverse proxies as per project standard.
+  config.assume_ssl = false
+  config.force_ssl = false
   
-  # Skip http-to-https redirect for the default health check endpoint.
-  # config.ssl_options = { redirect: { exclude: ->(request) { request.path == "/up" } } }
-
   # Log to STDOUT with the current request id as a default log tag.
   config.log_tags = [ :request_id ]
   config.logger   = ActiveSupport::TaggedLogging.logger(STDOUT)
@@ -54,52 +42,13 @@ Rails.application.configure do
   # Use async adapter for Active Job or comment out if not using background jobs
   config.active_job.queue_adapter = :async
 
-  # Ignore bad email addresses and do not raise email delivery errors.
-  # Set this to true and configure the email server for immediate delivery to raise delivery errors.
-  # config.action_mailer.raise_delivery_errors = false
-
   # Set host to be used by links generated in mailer templates.
-  # Update this to your actual Render URL after deployment
   config.action_mailer.default_url_options = { host: ENV.fetch('https://sho-backend-v2.onrender.com', 'localhost:3000') }
-
-  # Specify outgoing SMTP server. Remember to add smtp/* credentials via rails credentials:edit.
-  # config.action_mailer.smtp_settings = {
-  #   user_name: Rails.application.credentials.dig(:smtp, :user_name),
-  #   password: Rails.application.credentials.dig(:smtp, :password),
-  #   address: "smtp.example.com",
-  #   port: 587,
-  #   authentication: :plain
-  # }
 
   # Enable locale fallbacks for I18n (makes lookups for any locale fall back to
   # the I18n.default_locale when a translation cannot be found).
   config.i18n.fallbacks = true
 
-  # Do not dump schema after migrations.
-  # Since we're using MongoDB, this ActiveRecord setting may not apply
-  # config.active_record.dump_schema_after_migration = false
-
-  # Only use :id for inspections in production.
-  # This is ActiveRecord-specific, may not apply to MongoDB
-  # config.active_record.attributes_for_inspect = [ :id ]
-
-  puts "DEBUG: RAILS_ALLOWED_HOSTS from ENV is: #{ENV['RAILS_ALLOWED_HOSTS'].inspect}"
-
-  # Enable DNS rebinding protection and other `Host` header attacks.
-  # Allow Render's domain and any subdomains
-  # config.hosts << /.*\.onrender\.com/
-
-  # Add allowed hosts from environment variable.
-  # The value should be a comma-separated string of domains, e.g., ".railway.app,example.com"
-  if ENV['RAILS_ALLOWED_HOSTS'].present?
-    ENV['RAILS_ALLOWED_HOSTS'].split(',').each do |host|
-      config.hosts << host.strip
-    end
-  end
-
   # Ensure assets are served
   config.public_file_server.enabled = true
-
-  # Skip DNS rebinding protection for the default health check endpoint.
-  # config.host_authorization = { exclude: ->(request) { request.path == "/up" } }
 end
