@@ -20,7 +20,11 @@ module Api
 
         if result.success?
           render_success(
-            { user: result.user, new_record: result.new_record },
+            message: result.new_record ? 'User created successfully' : 'User already exists',
+            data: { 
+              user: result.user, 
+              new_record: result.new_record 
+            },
             status: result.new_record ? :created : :ok
           )
         else
@@ -35,7 +39,10 @@ module Api
       # GET /api/v1/users/show?auth0_id=xxx
       # =========================================================
       def show
-        render_success(user: @user)
+        render_success(
+          message: 'User retrieved successfully',
+          data: { user: @user }
+        )
       end
 
       # =========================================================
@@ -44,8 +51,11 @@ module Api
       def show_by_path
         log_deprecated("/api/v1/users/:auth0_id", params[:auth0_id])
         render_success(
-          { user: @user },
-          _deprecated: deprecated_payload("/api/v1/users/show?auth0_id=xxx")
+          message: 'User retrieved successfully',
+          data: {
+            user: @user,
+            _deprecated: deprecated_payload("/api/v1/users/show?auth0_id=xxx")
+          }
         )
       end
 
@@ -57,7 +67,15 @@ module Api
         return render_error(["Authentication required"], status: :unauthorized) if auth0_id.blank?
 
         user = User.find_by(auth0_id: auth0_id)
-        user ? render_success(user: user) : render_error(["User not found"], status: :not_found)
+        
+        if user
+          render_success(
+            message: 'User retrieved successfully',
+            data: { user: user }
+          )
+        else
+          render_error(["User not found"], status: :not_found)
+        end
       end
 
       # =========================================================
@@ -77,15 +95,25 @@ module Api
       # =========================================================
       def onboarding_status
         status = @user.onboarding_status || {}
-        render_success(onboarding_status: status, completed: status[:completed] || false)
+        render_success(
+          message: 'Onboarding status retrieved successfully',
+          data: {
+            onboarding_status: status,
+            completed: status[:completed] || status['completed'] || false
+          }
+        )
       end
 
       def onboarding_status_by_path
         log_deprecated("/api/v1/users/:auth0_id/onboarding_status", params[:auth0_id])
         status = @user.onboarding_status || {}
         render_success(
-          { onboarding_status: status, completed: status[:completed] || false },
-          _deprecated: deprecated_payload("/api/v1/users/onboarding_status?auth0_id=xxx")
+          message: 'Onboarding status retrieved successfully',
+          data: {
+            onboarding_status: status,
+            completed: status[:completed] || status['completed'] || false,
+            _deprecated: deprecated_payload("/api/v1/users/onboarding_status?auth0_id=xxx")
+          }
         )
       end
 
@@ -94,7 +122,6 @@ module Api
       # OR PATCH /api/v1/users/:id/update_profile
       # =========================================================
       def update_profile
-        # @user is loaded via load_user_by_auth0! before_action
         log_debug "UPDATE_PROFILE - Received params", params
         
         # Extract permitted parameters
@@ -106,10 +133,9 @@ module Api
         if @user.update(permitted_params)
           log_debug "UPDATE_PROFILE - Success", { user_id: @user.id, updated_fields: permitted_params.keys }
           
-          # Simple render without the problematic render_success method
-          render json: {
-            success: true,
-            data: { 
+          render_success(
+            message: 'Profile updated successfully',
+            data: {
               user: {
                 id: @user.id.to_s,
                 auth0_id: @user.auth0_id,
@@ -121,9 +147,8 @@ module Api
                 created_at: @user.created_at,
                 updated_at: @user.updated_at
               }
-            },
-            message: "Profile updated successfully"
-          }, status: :ok
+            }
+          )
         else
           log_error "UPDATE_PROFILE - Failed", { user_id: @user.id, errors: @user.errors.full_messages }
           render_error(@user.errors.full_messages, status: :unprocessable_entity)
@@ -138,7 +163,15 @@ module Api
         return render_error(["Roles parameter is required"], status: :bad_request) if roles.empty?
 
         user = UserServices::UpdateRolesService.call(user: @user, roles: roles)
-        user ? render_success(user: user) : render_error(["Failed to update roles"], status: :unprocessable_entity)
+        
+        if user
+          render_success(
+            message: 'Roles updated successfully',
+            data: { user: user }
+          )
+        else
+          render_error(["Failed to update roles"], status: :unprocessable_entity)
+        end
       rescue => e
         log_error "UPDATE ROLES ERROR", { error: e.message }
         render_error(["Failed to update roles: #{e.message}"], status: :unprocessable_entity)
@@ -152,8 +185,12 @@ module Api
         return render_error(["schoolId parameter is required"], status: :bad_request) if school_id.blank?
 
         result = UserServices::AddSchoolService.call(user: @user, school_id: school_id)
+        
         if result&.user
-          render_success(message: result.message || "School added successfully", user: result.user)
+          render_success(
+            message: result.message || 'School added successfully',
+            data: { user: result.user }
+          )
         else
           render_error(["Failed to add school to user"], status: :unprocessable_entity)
         end
@@ -167,7 +204,10 @@ module Api
       # =========================================================
       def roles
         user = User.find(params[:id])
-        render_success(roles: user.roles || [])
+        render_success(
+          message: 'Roles retrieved successfully',
+          data: { roles: user.roles || [] }
+        )
       rescue Mongoid::Errors::DocumentNotFound
         render_error(["User not found"], status: :not_found)
       end
@@ -178,7 +218,15 @@ module Api
         return render_error(["Role parameter is required"], status: :bad_request) if role.blank?
 
         updated_user = UserServices::AddRoleService.call(user: user, role: role)
-        updated_user ? render_success(user: updated_user) : render_error(["Failed to add role"], status: :unprocessable_entity)
+        
+        if updated_user
+          render_success(
+            message: 'Role added successfully',
+            data: { user: updated_user }
+          )
+        else
+          render_error(["Failed to add role"], status: :unprocessable_entity)
+        end
       rescue Mongoid::Errors::DocumentNotFound
         render_error(["User not found"], status: :not_found)
       end
@@ -186,7 +234,13 @@ module Api
       def onboarding_required
         user = User.find(params[:id])
         status = user.onboarding_status || {}
-        render_success(required: !status[:completed], status: status)
+        render_success(
+          message: 'Onboarding status retrieved successfully',
+          data: {
+            required: !status[:completed] && !status['completed'],
+            status: status
+          }
+        )
       rescue Mongoid::Errors::DocumentNotFound
         render_error(["User not found"], status: :not_found)
       end
@@ -252,9 +306,22 @@ module Api
       def fetch_schools_for(user, deprecated_url: nil)
         schools_data = UserServices::FetchSchoolsService.call(user: user)
         schools_array = schools_data.is_a?(Mongoid::Criteria) ? schools_data.to_a : Array(schools_data)
-        payload = schools_array.empty? ? { schools: [], message: "No schools found" } : { schools: schools_array }
-        payload.merge!(_deprecated: deprecated_payload(deprecated_url)) if deprecated_url
-        render_success(payload)
+        
+        data = {
+          schools: schools_array
+        }
+        
+        # Add deprecated info if this is a deprecated endpoint
+        if deprecated_url
+          data[:_deprecated] = deprecated_payload(deprecated_url)
+        end
+        
+        message = schools_array.empty? ? 'No schools found' : 'Schools retrieved successfully'
+        
+        render_success(
+          message: message,
+          data: data
+        )
       end
 
       def log_deprecated(endpoint, auth0_id)
@@ -262,20 +329,26 @@ module Api
       end
 
       def deprecated_payload(migration_url)
-        { message: "Deprecated. Use #{migration_url}", migration_guide: "/api/docs#migration" }
+        { 
+          message: "Deprecated. Use #{migration_url}", 
+          migration_guide: "/api/docs#migration" 
+        }
       end
 
-      def render_success(payload = {}, status: :ok)
-        # ✅ FIXED: Ensure we're handling the payload correctly
-        # If payload is already a hash with keys like :user, :message, etc., use it as is
-        # Otherwise wrap it in a hash
-        data = payload.is_a?(Hash) && payload.keys.any? { |k| k.is_a?(Symbol) || k.is_a?(String) } ? payload : { data: payload }
+      # ✅ FIXED: Updated render_success to accept message and data as keyword arguments
+      def render_success(message: nil, data: {}, status: :ok)
+        response = { success: true }
+        response[:message] = message if message.present?
+        response[:data] = data if data.present?
         
-        render json: { success: true }.merge(data), status: status
+        render json: response, status: status
       end
 
       def render_error(errors, status: :bad_request)
-        render json: { success: false, errors: Array.wrap(errors).compact }, status: status
+        render json: { 
+          success: false, 
+          errors: Array.wrap(errors).compact 
+        }, status: status
       end
 
       def log_debug(action, data = {}); Rails.logger.debug "[Users] #{action}: #{data.inspect}"; end
