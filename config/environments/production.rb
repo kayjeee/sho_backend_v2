@@ -26,11 +26,11 @@ Rails.application.configure do
 
   # Assume all access to the app is happening through a SSL-terminating reverse proxy.
   # Render provides SSL termination, so this can remain true
-  config.assume_ssl = true
+  config.assume_ssl = false
 
   # Force all access to the app over SSL, use Strict-Transport-Security, and use secure cookies.
   # Set to false initially for testing, then enable after everything works
-  config.force_ssl = true
+  config.force_ssl = false
   
   # Skip http-to-https redirect for the default health check endpoint.
   # config.ssl_options = { redirect: { exclude: ->(request) { request.path == "/up" } } }
@@ -83,19 +83,6 @@ Rails.application.configure do
   # This is ActiveRecord-specific, may not apply to MongoDB
   # config.active_record.attributes_for_inspect = [ :id ]
 
-  puts "DEBUG: RAILS_ALLOWED_HOSTS from ENV is: #{ENV['RAILS_ALLOWED_HOSTS'].inspect}"
-
-  # Enable DNS rebinding protection and other `Host` header attacks.
-  # Allow Render's domain and any subdomains
-  # config.hosts << /.*\.onrender\.com/
-
-  # Add allowed hosts from environment variable.
-  # The value should be a comma-separated string of domains, e.g., ".railway.app,example.com"
-  if ENV['RAILS_ALLOWED_HOSTS'].present?
-    ENV['RAILS_ALLOWED_HOSTS'].split(',').each do |host|
-      config.hosts << host.strip
-    end
-  end
 
   # Ensure assets are served
   config.public_file_server.enabled = true

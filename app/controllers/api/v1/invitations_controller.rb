@@ -2,7 +2,7 @@
 class Api::V1::InvitationsController < ApplicationController
   # 🔓 PUBLIC CONTROLLER (no authentication required)
   # Rate limiting for public endpoints
-  before_action :rate_limit_public_endpoints, only: [:verify_with_details, :verify, :create]
+  before_action :rate_limit_public_endpoints, only: [:verify_with_details, :verify, :create, :bulk_create]
 
   # ============================================================
   # PUBLIC ENDPOINTS
@@ -170,15 +170,24 @@ class Api::V1::InvitationsController < ApplicationController
 
     # Find sender user
     sender = find_sender(bulk_params[:sender_id])
+    school_id = bulk_params[:school_id] || params[:school_id]
     
+    if school_id.blank?
+      return render json: {
+        success: false,
+        message: 'School ID is required'
+      }, status: :unprocessable_entity
+    end
+
     Rails.logger.info "   Sender: #{sender&.auth0_id || 'nil'}"
+    Rails.logger.info "   School ID: #{school_id}"
 
     # Process bulk invitations
     result = UserServices::BulkInvitationService.new(
       sender: sender,
       invitations_data: bulk_params[:invitations],
       role: bulk_params[:role] || 'parent',
-      school_id: bulk_params[:school_id],
+      school_id: school_id,
       invited_via: bulk_params[:invited_via] || 'whatsapp'
     ).call
 
