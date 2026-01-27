@@ -102,13 +102,11 @@ module Api
       # =========================
       def create
         # Extract permitted params (excluding nested attributes we'll handle separately)
-        permitted_params = school_params.except(:adminUsers, :theme, :invites, :user_id, :user_email)
+        permitted_params = school_params.except(:adminUsers, :theme, :invites, :user_id, :user_email, :status)
         @school = School.new(permitted_params)
 
-        # Set default values
-        @school.cash_account ||= 0.0
-        @school.payment_history ||= []
-        @school.status ||= "active"
+        # Set default values only if the field exists in the model
+        set_default_values
 
         # Handle theme safely
         handle_theme_assignment
@@ -160,8 +158,13 @@ module Api
         handle_invites_assignment
 
         # Update with permitted params (excluding those handled above)
-        permitted_params = school_params.except(:theme, :adminUsers, :invites, :user_id, :user_email)
+        permitted_params = school_params.except(:theme, :adminUsers, :invites, :user_id, :user_email, :status)
         
+        # Handle status separately if it exists in the model
+        if @school.respond_to?(:status=) && params[:school] && params[:school][:status].present?
+          @school.status = params[:school][:status]
+        end
+
         if @school.update(permitted_params)
           render json: { success: true, school: @school, message: "School updated successfully" }, status: :ok
         else
@@ -207,6 +210,18 @@ module Api
             auth0_id: user.auth0_id,
             role: role
           }
+        end
+      end
+
+      # Set default values only if fields exist in the model
+      def set_default_values
+        # Only set values if the model has these attributes
+        @school.cash_account = 0.0 if @school.respond_to?(:cash_account=)
+        @school.payment_history = [] if @school.respond_to?(:payment_history=)
+        
+        # Handle status carefully - only set if the field exists
+        if @school.respond_to?(:status=)
+          @school.status = params.dig(:school, :status) || "active"
         end
       end
 
