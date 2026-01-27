@@ -26,7 +26,7 @@ class School
   
   # Branding
   field :logo, type: String
-  field :theme, type: Hash, default: {}
+  field :theme, type: String, default: ""  # Changed to String
   
   # Financial
   field :cash_account, type: Float, default: 0.0
@@ -53,23 +53,4 @@ class School
   index({ status: 1 })
   index({ user_id: 1 })
   index({ created_at: -1 })
-  
-  # Callbacks
-  before_save :normalize_theme
-  
-  private
-  
-  def normalize_theme
-    # Ensure theme is always a proper Hash
-    if self.theme.is_a?(String)
-      # If it's a string representation of a hash, try to parse it
-      begin
-        self.theme = eval(self.theme) if self.theme.include?('=>')
-      rescue
-        self.theme = { mode: self.theme }
-      end
-    elsif self.theme.nil?
-      self.theme = {}
-    end
-  end
 end

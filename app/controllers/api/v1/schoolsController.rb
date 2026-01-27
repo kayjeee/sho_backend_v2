@@ -117,11 +117,11 @@ module Api
         @school.payment_history ||= []
         @school.status ||= "active"
 
-        # Handle theme as a Hash (not string)
+        # Handle theme as a STRING (inspect converts hash to string representation)
         if theme_data.present?
-          @school.theme = parse_theme(theme_data)
+          @school.theme = convert_theme_to_string(theme_data)
         else
-          @school.theme = {}
+          @school.theme = ""
         end
 
         # Handle adminUsers
@@ -193,9 +193,9 @@ module Api
         admin_users_data = permitted.delete(:adminUsers)
         invites_data = permitted.delete(:invites)
 
-        # Handle theme as a Hash (not string)
+        # Handle theme as a STRING
         if theme_data.present?
-          @school.theme = parse_theme(theme_data)
+          @school.theme = convert_theme_to_string(theme_data)
         end
 
         # Handle adminUsers
@@ -272,11 +272,11 @@ module Api
         end
       end
 
-      # Parse theme data into proper Hash format
-      def parse_theme(theme_data)
-        return {} if theme_data.blank?
+      # Convert theme data to string representation like: {"mode"=>"orange", "value"=>"#F97316"}
+      def convert_theme_to_string(theme_data)
+        return "" if theme_data.blank?
         
-        if theme_data.is_a?(Hash)
+        theme_hash = if theme_data.is_a?(Hash)
           # Already a hash, extract mode and value
           {
             "mode" => theme_data[:mode] || theme_data["mode"] || "",
@@ -288,9 +288,12 @@ module Api
         else
           {}
         end
+        
+        # Use inspect to get Ruby hash string representation
+        theme_hash.inspect
       rescue => e
-        Rails.logger.warn "Failed to parse theme: #{e.message}"
-        {}
+        Rails.logger.warn "Failed to convert theme: #{e.message}"
+        ""
       end
 
       # Associate user with school after creation
