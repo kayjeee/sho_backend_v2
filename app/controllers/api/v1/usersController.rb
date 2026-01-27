@@ -66,7 +66,8 @@ module Api
         auth0_id = extract_auth0_id_from_token || params[:auth0_id]
         return render_error(["Authentication required"], status: :unauthorized) if auth0_id.blank?
 
-        user = User.find_by(auth0_id: auth0_id)
+        # Use .where().first to avoid Mongoid exception
+        user = User.where(auth0_id: auth0_id).first
         
         if user
           render_success(
@@ -248,14 +249,14 @@ module Api
       private
 
       # =======================================================
-      # USER LOADING
+      # USER LOADING - FIXED VERSIONS
       # =======================================================
       def load_user_by_auth0!
         auth0_id = extract_auth0_id
         
         if auth0_id.present?
-          # Try finding by Auth0 ID first
-          @user = User.find_by(auth0_id: auth0_id)
+          # Use .where().first instead of find_by to avoid exception
+          @user = User.where(auth0_id: auth0_id).first
         elsif params[:id].present?
           # Fallback to internal ID if it's a member route call
           @user = User.find(params[:id])
@@ -267,7 +268,8 @@ module Api
       end
 
       def load_user_by_path!
-        @user = User.find_by(auth0_id: params[:auth0_id])
+        # Use .where().first instead of find_by to avoid exception
+        @user = User.where(auth0_id: params[:auth0_id]).first
         render_error(["User not found"], status: :not_found) unless @user
       end
 
