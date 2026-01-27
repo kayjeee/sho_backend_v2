@@ -1,56 +1,75 @@
-# app/models/school.rb
 class School
   include Mongoid::Document
   include Mongoid::Timestamps
 
-  # Core school information
+  # Basic Information
   field :schoolName, type: String
   field :schoolEmail, type: String
-  field :logo, type: String
   
-  # Address fields (flattened structure)
-  field :line1, type: String
-  field :line2, type: String
+  # Location
   field :country, type: String
-  field :province, type: String
   field :city, type: String
-  field :postalCode, type: String
-  
-  # Location coordinates
+  field :province, type: String
   field :latitude, type: Float
   field :longitude, type: Float
   
-  # Theme and branding
-  field :theme, type: String
+  # Address
+  field :line1, type: String
+  field :line2, type: String
+  field :postalCode, type: String
+  
+  # Social Media
+  field :facebook, type: String
+  field :linkedin, type: String
+  field :tiktok, type: String
   field :website, type: String
   
-  # Social media links
-  field :facebook, type: String
-  field :tiktok, type: String
-  field :linkedin, type: String
-
-  # Status (active/inactive/suspended/etc.)
-  field :status, type: String, default: "active"
+  # Branding
+  field :logo, type: String
+  field :theme, type: Hash, default: {}
   
-  # Financial fields
+  # Financial
   field :cash_account, type: Float, default: 0.0
   field :payment_history, type: Array, default: []
   
-  # User association fields
+  # Users & Invitations
+  field :adminUsers, type: Array, default: []
+  field :invites, type: Array, default: []
+  
+  # Status & Metadata
+  field :status, type: String, default: "active"
   field :user_id, type: String
   field :user_email, type: String
   field :school_created_by, type: String
- # Add this association
-  has_many :grades, class_name: 'Grade', inverse_of: :school
+  
   # Validations
   validates :schoolName, presence: true, uniqueness: true
-  validates :schoolEmail, presence: true, uniqueness: true
+  validates :schoolEmail, presence: true, format: { with: URI::MailTo::EMAIL_REGEXP }
+  validates :country, presence: true
   
-  # Indexes for performance and uniqueness
-  index({ schoolName: 1 }, { unique: true, name: "school_name_index" })
-  index({ schoolEmail: 1 }, { unique: true, name: "school_email_index" })
+  # Indexes
+  index({ schoolName: 1 }, { unique: true })
+  index({ schoolEmail: 1 })
+  index({ status: 1 })
+  index({ user_id: 1 })
+  index({ created_at: -1 })
   
-  # Additional indexes for common queries
-  index({ user_id: 1 }, { name: "user_id_index" })
-  index({ country: 1, province: 1, city: 1 }, { name: "location_index" })
+  # Callbacks
+  before_save :normalize_theme
+  
+  private
+  
+  def normalize_theme
+    # Ensure theme is always a proper Hash
+    if self.theme.is_a?(String)
+      # If it's a string representation of a hash, try to parse it
+      begin
+        self.theme = eval(self.theme) if self.theme.include?('=>')
+      rescue
+        self.theme = { mode: self.theme }
+      end
+    elsif self.theme.nil?
+      self.theme = {}
+    end
+  end
 end
