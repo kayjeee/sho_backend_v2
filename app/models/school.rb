@@ -42,6 +42,9 @@ class School
   field :user_email, type: String
   field :school_created_by, type: String
   
+  # Associations
+  has_many :grades, dependent: :destroy  # Add this line
+  
   # Validations
   validates :schoolName, presence: true, uniqueness: true
   validates :schoolEmail, presence: true, format: { with: URI::MailTo::EMAIL_REGEXP }
@@ -53,4 +56,9 @@ class School
   index({ status: 1 })
   index({ user_id: 1 })
   index({ created_at: -1 })
+  
+  # Helper method to get grades
+  def grades_list
+    grades.order(created_at: :desc)
+  end
 end
