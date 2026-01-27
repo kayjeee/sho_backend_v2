@@ -101,21 +101,58 @@ module Api
       # POST /api/v1/schools
       # =========================
       def create
-        # Extract permitted params (excluding nested attributes we'll handle separately)
-        permitted_params = school_params.except(:adminUsers, :theme, :invites, :user_id, :user_email, :status)
-        @school = School.new(permitted_params)
+        # Get all permitted params
+        permitted = school_params
+        
+        # Extract and remove special fields that need custom handling
+        theme_data = permitted.delete(:theme)
+        admin_users_data = permitted.delete(:adminUsers)
+        invites_data = permitted.delete(:invites)
+        
+        # Create school with basic fields
+        @school = School.new(permitted)
 
-        # Set default values only if the field exists in the model
-        set_default_values
+        # Set default values
+        @school.cash_account ||= 0.0
+        @school.payment_history ||= []
+        @school.status ||= "active"
 
-        # Handle theme safely
-        handle_theme_assignment
+        # Handle theme as a Hash (not string)
+        if theme_data.present?
+          @school.theme = parse_theme(theme_data)
+        else
+          @school.theme = {}
+        end
 
-        # Handle adminUsers safely
-        handle_admin_users_assignment
+        # Handle adminUsers
+        if admin_users_data.present? && admin_users_data.is_a?(Array)
+          @school.adminUsers = admin_users_data.map do |admin|
+            {
+              id: admin[:id] || admin["id"] || Time.now.to_i.to_s,
+              name: admin[:name] || admin["name"],
+              email: admin[:email] || admin["email"],
+              role: admin[:role] || admin["role"] || "Administrator",
+              addedAt: admin[:addedAt] || admin["addedAt"] || Time.current
+            }
+          end.compact
+        else
+          @school.adminUsers = []
+        end
 
-        # Handle invites safely
-        handle_invites_assignment
+        # Handle invites
+        if invites_data.present? && invites_data.is_a?(Array)
+          @school.invites = invites_data.map do |invite|
+            {
+              id: invite[:id] || invite["id"] || Time.now.to_i.to_s,
+              email: invite[:email] || invite["email"],
+              role: invite[:role] || invite["role"] || "Staff",
+              status: invite[:status] || invite["status"] || "pending",
+              invitedAt: invite[:invitedAt] || invite["invitedAt"] || Time.current
+            }
+          end.compact
+        else
+          @school.invites = []
+        end
 
         if @school.save
           # Associate user with school if user_id provided
@@ -148,24 +185,46 @@ module Api
       # PATCH/PUT /api/v1/schools/:id
       # =========================
       def update
-        # Handle theme
-        handle_theme_assignment
-
-        # Handle adminUsers
-        handle_admin_users_assignment
-
-        # Handle invites
-        handle_invites_assignment
-
-        # Update with permitted params (excluding those handled above)
-        permitted_params = school_params.except(:theme, :adminUsers, :invites, :user_id, :user_email, :status)
+        # Get all permitted params
+        permitted = school_params
         
-        # Handle status separately if it exists in the model
-        if @school.respond_to?(:status=) && params[:school] && params[:school][:status].present?
-          @school.status = params[:school][:status]
+        # Extract and remove special fields that need custom handling
+        theme_data = permitted.delete(:theme)
+        admin_users_data = permitted.delete(:adminUsers)
+        invites_data = permitted.delete(:invites)
+
+        # Handle theme as a Hash (not string)
+        if theme_data.present?
+          @school.theme = parse_theme(theme_data)
         end
 
-        if @school.update(permitted_params)
+        # Handle adminUsers
+        if admin_users_data.present? && admin_users_data.is_a?(Array)
+          @school.adminUsers = admin_users_data.map do |admin|
+            {
+              id: admin[:id] || admin["id"] || Time.now.to_i.to_s,
+              name: admin[:name] || admin["name"],
+              email: admin[:email] || admin["email"],
+              role: admin[:role] || admin["role"] || "Administrator",
+              addedAt: admin[:addedAt] || admin["addedAt"] || Time.current
+            }
+          end.compact
+        end
+
+        # Handle invites
+        if invites_data.present? && invites_data.is_a?(Array)
+          @school.invites = invites_data.map do |invite|
+            {
+              id: invite[:id] || invite["id"] || Time.now.to_i.to_s,
+              email: invite[:email] || invite["email"],
+              role: invite[:role] || invite["role"] || "Staff",
+              status: invite[:status] || invite["status"] || "pending",
+              invitedAt: invite[:invitedAt] || invite["invitedAt"] || Time.current
+            }
+          end.compact
+        end
+
+        if @school.update(permitted)
           render json: { success: true, school: @school, message: "School updated successfully" }, status: :ok
         else
           Rails.logger.warn "School update validation failed: #{@school.errors.full_messages.join(', ')}"
@@ -213,78 +272,30 @@ module Api
         end
       end
 
-      # Set default values only if fields exist in the model
-      def set_default_values
-        # Only set values if the model has these attributes
-        @school.cash_account = 0.0 if @school.respond_to?(:cash_account=)
-        @school.payment_history = [] if @school.respond_to?(:payment_history=)
+      # Parse theme data into proper Hash format
+      def parse_theme(theme_data)
+        return {} if theme_data.blank?
         
-        # Handle status carefully - only set if the field exists
-        if @school.respond_to?(:status=)
-          @school.status = params.dig(:school, :status) || "active"
-        end
-      end
-
-      # Handle theme assignment with safety checks
-      def handle_theme_assignment
-        return unless params[:school] && params[:school][:theme].present?
-
-        theme_value = params[:school][:theme]
-        
-        if theme_value.is_a?(Hash)
-          # Try symbol key first, then string key
-          @school.theme = theme_value[:mode] || theme_value["mode"] || theme_value.to_s
+        if theme_data.is_a?(Hash)
+          # Already a hash, extract mode and value
+          {
+            "mode" => theme_data[:mode] || theme_data["mode"] || "",
+            "value" => theme_data[:value] || theme_data["value"] || ""
+          }
+        elsif theme_data.is_a?(String)
+          # If it's just a string (like "white"), treat it as mode
+          { "mode" => theme_data, "value" => "" }
         else
-          @school.theme = theme_value.to_s
+          {}
         end
       rescue => e
-        Rails.logger.warn "Failed to set theme: #{e.message}"
-        # Continue without setting theme
-      end
-
-      # Handle adminUsers assignment with safety checks
-      def handle_admin_users_assignment
-        return unless params[:school] && params[:school][:adminUsers].present?
-        return unless params[:school][:adminUsers].is_a?(Array)
-
-        @school.adminUsers = params[:school][:adminUsers].map do |admin|
-          # Support both symbol and string keys
-          {
-            id: admin[:id] || admin["id"] || BSON::ObjectId.new.to_s,
-            name: admin[:name] || admin["name"],
-            email: admin[:email] || admin["email"],
-            role: admin[:role] || admin["role"] || "Admin",
-            addedAt: admin[:addedAt] || admin["addedAt"] || Time.current
-          }
-        end.compact
-      rescue => e
-        Rails.logger.warn "Failed to set adminUsers: #{e.message}"
-        @school.adminUsers = []
-      end
-
-      # Handle invites assignment with safety checks
-      def handle_invites_assignment
-        return unless params[:school] && params[:school][:invites].present?
-        return unless params[:school][:invites].is_a?(Array)
-
-        @school.invites = params[:school][:invites].map do |invite|
-          # Support both symbol and string keys
-          {
-            id: invite[:id] || invite["id"] || BSON::ObjectId.new.to_s,
-            email: invite[:email] || invite["email"],
-            role: invite[:role] || invite["role"] || "Staff",
-            status: invite[:status] || invite["status"] || "pending",
-            invitedAt: invite[:invitedAt] || invite["invitedAt"] || Time.current
-          }
-        end.compact
-      rescue => e
-        Rails.logger.warn "Failed to set invites: #{e.message}"
-        @school.invites = []
+        Rails.logger.warn "Failed to parse theme: #{e.message}"
+        {}
       end
 
       # Associate user with school after creation
       def associate_user_with_school
-        user_id = school_params[:user_id]
+        user_id = @school.user_id
         return unless user_id.present?
 
         user = User.find_by(auth0_id: user_id)
@@ -308,7 +319,8 @@ module Api
           :schoolName, :schoolEmail, :country, :city, :province,
           :latitude, :longitude, :facebook, :linkedin, :tiktok,
           :website, :logo, :status, :line1, :line2, :postalCode,
-          :user_id, :user_email, :school_created_by, :theme,
+          :user_id, :user_email, :school_created_by,
+          theme: [:mode, :value],
           adminUsers: [:id, :name, :email, :role, :addedAt],
           invites: [:id, :email, :role, :status, :invitedAt]
         )
