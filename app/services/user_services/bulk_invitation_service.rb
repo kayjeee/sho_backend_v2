@@ -25,6 +25,9 @@ module UserServices
       @created_invitations = []
     end
 
+    # ------------------------------------------------------------
+    # ENTRY POINT
+    # ------------------------------------------------------------
     def call
       return ServiceResult.new(
         success: false,
@@ -46,7 +49,7 @@ module UserServices
       ServiceResult.new(
         success: @failed_count.zero?,
         errors: @errors,
-        invitations: @created_invitations, # <-- REAL MODELS
+        invitations: @created_invitations,
         stats: {
           total: @invitations_data.size,
           successful: @successful_count,
@@ -79,13 +82,13 @@ module UserServices
     def process_batch(batch, batch_index)
       Rails.logger.info "🔄 Processing batch #{batch_index + 1} (#{batch.size} invitations)"
 
-      valid_invitations = []
+      valid_documents = []
 
       batch.each_with_index do |invitation_data, index|
         result = prepare_invitation(invitation_data, batch_index, index)
 
         if result[:valid]
-          valid_invitations << result[:document]
+          valid_documents << result[:document]
         else
           @failed_count += 1
           @failed_invitations << {
@@ -95,13 +98,16 @@ module UserServices
         end
       end
 
-      insert_batch(valid_invitations) if valid_invitations.any?
+      insert_batch(valid_documents) if valid_documents.any?
     end
 
     # ------------------------------------------------------------
-    # VALIDATION
+    # INVITATION PREP
     # ------------------------------------------------------------
     def prepare_invitation(data, batch_index, index)
+      # ✅ BACKEND FALLBACK (CRITICAL FIX)
+      populate_learner_numbers!(data)
+
       errors = validate_invitation_data(data)
 
       if errors.any?
@@ -115,11 +121,45 @@ module UserServices
       }
     end
 
+    # ------------------------------------------------------------
+    # VALIDATION (STRICT BY DESIGN)
+    # ------------------------------------------------------------
     def validate_invitation_data(data)
       errors = []
       errors << "Phone number missing" if data[:phone_number].blank?
-      errors << "Learner number(s) missing" if data[:learner_number].blank? && data[:learner_numbers].blank?
+      errors << "Learner number(s) missing" if
+        data[:learner_number].blank? && data[:learner_numbers].blank?
       errors
+    end
+
+    # ------------------------------------------------------------
+    # BACKEND LEARNER FALLBACK
+    # ------------------------------------------------------------
+    def populate_learner_numbers!(data)
+      return if data[:learner_numbers].present? || data[:learner_number].present?
+      return unless data[:phone_number].present?
+      return unless data[:grade_id].present?
+
+      phone = data[:phone_number].to_s.strip
+
+      learners = Learner.where(
+        school_id: @school_id,
+        grade_id: data[:grade_id]
+      ).any_of(
+        { phone: phone },
+        { telHome: phone },
+        { telEmergency: phone }
+      )
+
+      accession_numbers = learners.map(&:accessionNumber).compact.uniq
+
+      return if accession_numbers.empty?
+
+      data[:learner_numbers] = accession_numbers
+
+      Rails.logger.info(
+        "🧩 Fallback mapped learners #{accession_numbers.join(', ')} for phone #{phone}"
+      )
     end
 
     # ------------------------------------------------------------
@@ -161,11 +201,7 @@ module UserServices
 
       inserted_ids = result.inserted_ids
       created_records = klass.where(:_id.in => inserted_ids).to_a
-
-      # ✅ STORE REAL MODELS
-      created_records.each do |invitation|
-        @created_invitations << invitation
-      end
+      @created_invitations.concat(created_records)
 
       Rails.logger.info "✅ Inserted #{inserted_count} invitations"
 
@@ -176,12 +212,8 @@ module UserServices
       @failed_count += (documents.size - successful)
 
       if e.result['inserted_ids'].present?
-        inserted_ids = e.result['inserted_ids']
-        created_records = klass.where(:_id.in => inserted_ids).to_a
-
-        created_records.each do |invitation|
-          @created_invitations << invitation
-        end
+        created_records = klass.where(:_id.in => e.result['inserted_ids']).to_a
+        @created_invitations.concat(created_records)
       end
 
       Rails.logger.error "⚠️ Batch insert partial failure: #{successful}/#{documents.size} succeeded"
