@@ -119,39 +119,17 @@ module Api
       end
 
       # =========================================================
-      # PATCH /api/v1/users/update_profile?auth0_id=xxx 
-      # OR PATCH /api/v1/users/:id/update_profile
+      # PATCH /api/v1/users/update_profile?auth0_id=xxx
       # =========================================================
       def update_profile
-        log_debug "UPDATE_PROFILE - Received params", params
-        
-        # Extract permitted parameters
-        permitted_params = profile_params
-        
-        log_debug "UPDATE_PROFILE - Permitted params", permitted_params
-        
-        # Try to update the user
-        if @user.update(permitted_params)
-          log_debug "UPDATE_PROFILE - Success", { user_id: @user.id, updated_fields: permitted_params.keys }
-          
+        log_debug "UPDATE PROFILE PARAMS", profile_params
+
+        if @user.update(profile_params)
           render_success(
-            message: 'Profile updated successfully',
-            data: {
-              user: {
-                id: @user.id.to_s,
-                auth0_id: @user.auth0_id,
-                name: @user.name,
-                email: @user.email,
-                phone: @user.try(:phone) || @user.try(:phone_number) || nil,
-                phone_number: @user.try(:phone_number) || @user.try(:phone) || nil,
-                roles: @user.roles || [],
-                created_at: @user.created_at,
-                updated_at: @user.updated_at
-              }
-            }
+            message: "Profile updated successfully",
+            data: { user: serialize_user(@user) }
           )
         else
-          log_error "UPDATE_PROFILE - Failed", { user_id: @user.id, errors: @user.errors.full_messages }
           render_error(@user.errors.full_messages, status: :unprocessable_entity)
         end
       end
@@ -298,8 +276,34 @@ module Api
       end
 
       def profile_params
-        # ✅ FIXED: Added :phone_number to the permitted parameters
-        params.permit(:name, :first_name, :last_name, :email, :phone, :phone_number, :avatar_url, :bio, :timezone, :locale)
+        # Accept both phone and phone_number for flexibility
+        params.permit(:name, :email, :phone, :phone_number, :avatar_url, :bio, :timezone, :locale)
+      end
+
+      # =======================================================
+      # SERIALIZATION
+      # =======================================================
+      def serialize_user(user)
+        # Build hash with only fields that exist on the user model
+        result = {
+          id: user.id.to_s,
+          auth0_id: user.auth0_id
+        }
+        
+        # Add optional fields only if they exist on the model
+        result[:name] = user.name if user.respond_to?(:name)
+        result[:email] = user.email if user.respond_to?(:email)
+        result[:phone] = user.phone if user.respond_to?(:phone)
+        result[:phone_number] = user.phone_number if user.respond_to?(:phone_number)
+        result[:avatar_url] = user.avatar_url if user.respond_to?(:avatar_url)
+        result[:bio] = user.bio if user.respond_to?(:bio)
+        result[:timezone] = user.timezone if user.respond_to?(:timezone)
+        result[:locale] = user.locale if user.respond_to?(:locale)
+        result[:roles] = user.roles if user.respond_to?(:roles)
+        result[:created_at] = user.created_at if user.respond_to?(:created_at)
+        result[:updated_at] = user.updated_at if user.respond_to?(:updated_at)
+        
+        result.compact
       end
 
       # =======================================================
@@ -337,7 +341,6 @@ module Api
         }
       end
 
-      # ✅ FIXED: Updated render_success to accept message and data as keyword arguments
       def render_success(message: nil, data: {}, status: :ok)
         response = { success: true }
         response[:message] = message if message.present?
