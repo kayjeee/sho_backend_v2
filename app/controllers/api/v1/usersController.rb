@@ -95,24 +95,39 @@ module Api
       # GET /api/v1/users/onboarding_status?auth0_id=xxx
       # =========================================================
       def onboarding_status
-        status = @user.onboarding_status || {}
+        status = @user.onboarding_status
+
+        # Build a rich response that works for both legacy checks and the new parent flow
+        if status
+          data = status.to_api_hash
+          data[:completed] = status.all_steps_completed?
+        else
+          data = { completed: false }
+        end
+
         render_success(
           message: 'Onboarding status retrieved successfully',
-          data: {
-            onboarding_status: status,
-            completed: status[:completed] || status['completed'] || false
-          }
+          data: { onboarding_status: data }
         )
       end
 
       def onboarding_status_by_path
         log_deprecated("/api/v1/users/:auth0_id/onboarding_status", params[:auth0_id])
-        status = @user.onboarding_status || {}
+        
+        status = @user.onboarding_status
+
+        # Build a rich response that works for both legacy checks and the new parent flow
+        if status
+          data = status.to_api_hash
+          data[:completed] = status.all_steps_completed?
+        else
+          data = { completed: false }
+        end
+
         render_success(
           message: 'Onboarding status retrieved successfully',
           data: {
-            onboarding_status: status,
-            completed: status[:completed] || status['completed'] || false,
+            onboarding_status: data,
             _deprecated: deprecated_payload("/api/v1/users/onboarding_status?auth0_id=xxx")
           }
         )
