@@ -1,4 +1,6 @@
-# app/models/user.rb - Complete model with onboarding integration
+# frozen_string_literal: true
+# app/models/user.rb - Complete model with onboarding integration and FIXED fields
+
 class User
   include Mongoid::Document
   include Mongoid::Timestamps
@@ -13,7 +15,14 @@ class User
   field :status,           type: String, default: 'active'
   field :last_login,       type: Time
   field :phone,            type: String
-  field :phone_number,     type: String 
+  field :phone_number,     type: String
+
+  # ======================== NEW: ONBOARDING SYNC FIELDS ========================
+  # These are denormalized from OnboardingStatus for efficient querying
+  # Updated by OnboardingStatus#sync_to_user callback
+  field :onboarding_completed,  type: Boolean, default: false
+  field :onboarding_progress,   type: Float,   default: 0.0
+  # ==============================================================================
 
   # ===================== VALIDATIONS ======================
   validates :email,        presence: true, uniqueness: true
@@ -39,7 +48,7 @@ class User
   has_and_belongs_to_many :schools, class_name: 'School', inverse_of: :users, validate: false
 
   # ONBOARDING ASSOCIATION
-  embeds_one :onboarding_status, class_name: 'OnboardingStatus'
+  embeds_one :onboarding_status, class_name: 'OnboardingStatus', inverse_of: :user
 
   # ======================= INDEXES ========================
   index({ email: 1 }, { unique: true })
@@ -48,8 +57,12 @@ class User
   index({ status: 1 })
   index({ last_login: 1 })
   
-  # Onboarding-related indexes
-  index({ 'onboarding_status.completed' => 1 })
+  # Onboarding-related indexes (denormalized fields for fast queries)
+  index({ onboarding_completed: 1 })
+  index({ onboarding_progress: 1 })
+  
+  # Embedded document indexes
+  index({ 'onboarding_status.completed_steps' => 1 })
   index({ 'onboarding_status.current_step' => 1 })
   index({ 'onboarding_status.completion_percentage' => 1 })
 
@@ -202,8 +215,9 @@ class User
       onboarding.current_step = 'create_grades'
       onboarding.total_steps_count = 4 # create_grades, upload_learners, send_invites, admin_onboarding
     when user_roles.include?('parent')
-      onboarding.current_step = 'parent_onboarding'
-      onboarding.total_steps_count = 1 # Only parent-specific onboarding
+      # For parents, start with first parent step
+      onboarding.current_step = 'PROFILE_SETUP'
+      onboarding.total_steps_count = 8 # All PARENT_STEPS
     when user_roles.include?('guest')
       onboarding.current_step = 'guest_onboarding'
       onboarding.total_steps_count = 1 # Only guest-specific onboarding
@@ -259,14 +273,14 @@ class User
 
   # Check if user needs onboarding
   def needs_onboarding?
-    ensure_onboarding_status
-    !onboarding_status.completed
+    # Use the denormalized field for fast access
+    !onboarding_completed
   end
 
   # Get onboarding progress percentage
   def onboarding_progress
-    ensure_onboarding_status
-    onboarding_status.completion_percentage
+    # Use the denormalized field for fast access
+    read_attribute(:onboarding_progress) || 0.0
   end
 
   # Check if user can access main application features
@@ -413,7 +427,7 @@ class User
     ensure_onboarding_status
     base_hash[:onboardingStatus] = onboarding_status.to_api_hash
     
-    # Include onboarding-related flags
+    # Include onboarding-related flags (using denormalized fields)
     base_hash[:needsOnboarding] = needs_onboarding?
     base_hash[:canAccessMainFeatures] = can_access_main_features?
     base_hash[:onboardingProgress] = onboarding_progress
@@ -443,16 +457,18 @@ class User
   def self.by_onboarding_status(status)
     case status.to_s
     when 'completed'
-      where('onboarding_status.completed' => true)
+      # Use denormalized field for fast query
+      where(onboarding_completed: true)
     when 'in_progress'
-      where('onboarding_status.completed' => false, 'onboarding_status.started_at'.ne => nil)
+      # Use denormalized field + embedded field
+      where(onboarding_completed: false, 'onboarding_status.started_at'.ne => nil)
     when 'not_started'
       where('onboarding_status.started_at' => nil)
     when 'needs_attention'
       # Users who started onboarding more than 7 days ago but haven't completed
       cutoff_date = 7.days.ago
       where(
-        'onboarding_status.completed' => false,
+        onboarding_completed: false,
         'onboarding_status.started_at'.lt => cutoff_date
       )
     else
@@ -463,9 +479,10 @@ class User
   # Get onboarding completion statistics
   def self.onboarding_statistics
     total_users = count
-    completed_users = where('onboarding_status.completed' => true).count
+    # Use denormalized field for fast count
+    completed_users = where(onboarding_completed: true).count
     in_progress_users = where(
-      'onboarding_status.completed' => false,
+      onboarding_completed: false,
       'onboarding_status.started_at'.ne => nil
     ).count
     not_started_users = where('onboarding_status.started_at' => nil).count
@@ -481,11 +498,12 @@ class User
   end
 
   def self.calculate_average_completion_percentage
-    users_with_onboarding = where('onboarding_status.completion_percentage'.exists => true)
-    return 0 if users_with_onboarding.count == 0
+    # Use denormalized field for fast aggregation
+    users_with_progress = where(:onboarding_progress.ne => nil)
+    return 0 if users_with_progress.count == 0
     
-    total_percentage = users_with_onboarding.sum('onboarding_status.completion_percentage')
-    (total_percentage / users_with_onboarding.count).round(2)
+    total_percentage = users_with_progress.sum(:onboarding_progress)
+    (total_percentage / users_with_progress.count).round(2)
   end
 
   # ==================== UTILITY METHODS ====================
