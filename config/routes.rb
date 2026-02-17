@@ -1,6 +1,16 @@
 # frozen_string_literal: true
 
 Rails.application.routes.draw do
+  # =========================================================
+  # HEALTH CHECKS (Railway & monitoring)
+  # =========================================================
+  get "up" => "rails/health#show", as: :rails_health_check
+  get "/health" => "rails/health#show"
+  root to: proc { [200, { "Content-Type" => "application/json" }, ['{"status":"ok","message":"API is running"}']] }
+
+  # =========================================================
+  # API V1
+  # =========================================================
   namespace :api do
     namespace :v1 do
 
@@ -11,6 +21,7 @@ Rails.application.routes.draw do
         get :schools_for_admin
       end
 
+      # ---------------- USERS (Auth0 integration) ----------------
       # =========================================================
       # USERS (Auth0-safe — PREFERRED)
       # =========================================================
@@ -25,20 +36,26 @@ Rails.application.routes.draw do
         patch :update_profile      # ?auth0_id= (FIXED: Moved to primary scope)
       end
 
+      # ---------------- USERS (Backward compatibility routes) ----------------
+      get "users/:auth0_id", to: "users#show_by_path", constraints: { auth0_id: /[^\/]+/ }
+      get "users/:auth0_id/schools", to: "users#schools_by_path", constraints: { auth0_id: /[^\/]+/ }
+      get "users/:auth0_id/onboarding_status", to: "users#onboarding_status_by_path", constraints: { auth0_id: /[^\/]+/ }
+
+      # ---------------- USERS (Internal resources) ----------------
       # =========================================================
       # USERS - Backward Compatibility (DEPRECATED)
       # =========================================================
       # Support old path-based format during migration period
-      get 'users/:auth0_id', 
-          to: 'users#show_by_path', 
+      get 'users/:auth0_id',
+          to: 'users#show_by_path',
           constraints: { auth0_id: /[^\/]+/ }, as: :user_by_auth0_deprecated
 
-      get 'users/:auth0_id/schools', 
-          to: 'users#schools_by_path', 
+      get 'users/:auth0_id/schools',
+          to: 'users#schools_by_path',
           constraints: { auth0_id: /[^\/]+/ }, as: :user_schools_by_auth0_deprecated
 
-      get 'users/:auth0_id/onboarding_status', 
-          to: 'users#onboarding_status_by_path', 
+      get 'users/:auth0_id/onboarding_status',
+          to: 'users#onboarding_status_by_path',
           constraints: { auth0_id: /[^\/]+/ }, as: :user_onboarding_by_auth0_deprecated
 
       # =========================================================
@@ -50,10 +67,10 @@ Rails.application.routes.draw do
           get   :roles
           post  :add_role
           get   :onboarding_required
-          
-          # NOTE: patch :update_profile REMOVED from here to prevent 
+
+          # NOTE: patch :update_profile REMOVED from here to prevent
           # Rails from matching /users/google-oauth2|xxx/update_profile
-          
+
           resource :onboarding_status, controller: :onboarding_statuses, only: [:show, :update] do
             post :complete_step, :skip_step, :reset
           end
@@ -70,6 +87,7 @@ Rails.application.routes.draw do
 
       resources :learner_links, only: [:create]
 
+      # ---------------- INVITATIONS ----------------
       # =========================================================
       # INVITES / INVITATIONS
       # =========================================================
@@ -98,6 +116,10 @@ Rails.application.routes.draw do
         member do
           get :admins, :teachers, :parents
           get 'parents/:parent_id', to: 'schools#show_parent'
+        end
+
+        collection do
+          get :search
         end
         collection { get :search }
 
@@ -143,6 +165,11 @@ Rails.application.routes.draw do
         end
       end
 
+      # ---------------- SYSTEM ----------------
+      resources :transactions do
+        member do
+          post :process_payment
+        end
       # =========================================================
       # ACADEMIC DATA (LEARNERS, SUBJECTS, ASSESSMENTS)
       # =========================================================
@@ -181,12 +208,22 @@ Rails.application.routes.draw do
         member { get :users_by_roles }
       end
 
+      resources :uploads
+
+      resources :notifications do
+        collection do
+          patch :mark_all_read
+          get :unread_count
+        end
+      end
+
+      # ---------------- AUTHENTICATION ----------------
       resources :conversations, only: [:index, :show, :create] do
         resources :messages, only: [:index, :create]
       end
 
       namespace :dashboard do
-        get :overview, :learner_statistics, :school_statistics, 
+        get :overview, :learner_statistics, :school_statistics,
             :assessment_statistics, :performance_trends, :grade_statistics
       end
 
@@ -218,6 +255,7 @@ Rails.application.routes.draw do
         member { patch :mark_read, :mark_unread }
       end
 
+      # ---------------- PUBLIC ENDPOINTS ----------------
       namespace :public do
         namespace :invitations do
           post 'learner/:token/accept', action: :accept_learner_invitation
@@ -235,8 +273,15 @@ Rails.application.routes.draw do
   end
 
   # =========================================================
-  # GLOBAL ROUTES
+  # DOCUMENTATION & PUBLIC ROUTES
   # =========================================================
+  get "api/docs", to: "api/v1/documentation#index"
+  get "invitations/:token/verify_with_details", to: "api/v1/invitations#verify_with_details"
+end
+  # Reveal health status on /up that returns 200 if the app boots with no exceptions, otherwise 500.
+  # Can be used by load balancers and uptime monitors to verify that the app is live.
+  get "up" => "rails/health#show", as: :rails_health_check
+
   root 'api/v1/home#index'
   get 'health', to: 'api/v1/home#health'
   get 'api/docs', to: 'api/v1/documentation#index'

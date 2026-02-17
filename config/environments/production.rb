@@ -25,15 +25,14 @@ Rails.application.configure do
   # config.active_storage.service = :local
 
   # Assume all access to the app is happening through a SSL-terminating reverse proxy.
-  # Render provides SSL termination, so this can remain true
-  config.assume_ssl = false
+  # Railway/Render provide SSL termination, so this can remain true
+  config.assume_ssl = true
 
   # Force all access to the app over SSL, use Strict-Transport-Security, and use secure cookies.
-  # Set to false initially for testing, then enable after everything works
-  config.force_ssl = false
-  
+  config.force_ssl = true
+
   # Skip http-to-https redirect for the default health check endpoint.
-  # config.ssl_options = { redirect: { exclude: ->(request) { request.path == "/up" } } }
+  config.ssl_options = { redirect: { exclude: ->(request) { request.path == "/up" || request.path == "/health" } } }
 
   # Log to STDOUT with the current request id as a default log tag.
   config.log_tags = [ :request_id ]
@@ -59,8 +58,8 @@ Rails.application.configure do
   # config.action_mailer.raise_delivery_errors = false
 
   # Set host to be used by links generated in mailer templates.
-  # Update this to your actual Render URL after deployment
-  config.action_mailer.default_url_options = { host: ENV.fetch('https://sho-backend-v2.onrender.com', 'localhost:3000') }
+  # Update this to your actual Railway/Render URL after deployment
+  config.action_mailer.default_url_options = { host: ENV.fetch('HOST', 'sho-backend-v2.railway.app') }
 
   # Specify outgoing SMTP server. Remember to add smtp/* credentials via rails credentials:edit.
   # config.action_mailer.smtp_settings = {
@@ -86,20 +85,23 @@ Rails.application.configure do
   # puts "DEBUG: RAILS_ALLOWED_HOSTS from ENV is: #{ENV['RAILS_ALLOWED_HOSTS'].inspect}"
 
   # Enable DNS rebinding protection and other `Host` header attacks.
-  # Allow Render's domain and any subdomains
-  # config.hosts << /.*\.onrender\.com/
+  # Allow Railway and Render domains
+  config.hosts << ".railway.app"
+  config.hosts << /.*\.railway\.app/
+  config.hosts << ".onrender.com"
+  config.hosts << /.*\.onrender\.com/
 
   # Add allowed hosts from environment variable.
   # The value should be a comma-separated string of domains, e.g., ".railway.app,example.com"
-  # if ENV['RAILS_ALLOWED_HOSTS'].present?
-  #   ENV['RAILS_ALLOWED_HOSTS'].split(',').each do |host|
-  #     config.hosts << host.strip
-  #   end
-  # end
+  if ENV['RAILS_ALLOWED_HOSTS'].present?
+    ENV['RAILS_ALLOWED_HOSTS'].split(',').each do |host|
+      config.hosts << host.strip
+    end
+  end
 
   # Ensure assets are served
   config.public_file_server.enabled = true
 
-  # Skip DNS rebinding protection for the default health check endpoint.
-  # config.host_authorization = { exclude: ->(request) { request.path == "/up" } }
+  # Skip DNS rebinding protection for the health check endpoints.
+  config.host_authorization = { exclude: ->(request) { request.path == "/up" || request.path == "/health" } }
 end
