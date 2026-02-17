@@ -1,12 +1,12 @@
 # frozen_string_literal: true
 
 Rails.application.routes.draw do
-
   # =========================================================
-  # HEALTH CHECK (VERY IMPORTANT FOR RAILWAY)
+  # HEALTH CHECKS (Railway & monitoring)
   # =========================================================
-  root to: proc { [200, { "Content-Type" => "text/plain" }, ["OK"]] }
-  get "/health", to: proc { [200, { "Content-Type" => "text/plain" }, ["OK"]] }
+  get "up" => "rails/health#show", as: :rails_health_check
+  get "/health" => "rails/health#show"
+  root to: proc { [200, { "Content-Type" => "application/json" }, ['{"status":"ok","message":"API is running"}']] }
 
   # =========================================================
   # API V1
@@ -19,7 +19,7 @@ Rails.application.routes.draw do
         get :schools_for_admin
       end
 
-      # ---------------- USERS (Auth0 SAFE) ----------------
+      # ---------------- USERS (Auth0 integration) ----------------
       scope :users, controller: :users do
         get   :show
         get   :schools
@@ -30,12 +30,12 @@ Rails.application.routes.draw do
         patch :update_profile
       end
 
-      # ---------------- USERS (Backward Compatibility) ----------------
+      # ---------------- USERS (Backward compatibility routes) ----------------
       get "users/:auth0_id", to: "users#show_by_path", constraints: { auth0_id: /[^\/]+/ }
       get "users/:auth0_id/schools", to: "users#schools_by_path", constraints: { auth0_id: /[^\/]+/ }
       get "users/:auth0_id/onboarding_status", to: "users#onboarding_status_by_path", constraints: { auth0_id: /[^\/]+/ }
 
-      # ---------------- USERS INTERNAL ----------------
+      # ---------------- USERS (Internal resources) ----------------
       resources :users, only: [:create] do
         member do
           get  :roles
@@ -58,7 +58,7 @@ Rails.application.routes.draw do
 
       resources :learner_links, only: [:create]
 
-      # ---------------- INVITES ----------------
+      # ---------------- INVITATIONS ----------------
       resources :invites, only: [:create, :show, :update] do
         member do
           post :generate_pr_code
@@ -110,7 +110,9 @@ Rails.application.routes.draw do
           get "parents/:parent_id", to: "schools#show_parent"
         end
 
-        collection { get :search }
+        collection do
+          get :search
+        end
 
         resources :students
         resources :grades, only: [:index, :create]
@@ -143,7 +145,9 @@ Rails.application.routes.draw do
 
       # ---------------- SYSTEM ----------------
       resources :transactions do
-        member { post :process_payment }
+        member do
+          post :process_payment
+        end
       end
 
       resources :conversations do
@@ -151,6 +155,7 @@ Rails.application.routes.draw do
       end
 
       resources :uploads
+
       resources :notifications do
         collection do
           patch :mark_all_read
@@ -158,7 +163,7 @@ Rails.application.routes.draw do
         end
       end
 
-      # ---------------- AUTH ----------------
+      # ---------------- AUTHENTICATION ----------------
       scope :auth, controller: :authentication do
         post :login
         post :logout
@@ -167,7 +172,7 @@ Rails.application.routes.draw do
         post :reset_password
       end
 
-      # ---------------- PUBLIC INVITES ----------------
+      # ---------------- PUBLIC ENDPOINTS ----------------
       namespace :public do
         namespace :invitations do
           post "learner/:token/accept", action: :accept_learner_invitation
@@ -181,9 +186,8 @@ Rails.application.routes.draw do
   end
 
   # =========================================================
-  # GLOBAL ROUTES
+  # DOCUMENTATION & PUBLIC ROUTES
   # =========================================================
   get "api/docs", to: "api/v1/documentation#index"
   get "invitations/:token/verify_with_details", to: "api/v1/invitations#verify_with_details"
-
 end
