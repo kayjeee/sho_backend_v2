@@ -17,6 +17,7 @@ class Invitation
   field :parent_name, type: String
   field :grade_id, type: String
   field :sender_email, type: String # ✅ ADDED for WhatsApp service
+  field :school_logo, type: String
 
   # ===================== LEARNER INFORMATION =====================
   field :learner_number, type: String # Legacy single learner

@@ -67,13 +67,14 @@ module GradeServices
     def create_invitation
       invitation = LearnerInvitation.new(
         grade: grade,
-        invited_by: user,
+        school_id: grade.school_id.to_s,
+          school_name_cache: grade.school&.schoolName || grade.school&.name,
+        sender: user,
         **invitation_params
       )
 
       if invitation.save
-        Rails.logger.info "✅ Learner invitation created: #{invitation.contact_info} for grade #{grade.name}"
-
+        Rails.logger.info "✅ Learner invitation created: #{invitation.recipient_phone_number} for grade #{grade.name}"
         # TODO: Implement actual sending of invitation (email/SMS) as needed
         # InvitationMailer.learner_invitation(invitation).deliver_later
 

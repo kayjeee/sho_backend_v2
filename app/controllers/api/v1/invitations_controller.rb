@@ -319,44 +319,55 @@ class Api::V1::InvitationsController < ApplicationController
   # INVITATION VALIDATION
   # ------------------------------------------------------------
   def validate_invitation_status(invitation)
-    expiration_date = extract_expiration_date(invitation)
-    is_expired = check_if_expired(invitation, expiration_date)
-    
-    if is_expired
-      Rails.logger.warn "⚠️ Invitation expired: #{invitation.id}"
-      return render json: {
-        success: false,
-        message: 'Invitation has expired.'
-      }, status: :gone
-    end
-    
-    unless invitation.pending?
-      Rails.logger.warn "⚠️ Invitation not pending: #{invitation.id}, status: #{invitation.status}"
-      return render json: {
-        success: false,
-        message: "Invitation has already been #{invitation.status}."
-      }, status: :conflict
-    end
-    
-    nil
+  expiration_date = extract_expiration_date(invitation)
+  is_expired = check_if_expired(invitation, expiration_date)
+
+  if is_expired
+    Rails.logger.warn "⚠️ Invitation expired: #{invitation.id}"
+    return render json: {
+      success: false,
+      message: 'Invitation has expired.'
+    }, status: :gone
   end
 
-  def validate_invitation_for_acceptance(invitation)
-    expiration_date = extract_expiration_date(invitation)
-    is_expired = check_if_expired(invitation, expiration_date)
-    
-    if is_expired
-      Rails.logger.warn "⚠️ Attempt to accept expired invitation: #{invitation.id}"
-      return render_error('Invitation has expired')
-    end
-    
-    unless invitation.pending?
-      Rails.logger.warn "⚠️ Attempt to accept non-pending invitation: #{invitation.id}, status: #{invitation.status}"
-      return render_error("Invitation has already been #{invitation.status}")
-    end
-    
-    nil
+  # ✅ FIX: Handle both pending? method and status string check
+  is_pending = if invitation.respond_to?(:pending?)
+    invitation.pending?
+  else
+    invitation.status == 'pending'
   end
+
+  unless is_pending
+    Rails.logger.warn "⚠️ Invitation not pending: #{invitation.id}, status: #{invitation.status}"
+    return render json: {
+      success: false,
+      message: "Invitation has already been #{invitation.status}."
+    }, status: :conflict
+  end
+
+  nil
+end
+
+  def validate_invitation_for_acceptance(invitation)
+  expiration_date = extract_expiration_date(invitation)
+  is_expired = check_if_expired(invitation, expiration_date)
+
+  if is_expired
+    return render_error('Invitation has expired')
+  end
+
+  is_pending = if invitation.respond_to?(:pending?)
+    invitation.pending?
+  else
+    invitation.status == 'pending'
+  end
+
+  unless is_pending
+    return render_error("Invitation has already been #{invitation.status}")
+  end
+
+  nil
+end
 
   # ------------------------------------------------------------
   # EXPIRATION HANDLING

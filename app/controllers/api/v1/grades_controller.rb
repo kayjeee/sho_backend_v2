@@ -254,16 +254,16 @@ module Api
       private
 
       def set_school
-        @school = School.find(params[:school_id])
-      rescue Mongoid::Errors::DocumentNotFound
-        render_error('School not found', [], :not_found)
-      end
+  @school = School.find(params[:school_id])
+rescue Mongoid::Errors::DocumentNotFound
+  render_error('School not found', [], status: :not_found)  # add `status:`
+end
 
-      def set_grade
-        @grade = Grade.find(params[:id])
-      rescue Mongoid::Errors::DocumentNotFound
-        render_error('Grade not found', [], :not_found)
-      end
+def set_grade
+  @grade = Grade.find(params[:id])
+rescue Mongoid::Errors::DocumentNotFound
+  render_error('Grade not found', [], status: :not_found)   # add `status:`
+end
 
       def grade_params
         params.require(:grade).permit(
@@ -275,8 +275,19 @@ module Api
       end
 
       def learner_invitation_params
-        params.require(:invitation).permit(:learner_email, :learner_phone, :expires_at, invitation_data: {})
-      end
+  params.require(:invitation).permit(
+    :recipient_phone_number,
+    :phone_number,
+    :parent_name,
+    :learner_number,
+    :invited_via,
+    :country_code,
+    :country_name,
+    :expires_at,
+    learner_numbers: [],
+    learner_ids: []
+  )
+end
 
       def teacher_invitation_params
         params.require(:invitation).permit(:teacher_email, :expires_at, assigned_grades: [], invitation_data: {})
