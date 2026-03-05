@@ -290,7 +290,7 @@ end
 end
 
       def teacher_invitation_params
-        params.require(:invitation).permit(:teacher_email, :expires_at, assigned_grades: [], invitation_data: {})
+        params.require(:invitation).permit(:recipient_phone_number, :teacher_name, :invited_via, :expires_at, assigned_grades: [], invitation_data: {})
       end
 
       def render_success(message: nil, data: {}, status: :ok)
