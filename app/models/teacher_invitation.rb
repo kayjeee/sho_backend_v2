@@ -91,13 +91,16 @@ class TeacherInvitation
 
   def school_slug
     school = School.where(id: school_id).first
-    school&.slug || school&.name&.parameterize || 'unknown-school'
+    school&.try(:slug) || school&.schoolName&.parameterize || school&.name&.parameterize || 'unknown-school'
   end
 
   # API serialization
   def to_api_hash
     # We only return the raw token during creation.
     # For existing records, the token is not stored and cannot be retrieved.
+    s_name = school_name
+    s_slug = school_slug
+
     {
       id: id.to_s,
       token: @token,
@@ -107,8 +110,8 @@ class TeacherInvitation
       phone_number: phone_number,
       teacher_name: teacher_name,
       school_id: school_id,
-      school_name: school_name,
-      school_slug: school_slug,
+      school_name: s_name,
+      school_slug: s_slug,
       grade_id: grade_id,
       grade_ids: grade_ids,
       invited_via: invited_via,
@@ -120,8 +123,8 @@ class TeacherInvitation
       cancelled_at: cancelled_at,
       created_at: created_at,
       updated_at: updated_at,
-      magic_link_query: "/#{URI.encode_www_form_component(school_name)}?token=#{@token}&school=#{URI.encode_www_form_component(school_name)}",
-      full_magic_link: "#{ENV['TEACHER_APP_URL'] || 'http://localhost:3000'}/schools/#{school_slug}/teacher/invite/#{@token}"
+      magic_link_query: "/#{URI.encode_www_form_component(s_name)}?token=#{@token}&school=#{URI.encode_www_form_component(s_name)}",
+      full_magic_link: "#{ENV['TEACHER_APP_URL'] || 'http://localhost:3000'}/schools/#{s_slug}/teacher/invite/#{@token}"
     }
   end
 
