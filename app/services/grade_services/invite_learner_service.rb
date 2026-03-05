@@ -5,10 +5,10 @@ module GradeServices
     ServiceResult = Struct.new(:success, :errors, :invitation, keyword_init: true)
 
     def initialize(grade:, invitation_params:, user: nil)
-      @grade = grade
-      @user = user
+      @grade             = grade
+      @user              = user
       @invitation_params = invitation_params
-      @errors = []
+      @errors            = []
     end
 
     def call
@@ -33,9 +33,9 @@ module GradeServices
       return true if user.roles.include?('Admin')
 
       UserSchoolRole.where(
-        user: user,
+        user:   user,
         school: grade.school,
-        role: ['Admin', 'Teacher'],
+        role:   ['Admin', 'Teacher'],
         status: 0
       ).exists?
     end
@@ -45,39 +45,29 @@ module GradeServices
         errors << "Grade is not accepting new learners (inactive or at capacity)"
       end
 
-      if invitation_params[:learner_email].present?
-        existing_email_invitation = LearnerInvitation.pending.where(
-          grade: grade,
-          learner_email: invitation_params[:learner_email]
+      # Check for duplicate pending invitation by phone number
+      if invitation_params[:recipient_phone_number].present?
+        existing = LearnerInvitation.where(
+          status:                 'pending',
+          grade_id:               grade.id.to_s,
+          recipient_phone_number: invitation_params[:recipient_phone_number]
         ).first
 
-        errors << "An invitation is already pending for this email address" if existing_email_invitation
-      end
-
-      if invitation_params[:learner_phone].present?
-        existing_phone_invitation = LearnerInvitation.pending.where(
-          grade: grade,
-          learner_phone: invitation_params[:learner_phone]
-        ).first
-
-        errors << "An invitation is already pending for this phone number" if existing_phone_invitation
+        errors << "An invitation is already pending for this phone number" if existing
       end
     end
 
     def create_invitation
       invitation = LearnerInvitation.new(
-        grade: grade,
+        grade:     grade,
+        grade_id:  grade.id.to_s,
         school_id: grade.school_id.to_s,
-          school_name_cache: grade.school&.schoolName || grade.school&.name,
-        sender: user,
+        sender:    user,
         **invitation_params
       )
 
       if invitation.save
         Rails.logger.info "✅ Learner invitation created: #{invitation.recipient_phone_number} for grade #{grade.name}"
-        # TODO: Implement actual sending of invitation (email/SMS) as needed
-        # InvitationMailer.learner_invitation(invitation).deliver_later
-
         ServiceResult.new(success: true, invitation: invitation)
       else
         Rails.logger.error "❌ Failed to create learner invitation: #{invitation.errors.full_messages.join(', ')}"

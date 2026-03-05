@@ -13,7 +13,7 @@ class LearnerInvitation
   field :token,                  type: String
   field :status,                 type: String, default: 'pending'
   field :role,                   type: String, default: 'parent'
-  
+
   # Sender & Recipient Information
   field :sender_id,              type: BSON::ObjectId
   field :recipient_phone_number, type: String
@@ -47,11 +47,11 @@ class LearnerInvitation
   validates :status, inclusion: { in: VALID_STATUSES }
   validates :role, inclusion: { in: VALID_ROLES }
   validates :recipient_phone_number, :school_id, presence: true
-  
+
   validate :learner_info_present
   validate :expiration_date_in_future, on: :create
 
-  # ======================== ASSOCIATIONS = :sender_id ========================
+  # ======================== ASSOCIATIONS ========================
   belongs_to :sender, class_name: 'User', optional: true, foreign_key: :sender_id
   belongs_to :grade,  optional: true
 
@@ -65,7 +65,7 @@ class LearnerInvitation
 
   def school_logo
     return nil unless school_id.present?
-    
+
     school = School.find(school_id) rescue School.where(id: BSON::ObjectId.from_string(school_id.to_s)).first rescue nil
     school&.logo
   rescue => e
@@ -76,8 +76,7 @@ class LearnerInvitation
   def school_name
     school = School.where(id: school_id).first
     return 'Unknown School' unless school
-    
-    # Priority for field naming based on common variations in your School model
+
     school.try(:schoolName) || school.try(:name) || school.try(:school_name) || 'Unknown School'
   end
 
@@ -93,18 +92,47 @@ class LearnerInvitation
 
   # ======================== STATUS HELPERS ========================
 
+  def pending?
+    status == 'pending'
+  end
+
   def expired?
     status == 'expired' || (expired_at.present? && expired_at <= Time.current)
   end
 
   def active?
-    status == 'pending' && !expired?
+    pending? && !expired?
   end
 
   def learner_count
     return learner_ids.size if learner_ids.present?
     return learner_numbers.size if learner_numbers.present?
     learner_number.present? ? 1 : 0
+  end
+
+  # ======================== MAGIC LINK ========================
+
+  # Builds: /Far+North+Secondary+School?token=xxx&school=Far+North+Secondary+School
+  def magic_link_query
+    return "?token=#{token}" unless token.present?
+
+    school_slug = school_name.to_s.strip.gsub(/\s+/, '+')
+    encoded_school = URI.encode_www_form_component(school_name.to_s)
+    "/#{school_slug}?token=#{token}&school=#{encoded_school}"
+  rescue => e
+    Rails.logger.warn "⚠️ Error generating magic link query: #{e.message}"
+    "?token=#{token}"
+  end
+
+  # Builds: https://www.schoolheadoffice.com/parent/Far+North+Secondary+School?token=xxx&school=Far+North+Secondary+School
+  def full_magic_link
+    base = ENV['PARENT_APP_URL'] || 'https://www.schoolheadoffice.com/parent'
+    school_slug = school_name.to_s.strip.gsub(/\s+/, '+')
+    encoded_school = URI.encode_www_form_component(school_name.to_s)
+    "#{base}/#{school_slug}?token=#{token}&school=#{encoded_school}"
+  rescue => e
+    Rails.logger.warn "⚠️ Error generating full magic link: #{e.message}"
+    "#{ENV['PARENT_APP_URL'] || 'https://www.schoolheadoffice.com/parent'}?token=#{token}"
   end
 
   # ======================== API SERIALIZATION ========================
@@ -115,41 +143,59 @@ class LearnerInvitation
       token: token,
       status: status,
       role: role,
-      
+
       # Recipient
       recipient_phone_number: recipient_phone_number,
       parent_name: parent_name,
-      
+
       # School / Learner Data
       school_id: school_id,
       school_name: school_name,
-      school_logo: school_logo, # Directly calls the fetcher
+      school_logo: school_logo,
       grade_id: grade_id,
       grade_name: grade_name,
+      learner_number: learner_number,
+      learner_numbers: learner_numbers || [],
+      learner_ids: (learner_ids || []).map(&:to_s),
       learner_count: learner_count,
       multiple_learners: learner_count > 1,
-      
+
       # Meta & Timestamps
+      invited_via: invited_via,
+      sender_id: sender_id&.to_s,
       sender_name: sender_name,
       invited_at: invited_at&.iso8601,
+      accepted_at: accepted_at&.iso8601,
       expired_at: expired_at&.iso8601,
+      cancelled_at: cancelled_at&.iso8601,
       created_at: created_at&.iso8601,
-      
+      updated_at: updated_at&.iso8601,
+
       # Logic Checks
-      is_active: active?,
-      is_expired: expired?,
-      
+      active: active?,
+      expired: expired?,
+      expires_in_days: expires_in_days,
+      expires_in_seconds: expires_in_seconds,
+
       # Link Generation
+      magic_link_query: magic_link_query,
       full_magic_link: full_magic_link
     }
   rescue => e
-    Rails.logger.error "❌ API Serialization failed for Invitation #{id}: #{e.message}"
+    Rails.logger.error "❌ API Serialization failed for LearnerInvitation #{id}: #{e.message}"
     { id: id.to_s, token: token, status: 'error' }
   end
 
-  def full_magic_link
-    base = ENV['PARENT_APP_URL'] || 'https://www.schoolheadoffice.com/parent'
-    "#{base}?token=#{token}&school=#{URI.encode_www_form_component(school_name)}"
+  def expires_in_days
+    return nil unless expired_at
+    days = ((expired_at - Time.current) / 1.day).ceil
+    [days, 0].max
+  end
+
+  def expires_in_seconds
+    return 0 unless expired_at
+    seconds = (expired_at - Time.current).to_i
+    [seconds, 0].max
   end
 
   private
@@ -164,6 +210,10 @@ class LearnerInvitation
     self.invited_at ||= Time.current
     self.expired_at ||= DEFAULT_EXPIRATION_DAYS.days.from_now
     self.status     ||= 'pending'
+    self.role       ||= 'parent'
+    self.invited_via ||= 'whatsapp'
+    self.learner_numbers ||= []
+    self.learner_ids     ||= []
   end
 
   def normalize_phone_numbers
