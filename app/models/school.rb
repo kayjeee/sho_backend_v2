@@ -4,6 +4,7 @@ class School
 
   # Basic Information
   field :schoolName, type: String
+  field :slug, type: String
   field :schoolEmail, type: String
   
   # Location
@@ -45,6 +46,9 @@ class School
   # Associations
   has_many :grades, dependent: :destroy  # Add this line
   
+  # Callbacks
+  before_validation :generate_slug, if: :schoolName_changed?
+
   # Validations
   validates :schoolName, presence: true, uniqueness: true
   validates :schoolEmail, presence: true, format: { with: URI::MailTo::EMAIL_REGEXP }
@@ -52,6 +56,7 @@ class School
   
   # Indexes
   index({ schoolName: 1 }, { unique: true })
+  index({ slug: 1 }, { unique: true })
   index({ schoolEmail: 1 })
   index({ status: 1 })
   index({ user_id: 1 })
@@ -60,5 +65,11 @@ class School
   # Helper method to get grades
   def grades_list
     grades.order(created_at: :desc)
+  end
+
+  private
+
+  def generate_slug
+    self.slug = schoolName.parameterize if schoolName.present?
   end
 end
