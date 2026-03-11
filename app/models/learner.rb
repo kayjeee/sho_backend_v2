@@ -135,6 +135,23 @@ class Learner
     tel_emergency.presence || primary_contact
   end
 
+  # Link a parent to the learner
+  def add_parent(parent_auth0_id)
+    user = User.find_by(auth0_id: parent_auth0_id)
+    return false unless user
+
+    self.parent_info ||= {}
+    self.parent_info['parents'] ||= []
+    self.parent_info['parents'] << {
+      'user_id' => user.id.to_s,
+      'auth0_id' => user.auth0_id,
+      'name' => user.name,
+      'linked_at' => Time.current
+    }
+    self.parent_info['parents'].uniq! { |p| p['auth0_id'] }
+    save
+  end
+
   # Serialize to API hash
   def to_api_hash
     {

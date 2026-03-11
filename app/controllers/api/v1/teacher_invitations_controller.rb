@@ -63,7 +63,35 @@ module Api
       # POST /api/v1/teacher_invitations/:id/accept
       def accept
         @invitation.accept!
-        render_success(message: 'Invitation accepted', data: { invitation: @invitation.to_api_hash })
+
+        # If auth0_id is provided, link the user to the school and grades
+        if params[:auth0_id].present?
+          user = User.find_or_initialize_by(auth0_id: params[:auth0_id])
+          user.email ||= @invitation.recipient_phone_number + "@placeholder.com" # Should ideally come from signup
+          user.name  ||= @invitation.teacher_name
+          user.roles |= ['Teacher']
+          user.save!
+
+          # Associate user with school
+          user.add_school(@invitation.school_id)
+
+          # Create teacher grade assignments
+          grade_ids = @invitation.grade_ids.presence || [@invitation.grade_id].compact
+          grade_ids.each do |gid|
+            TeacherGradeAssignment.find_or_create_by!(
+              teacher: user,
+              grade_id: gid,
+              school_id: @invitation.school_id,
+              role_type: 'primary', # Default
+              assigned_by: @invitation.sender || user,
+              status: 0
+            )
+          end
+        end
+
+        render_success(message: 'Invitation accepted', data: { invitation: @invitation.reload.to_api_hash })
+      rescue => e
+        handle_exception(e, "Failed to accept invitation")
       end
 
       # POST /api/v1/teacher_invitations/:id/decline
