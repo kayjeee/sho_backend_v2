@@ -67,6 +67,34 @@ class School
     grades.order(created_at: :desc)
   end
 
+  # Serialization for API
+  def to_api_hash
+    {
+      id: id.to_s,
+      schoolName: schoolName,
+      slug: slug,
+      schoolEmail: schoolEmail,
+      country: country,
+      city: city,
+      province: province,
+      line1: line1,
+      line2: line2,
+      postalCode: postalCode,
+      logo: logo,
+      theme: theme,
+      status: status,
+      user_id: user_id,
+      user_email: user_email,
+      created_at: created_at,
+      updated_at: updated_at,
+      stats: {
+        teacherCount: UserSchoolRole.where(school_id: id, role: 'Teacher').count,
+        learnerCount: Learner.where(school_id: id).count,
+        gradeCount: grades.count
+      }
+    }
+  end
+
   private
 
   def generate_slug

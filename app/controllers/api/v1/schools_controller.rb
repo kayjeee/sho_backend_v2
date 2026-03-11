@@ -21,7 +21,7 @@ module Api
         schools_paginated = schools.skip((page - 1) * limit).limit(limit)
 
         render_success(data: {
-          schools: schools_paginated,
+          schools: schools_paginated.map(&:to_api_hash),
           totalCount: total_count,
           page: page,
           limit: limit
@@ -41,12 +41,11 @@ module Api
         )
 
         unless user_role
-          return render json: { success: false, message: "Parent not found in this school" }, status: :not_found
+          return render_error("Parent not found in this school", [], status: :not_found)
         end
 
         parent = User.find(params[:parent_id])
-        render json: {
-          success: true,
+        render_success(data: {
           parent: {
             id: parent.id.to_s,
             name: parent.name,
@@ -54,12 +53,11 @@ module Api
             auth0_id: parent.auth0_id,
             role: 'Parent'
           }
-        }, status: :ok
+        })
       rescue Mongoid::Errors::DocumentNotFound
-        render json: { success: false, message: "Parent not found" }, status: :not_found
+        render_error("Parent not found", [], status: :not_found)
       rescue => e
-        Rails.logger.error "Show parent failed: #{e.message}\n#{e.backtrace.join("\n")}"
-        render json: { success: false, error: "Failed to fetch parent", details: e.message }, status: :internal_server_error
+        handle_exception(e, "Failed to fetch parent")
       end
 
       # =========================
@@ -67,10 +65,9 @@ module Api
       # =========================
       def admins
         users = fetch_users_by_role('Admin')
-        render json: { success: true, data: users }, status: :ok
+        render_success(data: users)
       rescue => e
-        Rails.logger.error "Fetch admins failed: #{e.message}\n#{e.backtrace.join("\n")}"
-        render json: { success: false, error: "Failed to fetch admins", details: e.message }, status: :internal_server_error
+        handle_exception(e, "Failed to fetch admins")
       end
 
       # =========================
@@ -78,10 +75,9 @@ module Api
       # =========================
       def teachers
         users = fetch_users_by_role('Teacher')
-        render json: { success: true, data: users }, status: :ok
+        render_success(data: users)
       rescue => e
-        Rails.logger.error "Fetch teachers failed: #{e.message}\n#{e.backtrace.join("\n")}"
-        render json: { success: false, error: "Failed to fetch teachers", details: e.message }, status: :internal_server_error
+        handle_exception(e, "Failed to fetch teachers")
       end
 
       # =========================
@@ -89,10 +85,9 @@ module Api
       # =========================
       def parents
         users = fetch_users_by_role('Parent')
-        render json: { success: true, data: users }, status: :ok
+        render_success(data: users)
       rescue => e
-        Rails.logger.error "Fetch parents failed: #{e.message}\n#{e.backtrace.join("\n")}"
-        render json: { success: false, error: "Failed to fetch parents", details: e.message }, status: :internal_server_error
+        handle_exception(e, "Failed to fetch parents")
       end
 
       # =========================
@@ -100,47 +95,37 @@ module Api
       # =========================
       def search
         query = params[:query]
-        return render json: { success: false, message: "Query parameter is missing." }, status: :bad_request if query.blank?
+        return render_error("Query parameter is missing.", [], status: :bad_request) if query.blank?
 
         school_exists = School.where(schoolName: /^#{Regexp.escape(query)}$/i).exists?
-        render json: {
-          success: true,
+        render_success(data: {
           isAvailable: !school_exists,
           message: school_exists ? "School name is taken" : "School name available"
-        }, status: :ok
+        })
       rescue => e
-        Rails.logger.error "School search failed: #{e.message}\n#{e.backtrace.join("\n")}"
-        render json: { success: false, message: "An error occurred: #{e.message}" }, status: :internal_server_error
+        handle_exception(e, "School search failed")
       end
 
       # =========================
       # POST /api/v1/schools
       # =========================
       def create
-        # Get all permitted params
         permitted = school_params
-        
-        # Extract and remove special fields that need custom handling
         theme_data = permitted.delete(:theme)
         admin_users_data = permitted.delete(:adminUsers)
         invites_data = permitted.delete(:invites)
         
-        # Create school with basic fields
         @school = School.new(permitted)
-
-        # Set default values
         @school.cash_account ||= 0.0
         @school.payment_history ||= []
         @school.status ||= "active"
 
-        # Handle theme as a STRING (inspect converts hash to string representation)
         if theme_data.present?
           @school.theme = convert_theme_to_string(theme_data)
         else
           @school.theme = ""
         end
 
-        # Handle adminUsers
         if admin_users_data.present? && admin_users_data.is_a?(Array)
           @school.adminUsers = admin_users_data.map do |admin|
             {
@@ -155,7 +140,6 @@ module Api
           @school.adminUsers = []
         end
 
-        # Handle invites
         if invites_data.present? && invites_data.is_a?(Array)
           @school.invites = invites_data.map do |invite|
             {
@@ -171,50 +155,39 @@ module Api
         end
 
         if @school.save
-          # Associate user with school if user_id provided
           associate_user_with_school
-
-          render json: { success: true, data: { school: @school } }, status: :created
+          render_success(message: "School created successfully", data: { school: @school.to_api_hash }, status: :created)
         else
-          Rails.logger.warn "School validation failed: #{@school.errors.full_messages.join(', ')}"
-          render json: { success: false, errors: @school.errors.full_messages }, status: :unprocessable_entity
+          render_error("School validation failed", @school.errors.full_messages)
         end
       rescue Mongo::Error::OperationFailure => e
-        Rails.logger.error "MongoDB operation failed: #{e.message}\n#{e.backtrace.join("\n")}"
-        render json: { success: false, error: "Database operation failed", details: e.message }, status: :internal_server_error
+        handle_exception(e, "Database operation failed")
       rescue ActionController::ParameterMissing => e
-        Rails.logger.warn "Missing required parameter: #{e.message}"
-        render json: { success: false, error: "Missing required parameter", details: e.message }, status: :bad_request
+        render_error("Missing required parameter", [e.message], status: :bad_request)
       rescue => e
-        Rails.logger.error "School creation failed: #{e.message}\n#{e.backtrace.join("\n")}"
-        render json: { success: false, error: "An unexpected error occurred", details: e.message }, status: :internal_server_error
+        handle_exception(e, "School creation failed")
       end
 
       # =========================
       # GET /api/v1/schools/:id
       # =========================
       def show
-        render json: { success: true, school: @school }, status: :ok
+        render_success(data: { school: @school.to_api_hash })
       end
 
       # =========================
       # PATCH/PUT /api/v1/schools/:id
       # =========================
       def update
-        # Get all permitted params
         permitted = school_params
-        
-        # Extract and remove special fields that need custom handling
         theme_data = permitted.delete(:theme)
         admin_users_data = permitted.delete(:adminUsers)
         invites_data = permitted.delete(:invites)
 
-        # Handle theme as a STRING
         if theme_data.present?
           @school.theme = convert_theme_to_string(theme_data)
         end
 
-        # Handle adminUsers
         if admin_users_data.present? && admin_users_data.is_a?(Array)
           @school.adminUsers = admin_users_data.map do |admin|
             {
@@ -227,7 +200,6 @@ module Api
           end.compact
         end
 
-        # Handle invites
         if invites_data.present? && invites_data.is_a?(Array)
           @school.invites = invites_data.map do |invite|
             {
@@ -241,17 +213,14 @@ module Api
         end
 
         if @school.update(permitted)
-          render json: { success: true, school: @school, message: "School updated successfully" }, status: :ok
+          render_success(message: "School updated successfully", data: { school: @school.to_api_hash })
         else
-          Rails.logger.warn "School update validation failed: #{@school.errors.full_messages.join(', ')}"
-          render json: { success: false, errors: @school.errors.full_messages }, status: :unprocessable_entity
+          render_error("School update failed", @school.errors.full_messages)
         end
       rescue Mongo::Error::OperationFailure => e
-        Rails.logger.error "MongoDB operation failed during update: #{e.message}\n#{e.backtrace.join("\n")}"
-        render json: { success: false, error: "Database operation failed", details: e.message }, status: :internal_server_error
+        handle_exception(e, "Database operation failed")
       rescue => e
-        Rails.logger.error "School update failed: #{e.message}\n#{e.backtrace.join("\n")}"
-        render json: { success: false, error: "An unexpected error occurred", details: e.message }, status: :internal_server_error
+        handle_exception(e, "School update failed")
       end
 
       # =========================
@@ -259,10 +228,9 @@ module Api
       # =========================
       def destroy
         @school.destroy
-        render json: { success: true, message: "School deleted successfully" }, status: :ok
+        render_success(message: "School deleted successfully")
       rescue => e
-        Rails.logger.error "School deletion failed: #{e.message}\n#{e.backtrace.join("\n")}"
-        render json: { success: false, error: "Failed to delete school", details: e.message }, status: :internal_server_error
+        handle_exception(e, "Failed to delete school")
       end
 
       private
@@ -270,9 +238,9 @@ module Api
       def set_school
         @school = School.find(params[:id])
       rescue Mongoid::Errors::DocumentNotFound
-        render json: { success: false, message: "School not found" }, status: :not_found
+        render_error("School not found", [], status: :not_found)
       rescue BSON::ObjectId::Invalid => e
-        render json: { success: false, message: "Invalid school ID: #{e.message}" }, status: :bad_request
+        render_error("Invalid school ID", [e.message], status: :bad_request)
       end
 
       def fetch_users_by_role(role)
@@ -288,48 +256,31 @@ module Api
         end
       end
 
-      # Convert theme data to string representation like: {"mode"=>"orange", "value"=>"#F97316"}
       def convert_theme_to_string(theme_data)
         return "" if theme_data.blank?
-        
         theme_hash = if theme_data.is_a?(Hash)
-          # Already a hash, extract mode and value
           {
             "mode" => theme_data[:mode] || theme_data["mode"] || "",
             "value" => theme_data[:value] || theme_data["value"] || ""
           }
         elsif theme_data.is_a?(String)
-          # If it's just a string (like "white"), treat it as mode
           { "mode" => theme_data, "value" => "" }
         else
           {}
         end
-        
-        # Use inspect to get Ruby hash string representation
         theme_hash.inspect
       rescue => e
         Rails.logger.warn "Failed to convert theme: #{e.message}"
         ""
       end
 
-      # Associate user with school after creation
       def associate_user_with_school
         user_id = @school.user_id
         return unless user_id.present?
 
         user = User.find_by(auth0_id: user_id)
-        
         if user
-          begin
-            user.add_school(@school.id)
-            Rails.logger.info "Successfully associated user #{user_id} with school #{@school.id}"
-          rescue => e
-            Rails.logger.error "Failed to associate user with school: #{e.message}"
-            # Don't fail the request - school was created successfully
-          end
-        else
-          Rails.logger.warn "User not found with auth0_id: #{user_id}"
-          # Don't fail the request - school was created successfully
+          user.add_school(@school.id)
         end
       end
 
