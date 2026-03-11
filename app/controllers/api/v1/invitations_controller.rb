@@ -73,7 +73,6 @@ class Api::V1::InvitationsController < ApplicationController
 
     Rails.logger.info "📊 Service result - Success: #{result.success}, Errors: #{result.errors}"
 
-    # ✅ FIX: Changed result.success? to result.success (Struct doesn't have predicate methods)
     if result.success
       invitation = result.invitation
       magic_link = generate_magic_link(invitation)
@@ -182,7 +181,6 @@ class Api::V1::InvitationsController < ApplicationController
       invited_via: bulk_params[:invited_via] || 'whatsapp'
     ).call
 
-    # ✅ FIX: Changed result.success to match Struct attribute access
     # Handle response based on result
     if result.success
       handle_bulk_success(result)

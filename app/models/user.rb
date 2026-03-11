@@ -95,6 +95,12 @@ class User
     teaching_grades.where(teacher_grade_assignments: { role_type: 'assistant' })
   end
 
+  def teacher_slug(school_name = nil)
+    base = name.to_s.downcase.gsub(/\s+/, '-').gsub(/[^a-z0-9-]/, '')
+    short_id = id.to_s.last(4)
+    "#{base}-#{short_id}"
+  end
+
   def can_access_grade?(grade)
     return true if roles.include?('Admin')
     return true if created_grades.include?(grade)

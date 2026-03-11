@@ -7,11 +7,27 @@ module Api
       # GET /api/v1/schools
       # =========================
       def index
+        page = (params[:page] || 1).to_i
+        limit = (params[:limit] || 20).to_i
+        search_query = params[:search]
+
         schools = School.all
-        render json: { success: true, schools: schools }, status: :ok
+
+        if search_query.present?
+          schools = schools.where(schoolName: /#{Regexp.escape(search_query)}/i)
+        end
+
+        total_count = schools.count
+        schools_paginated = schools.skip((page - 1) * limit).limit(limit)
+
+        render_success(data: {
+          schools: schools_paginated,
+          totalCount: total_count,
+          page: page,
+          limit: limit
+        })
       rescue => e
-        Rails.logger.error "Schools index failed: #{e.message}\n#{e.backtrace.join("\n")}"
-        render json: { success: false, error: "Failed to fetch schools", details: e.message }, status: :internal_server_error
+        handle_exception(e, "Failed to fetch schools")
       end
 
       # =========================

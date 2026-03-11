@@ -31,4 +31,19 @@ class ApplicationController < ActionController::API
       backtrace: Rails.env.development? ? exception.backtrace : nil
     }, status: :internal_server_error
   end
+
+  protected
+
+  def render_success(message: nil, data: {}, status: :ok)
+    render json: { status: 'success', message: message, data: data }, status: status
+  end
+
+  def render_error(message, errors = [], status: :unprocessable_entity)
+    render json: { status: 'error', message: message, errors: Array(errors) }, status: status
+  end
+
+  def handle_exception(error, fallback_message)
+    Rails.logger.error("❌ #{fallback_message}: #{error.message}")
+    render json: { status: 'error', message: fallback_message, errors: [error.message] }, status: :internal_server_error
+  end
 end
