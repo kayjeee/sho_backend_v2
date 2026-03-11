@@ -254,10 +254,13 @@ module Api
       private
 
       def set_school
-  @school = School.find(params[:school_id])
-rescue Mongoid::Errors::DocumentNotFound
-  render_error('School not found', [], status: :not_found)  # add `status:`
-end
+        # Support finding by ID or Slug
+        @school = School.find(params[:school_id]) rescue School.find_by(slug: params[:school_id])
+
+        unless @school
+          render_error('School not found', [], status: :not_found)
+        end
+      end
 
 def set_grade
   @grade = Grade.find(params[:id])

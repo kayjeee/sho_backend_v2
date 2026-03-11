@@ -236,11 +236,12 @@ module Api
       private
 
       def set_school
-        @school = School.find(params[:id])
-      rescue Mongoid::Errors::DocumentNotFound
-        render_error("School not found", [], status: :not_found)
-      rescue BSON::ObjectId::Invalid => e
-        render_error("Invalid school ID", [e.message], status: :bad_request)
+        # Support finding by ID or Slug
+        @school = School.find(params[:id]) rescue School.find_by(slug: params[:id])
+
+        unless @school
+          render_error("School not found", [], status: :not_found)
+        end
       end
 
       def fetch_users_by_role(role)
