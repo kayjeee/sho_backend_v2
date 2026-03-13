@@ -75,7 +75,7 @@ Rails.application.routes.draw do
       end
 
       # ✅ FIXED: verify_with_details now lives inside the namespace as a member route
-      resources :invitations, param: :token, only: [:create] do
+      resources :invitations, param: :token, only: [:create, :show] do
         member do
           get :verify_with_details   # GET /api/v1/invitations/:token/verify_with_details
         end
@@ -93,6 +93,7 @@ Rails.application.routes.draw do
           post :resend
         end
         collection do
+          get :verify                # GET /api/v1/learner_invitations/verify?token=...
           get :pending
           get :expired
           get 'by_grade/:grade_id', action: :by_grade
@@ -107,6 +108,7 @@ Rails.application.routes.draw do
           post :resend
         end
         collection do
+          get :verify                # GET /api/v1/teacher_invitations/verify?token=...
           get :pending
           get :expired
           get 'by_school/:school_id', action: :by_school
@@ -249,11 +251,13 @@ Rails.application.routes.draw do
       end
 
       namespace :public do
-        namespace :invitations do
-          post 'learner/:token/accept', action: :accept_learner_invitation
-          post 'teacher/:token/accept', action: :accept_teacher_invitation
-          get  'learner/:token',        action: :show_learner_invitation
-          get  'teacher/:token',        action: :show_teacher_invitation
+        resources :invitations, only: [] do
+          collection do
+            post 'learner/:token/accept', action: :accept_learner_invitation
+            post 'teacher/:token/accept', action: :accept_teacher_invitation
+            get  'learner/:token',        action: :show_learner_invitation
+            get  'teacher/:token',        action: :show_teacher_invitation
+          end
         end
       end
 

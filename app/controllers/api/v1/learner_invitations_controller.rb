@@ -13,6 +13,18 @@ module Api
         handle_exception(e, 'Failed to fetch invitations')
       end
 
+      # GET /api/v1/learner_invitations/verify?token=...
+      def verify
+        token = params[:token]
+        invitation = LearnerInvitation.where(token: token).first
+
+        if invitation
+          render_success(data: { invitation: invitation.to_api_hash })
+        else
+          render_error('Invitation not found', [], status: :not_found)
+        end
+      end
+
       # GET /api/v1/learner_invitations/:id
       def show
         render_success(data: { invitation: @invitation.to_api_hash })

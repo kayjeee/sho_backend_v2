@@ -12,10 +12,23 @@ class Api::V1::InvitationsController < ApplicationController
   # GET /api/v1/invitations/:token/verify_with_details
   # Verify invitation token & return invitation details
   # ------------------------------------------------------------
+  # ------------------------------------------------------------
+  # GET /api/v1/invitations/:token
+  # Alias for verify_with_details to support standard REST
+  # ------------------------------------------------------------
+  def show
+    verify_with_details
+  end
+
+  # ------------------------------------------------------------
+  # GET /api/v1/invitations/:token/verify_with_details
+  # Verify invitation token & return invitation details
+  # ------------------------------------------------------------
   def verify_with_details
-    Rails.logger.info "🔍 [InvitationsController] verify_with_details called for token: #{params[:token]}"
+    token = params[:token] || params[:id]
+    Rails.logger.info "🔍 [InvitationsController] verify_with_details called for token: #{token}"
     
-    invitation = find_invitation_by_token(params[:token])
+    invitation = find_invitation_by_token(token)
     
     if invitation.nil?
       Rails.logger.warn "❌ No invitation found for token: #{params[:token]}"
@@ -301,14 +314,16 @@ class Api::V1::InvitationsController < ApplicationController
     Rails.logger.debug "🔍 Searching for token in all invitation collections: #{token}"
     
     # Search in order of likelihood (with status filter)
+    # Note: TeacherInvitation uses hashed tokens, so we use its custom finder
     invitation = Invitation.where(token: token, status: 'pending').first ||
                  LearnerInvitation.where(token: token, status: 'pending').first ||
-                 TeacherInvitation.where(token: token, status: 'pending').first
+                 TeacherInvitation.find_by_token(token)
     
-    # Fallback: search without status filter
-    invitation ||= Invitation.where(token: token).first ||
-                   LearnerInvitation.where(token: token).first ||
-                   TeacherInvitation.where(token: token).first
+    # Fallback: search without status filter (if not already found)
+    unless invitation
+      invitation = Invitation.where(token: token).first ||
+                   LearnerInvitation.where(token: token).first
+    end
     
     invitation
   end

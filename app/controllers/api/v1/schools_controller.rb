@@ -236,8 +236,17 @@ module Api
       private
 
       def set_school
-        # Support finding by ID or Slug
-        @school = School.find(params[:id]) rescue School.find_by(slug: params[:id])
+        # Support finding by ID, Slug, or Name fallback
+        id_param = params[:id] || params[:school_id] || params[:school_slug]
+
+        @school = School.find(id_param) rescue nil
+        @school ||= School.find_by(slug: id_param)
+
+        # Name-based fallback (replace hyphens with spaces and regex match)
+        if @school.nil? && id_param.present?
+          search_name = id_param.to_s.gsub('-', ' ')
+          @school = School.where(schoolName: /#{Regexp.escape(search_name)}/i).first
+        end
 
         unless @school
           render_error("School not found", [], status: :not_found)
