@@ -82,7 +82,7 @@ module UserServices
     def validate!
       @errors << "Phone number missing"          if @recipient_phone_number.blank?
       @errors << "School missing"                if @school_id.blank?
-      @errors << "Learner number missing"        if @learner_numbers.blank?
+      @errors << "Learner number missing"        if @learner_numbers.blank? && @role == 'parent'
       @errors << "Invalid role: #{@role}"        unless %w[parent teacher].include?(@role)
     end
   end

@@ -503,9 +503,19 @@ class Api::V1::InvitationsController < ApplicationController
         status: 0
       )
     end
+
+    UserSchoolRole.find_or_create_by!(
+      user: user,
+      school_id: invitation.school_id,
+      role: 'teacher',
+      status: 0
+    )
   end
 
   def link_parent_to_learners(learners, parent_auth0_id)
+    user = User.find_by(auth0_id: parent_auth0_id)
+    return unless user
+
     Rails.logger.info "🔗 Linking parent #{parent_auth0_id} to #{learners.count} learner(s)"
     
     learners.each do |learner|
@@ -516,6 +526,16 @@ class Api::V1::InvitationsController < ApplicationController
         Rails.logger.error "❌ Failed to link parent to learner #{learner.id}: #{e.message}"
       end
     end
+
+    # Ensure UserSchoolRole exists
+    if learners.any?
+      UserSchoolRole.find_or_create_by!(
+        user: user,
+        school_id: learners.first.school_id,
+        role: 'parent',
+        status: 0
+      )
+    end
   end
 
   def update_user_from_invitation(auth0_id, invitation)
@@ -525,7 +545,7 @@ class Api::V1::InvitationsController < ApplicationController
     user.school_ids ||= []
     user.school_ids |= [invitation.school_id.to_s]
     
-    # ✅ ROLE LOGIC: Add the role from the invitation if it's not already there
+    # ROLE LOGIC: Add the role from the invitation if it's not already there
     if invitation.respond_to?(:role) && invitation.role.present?
       user.roles ||= []
       user.roles |= [invitation.role.to_s.downcase] # Use lowercase for consistency

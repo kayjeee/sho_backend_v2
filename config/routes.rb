@@ -263,8 +263,10 @@ Rails.application.routes.draw do
       resources :request_accesses do
         collection do
           get  'school/:school_id', action: :by_school
-          get  :pending_requests, :approved_schools
-          post :approve, :reject
+          get  :pending_requests
+          get  :approved_schools
+          post :approve
+          post :reject
         end
         member { get :users_by_roles }
       end
@@ -283,23 +285,38 @@ Rails.application.routes.draw do
       end
 
       namespace :reports do
-        get  :learner_performance, :school_performance, :grade_performance, :subject_performance
+        get  :learner_performance
+        get  :school_performance
+        get  :grade_performance
+        get  :subject_performance
         post :generate_custom
         get  'download/:id', action: :download
       end
 
       namespace :import_export do
-        post :import_learners, :import_schools, :import_grades, :import_results
-        get  :export_learners, :export_schools, :export_grades, :export_results
+        post :import_learners
+        post :import_schools
+        post :import_grades
+        post :import_results
+        get  :export_learners
+        get  :export_schools
+        get  :export_grades
+        get  :export_results
         get  'template/:type', action: :download_template
       end
 
       scope :auth, controller: :authentication do
-        post :login, :logout, :refresh, :forgot_password, :reset_password
+        post :login
+        post :logout
+        post :refresh
+        post :forgot_password
+        post :reset_password
       end
 
       namespace :admin do
-        get   :system_info, :audit_logs, :backup_status
+        get   :system_info
+        get   :audit_logs
+        get   :backup_status
         post  :backup_database
         patch :system_settings, action: :update_system_settings
       end
@@ -331,7 +348,8 @@ Rails.application.routes.draw do
       get 'health', to: 'home#health'
 
       scope :pr_codes, controller: :pr_codes do
-        post :validate, :use
+        post :validate
+        post :use
       end
 
     end

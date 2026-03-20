@@ -16,6 +16,7 @@ class User
   field :last_login,       type: Time
   field :phone,            type: String
   field :phone_number,     type: String
+  field :invited_via,      type: String
 
   # ======================== NEW: ONBOARDING SYNC FIELDS ========================
   # These are denormalized from OnboardingStatus for efficient querying
