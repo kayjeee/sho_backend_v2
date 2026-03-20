@@ -555,7 +555,7 @@ class User
   end
 
   def log_school_id_changes
-    old_school_ids, new_school_ids = changes_to_save['school_ids']
+    old_school_ids, new_school_ids = changes['school_ids']
 
     old_school_ids = old_school_ids || []
     new_school_ids = new_school_ids || []
