@@ -31,10 +31,10 @@ class TeacherGradeAssignment
   validates :teacher_id, uniqueness: { scope: [:grade_id, :role_type], message: "already assigned to this grade with this role" }
 
   # ===================== ASSOCIATIONS =====================
-  belongs_to :teacher,          class_name: 'User'
+  belongs_to :teacher,          class_name: 'User', inverse_of: :teacher_grade_assignments
   belongs_to :grade,            class_name: 'Grade'
   belongs_to :school,           class_name: 'School'
-  belongs_to :assigned_by,      class_name: 'User'
+  belongs_to :assigned_by,      class_name: 'User', inverse_of: :assigned_teacher_roles
 
   # ======================== INDEXES =======================
   index({ teacher_id: 1, grade_id: 1, role_type: 1 }, { unique: true })
@@ -61,6 +61,39 @@ class TeacherGradeAssignment
   after_update :log_assignment_updates
 
   # ========================= METHODS ========================
+
+  # Assignment management
+  def activate!
+    update!(status: 0)
+    Rails.logger.info "✅ Teacher assignment activated: #{teacher.name} -> #{grade.name}"
+    true
+  end
+
+  def deactivate!
+    update!(status: 1)
+    Rails.logger.info "⏸️ Teacher assignment deactivated: #{teacher.name} -> #{grade.name}"
+    true
+  end
+
+  def terminate!(reason = nil)
+    update!(
+      status: 2,
+      terminated_at: Time.current,
+      termination_reason: reason
+    )
+    Rails.logger.info "🔚 Teacher assignment terminated: #{teacher.name} -> #{grade.name}"
+    true
+  end
+
+  def suspend!(reason = nil)
+    update!(
+      status: 3,
+      suspended_at: Time.current,
+      suspension_reason: reason
+    )
+    Rails.logger.info "⏸️ Teacher assignment suspended: #{teacher.name} -> #{grade.name}"
+    true
+  end
 
   # Status helper methods
   def active?

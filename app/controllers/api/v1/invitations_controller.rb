@@ -528,7 +528,7 @@ class Api::V1::InvitationsController < ApplicationController
     # ✅ ROLE LOGIC: Add the role from the invitation if it's not already there
     if invitation.respond_to?(:role) && invitation.role.present?
       user.roles ||= []
-      user.roles |= [invitation.role] # Using |= ensures uniqueness (won't duplicate "teacher")
+      user.roles |= [invitation.role.to_s.downcase] # Use lowercase for consistency
     end
 
     # Only update if blank (don't overwrite existing data)

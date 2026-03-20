@@ -67,6 +67,7 @@ class User
   index({ 'onboarding_status.completion_percentage' => 1 })
 
   # ======================== CALLBACKS =======================
+  before_save :normalize_roles
   before_save :log_school_id_changes, if: :school_ids_changed?
   
   # Onboarding callbacks
@@ -546,6 +547,10 @@ class User
   end
 
   private
+
+  def normalize_roles
+    self.roles = Array(roles).map { |r| r.to_s.downcase.strip }.uniq.compact if roles_changed?
+  end
 
   def log_school_id_changes
     old_school_ids, new_school_ids = changes_to_save['school_ids']
