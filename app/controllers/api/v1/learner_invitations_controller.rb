@@ -147,7 +147,7 @@ module Api
 
       # GET /api/v1/learner_invitations/by_grade/:grade_id
       def by_grade
-        invitations = LearnerInvitation.where(grade_id: params[:grade_id])
+        invitations = LearnerInvitation.by_grade(params[:grade_id])
         render_success(data: { invitations: invitations.map(&:to_api_hash) })
       end
 
