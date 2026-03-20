@@ -105,46 +105,24 @@ class Api::V1::InvitationsController < ApplicationController
   # Verify & accept invitation, linking parent to learners
   # ------------------------------------------------------------
   def verify
-    Rails.logger.info "🔍 [InvitationsController] Verifying invitation"
-    Rails.logger.info "   Token: #{params[:token]}, Auth0 ID: #{params[:auth0_id]}"
+    Rails.logger.info "🔍 [InvitationsController] Verifying invitation via Service"
     
-    # Validate required parameters
-    return render_error('Missing auth0_id') unless params[:auth0_id].present?
-    return render_error('Missing token') unless params[:token].present?
+    result = UserServices::VerifyInvitationService.new(
+      token: params[:token],
+      auth0_id: params[:auth0_id]
+    ).call
 
-    # Find invitation
-    invitation = find_invitation_by_token(params[:token])
-    return render_error('Invitation not found') unless invitation
-
-    # Validate invitation status
-    validation_result = validate_invitation_for_acceptance(invitation)
-    return validation_result if validation_result
-
-    # Find learners associated with invitation
-    learners = find_invitation_learners(invitation)
-
-    # ✅ FIX: Only error out if it's NOT a TeacherInvitation
-    if learners.blank? && !invitation.is_a?(TeacherInvitation)
-      Rails.logger.error "❌ No learners found for invitation: #{invitation.id}"
-      return render_error('Learners not found for this invitation')
+    if result[:success]
+      render_success(
+        message: 'Invitation accepted successfully',
+        data: {
+          learners: (result[:learners] || []).map { |l| safe_learner_hash(l) },
+          invitation: safe_invitation_hash(result[:invitation])
+        }
+      )
+    else
+      render_error(result[:message], [], status: :unprocessable_entity)
     end
-    
-    Rails.logger.info "✅ Found #{learners.count} learner(s) for invitation"
-
-    # Process invitation acceptance
-    process_invitation_acceptance(invitation, learners, params[:auth0_id])
-    
-    # Log success
-    log_invitation_accepted(invitation, learners)
-
-    # Return success response
-    render_success(
-      message: 'Invitation accepted successfully',
-      data: {
-        learners: learners.map { |l| safe_learner_hash(l) },
-        invitation: safe_invitation_hash(invitation)
-      }
-    )
     
   rescue StandardError => e
     handle_exception(e, "Invitation verification failed")
