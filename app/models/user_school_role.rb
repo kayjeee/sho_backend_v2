@@ -6,6 +6,7 @@ class UserSchoolRole
     field :user_id, type: BSON::ObjectId
     field :school_id, type: BSON::ObjectId
     field :role, type: String # The role of the user in the school
+    field :status, type: Integer, default: 0
   
     # Validations
     validates :user_id, presence: true

@@ -50,8 +50,8 @@ module Api
         stats = {
           total_schools: School.count,
           active_schools: School.where(status: 'active').count,
-          total_teachers: User.with_role('Teacher').count,
-          total_parents: User.with_role('Parent').count
+          total_teachers: User.with_role('teacher').count,
+          total_parents: User.with_role('parent').count
         }
         render_success(data: stats)
       rescue => e

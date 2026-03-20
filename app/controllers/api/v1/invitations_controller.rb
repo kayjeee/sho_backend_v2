@@ -293,13 +293,18 @@ class Api::V1::InvitationsController < ApplicationController
     # Search in order of likelihood (with status filter)
     # Note: TeacherInvitation uses hashed tokens, so we use its custom finder
     invitation = Invitation.where(token: token, status: 'pending').first ||
-                 LearnerInvitation.where(token: token, status: 'pending').first ||
-                 TeacherInvitation.find_by_token(token)
+                 LearnerInvitation.where(token: token, status: 'pending').first
+
+    unless invitation
+      teacher_invitation = TeacherInvitation.find_by_token(token)
+      invitation = teacher_invitation if teacher_invitation&.status == 'pending'
+    end
     
     # Fallback: search without status filter (if not already found)
     unless invitation
       invitation = Invitation.where(token: token).first ||
-                   LearnerInvitation.where(token: token).first
+                   LearnerInvitation.where(token: token).first ||
+                   TeacherInvitation.find_by_token(token)
     end
     
     invitation
