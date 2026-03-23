@@ -64,7 +64,7 @@ module Api
       # GET /api/v1/schools/:id/admins
       # =========================
       def admins
-        users = fetch_users_by_role('Admin')
+        users = fetch_users_by_role('admin')
         render_success(data: users)
       rescue => e
         handle_exception(e, "Failed to fetch admins")
@@ -74,8 +74,8 @@ module Api
       # GET /api/v1/schools/:id/teachers
       # =========================
       def teachers
-        users = fetch_users_by_role('Teacher')
-        render_success(data: users)
+        teachers = Teacher.where(school_id: @school.id)
+        render_success(data: teachers.map(&:to_api_hash))
       rescue => e
         handle_exception(e, "Failed to fetch teachers")
       end
@@ -84,7 +84,7 @@ module Api
       # GET /api/v1/schools/:id/parents
       # =========================
       def parents
-        users = fetch_users_by_role('Parent')
+        users = fetch_users_by_role('parent')
         render_success(data: users)
       rescue => e
         handle_exception(e, "Failed to fetch parents")
@@ -261,6 +261,7 @@ module Api
             name: user.name,
             email: user.email,
             auth0_id: user.auth0_id,
+            slug: user.teacher_slug,
             role: role
           }
         end

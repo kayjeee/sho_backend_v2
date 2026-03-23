@@ -37,6 +37,8 @@ class User
   has_many :messages,            inverse_of: :user
   has_many :received_messages,   class_name: 'Message', inverse_of: :receiver
   has_many :user_school_roles,   class_name: 'UserSchoolRole', inverse_of: :user
+  has_many :teacher_grade_assignments, class_name: 'TeacherGradeAssignment', inverse_of: :teacher
+  has_many :assigned_teacher_roles, class_name: 'TeacherGradeAssignment', inverse_of: :assigned_by
 
   # GRADE-RELATED ASSOCIATIONS
   has_many :created_grades,      class_name: 'Grade', inverse_of: :created_by
@@ -44,8 +46,6 @@ class User
   has_many :learner_invitations_sent, class_name: 'LearnerInvitation', inverse_of: :invited_by
   has_many :teacher_invitations_sent, class_name: 'TeacherInvitation', inverse_of: :invited_by
   has_many :teacher_invitations_received, class_name: 'TeacherInvitation', inverse_of: :teacher
-  has_many :teacher_grade_assignments, class_name: 'TeacherGradeAssignment', inverse_of: :teacher
-  has_many :assigned_teacher_roles, class_name: 'TeacherGradeAssignment', inverse_of: :assigned_by
 
   has_and_belongs_to_many :schools, class_name: 'School', inverse_of: :users, validate: false
 

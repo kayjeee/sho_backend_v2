@@ -88,7 +88,7 @@ class School
       created_at: created_at,
       updated_at: updated_at,
       stats: {
-        teacherCount: UserSchoolRole.where(school_id: id, role: 'Teacher').count,
+        teacherCount: UserSchoolRole.where(school_id: id, role: 'teacher').count,
         learnerCount: Learner.where(school_id: id).count,
         gradeCount: grades.count
       }

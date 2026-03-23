@@ -55,7 +55,7 @@ module UserServices
       # Searching across specific collections as seen in logs
       Invitation.where(token: @token, status: 'pending').first ||
       LearnerInvitation.where(token: @token, status: 'pending').first ||
-      TeacherInvitation.find_by_token(@token)&.tap { |ti| return ti if ti.status == 'pending' }
+      TeacherInvitation.find_by_token(@token)&.then { |ti| ti.status == 'pending' ? ti : nil }
     end
 
     def update_user_attributes(user, invitation)
@@ -78,6 +78,12 @@ module UserServices
         user.email ||= "#{invitation.recipient_phone_number}@placeholder.com" if invitation.respond_to?(:recipient_phone_number)
         user.name ||= (invitation.respond_to?(:teacher_name) ? invitation.teacher_name : invitation.respond_to?(:parent_name) ? invitation.parent_name : "User")
       end
+
+      # 🍎 TEACHER SPECIFIC METADATA
+      # The dashboard requires teachers to be searchable by slug/auth0_id
+      if user.roles.include?('teacher')
+        user.status = 'active' if user.status.blank?
+      end
     end
 
     def find_invitation_learners(invitation)
@@ -91,7 +97,7 @@ module UserServices
 
       numbers = extract_learner_numbers(invitation)
       if numbers.any?
-        learners = Learner.where(school_id: invitation.school_id.to_s, :accessionNumber.in => numbers).to_a
+        learners = Learner.where(school_id: invitation.school_id.to_s, :accession_number.in => numbers).to_a
         return learners if learners.present?
       end
 
@@ -106,6 +112,13 @@ module UserServices
     end
 
     def link_teacher_to_grades(invitation, user)
+      # Create or update the Teacher record
+      Teacher.find_or_create_by!(auth0_id: user.auth0_id, school_id: invitation.school_id) do |t|
+        t.name = invitation.respond_to?(:teacher_name) ? invitation.teacher_name : user.name
+        t.email = user.email
+        t.status = 'active'
+      end
+
       grade_ids = invitation.respond_to?(:grade_ids) ? (invitation.grade_ids.presence || [invitation.grade_id].compact) : [invitation.grade_id].compact
 
       grade_ids.each do |gid|
