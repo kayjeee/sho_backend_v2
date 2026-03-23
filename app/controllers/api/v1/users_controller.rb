@@ -261,8 +261,20 @@ module Api
       end
 
       def load_user_by_path!
-        # Use .where().first instead of find_by to avoid exception
-        @user = User.where(auth0_id: params[:auth0_id]).first
+        id_param = params[:auth0_id]
+
+        # 1. Try finding by auth0_id
+        @user = User.where(auth0_id: id_param).first
+
+        # 2. Fallback to finding by MongoDB _id
+        if @user.nil?
+          begin
+            @user = User.find(id_param)
+          rescue Mongoid::Errors::DocumentNotFound, BSON::ObjectId::Invalid
+            @user = nil
+          end
+        end
+
         render_error(["User not found"], status: :not_found) unless @user
       end
 

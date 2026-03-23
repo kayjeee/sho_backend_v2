@@ -7,6 +7,7 @@ class TeacherGradeAssignment
   field :role_type,             type: String, default: 'primary'
   field :status,                type: Integer, default: 0
   field :assigned_at,           type: DateTime
+  field :teacher_model_id,      type: BSON::ObjectId
 
   # ===================== CONSTANTS =======================
   ROLE_TYPES = %w[primary assistant substitute coordinator].freeze

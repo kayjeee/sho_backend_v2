@@ -74,42 +74,16 @@ module Api
 
       # POST /api/v1/learner_invitations/:id/accept
       def accept
-        @invitation.update(status: 'accepted', accepted_at: Time.current)
+        result = UserServices::VerifyInvitationService.new(
+          token: @invitation.token,
+          auth0_id: params[:auth0_id]
+        ).call
 
-        # If auth0_id is provided, link the user to the school and learners
-        if params[:auth0_id].present?
-          user = User.find_or_initialize_by(auth0_id: params[:auth0_id])
-          user.email ||= @invitation.recipient_phone_number + "@placeholder-parent.com"
-          user.name  ||= @invitation.parent_name
-          user.roles |= ['Parent']
-          user.save!
-
-          # Associate user with school
-          user.add_school(@invitation.school_id)
-
-          # Find learners and link them to the parent
-          learners = if @invitation.learner_ids.present?
-                       Learner.where(:id.in => @invitation.learner_ids)
-                     elsif @invitation.learner_numbers.present?
-                       Learner.where(school_id: @invitation.school_id, :accession_number.in => @invitation.learner_numbers)
-                     else
-                       Learner.where(school_id: @invitation.school_id, accession_number: @invitation.learner_number)
-                     end
-
-          learners.each do |learner|
-            learner.add_parent(user.auth0_id)
-          end
-
-          # Ensure UserSchoolRole exists
-          UserSchoolRole.find_or_create_by!(
-            user: user,
-            school_id: @invitation.school_id,
-            role: 'Parent',
-            status: 0
-          )
+        if result[:success]
+          render_success(message: 'Invitation accepted', data: { invitation: result[:invitation].to_api_hash })
+        else
+          render_error(result[:message])
         end
-
-        render_success(message: 'Invitation accepted', data: { invitation: @invitation.reload.to_api_hash })
       rescue => e
         handle_exception(e, "Failed to accept invitation")
       end

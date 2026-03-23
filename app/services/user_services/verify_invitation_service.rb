@@ -113,9 +113,10 @@ module UserServices
 
     def link_teacher_to_grades(invitation, user)
       # Create or update the Teacher record
-      Teacher.find_or_create_by!(auth0_id: user.auth0_id, school_id: invitation.school_id) do |t|
+      teacher = Teacher.find_or_create_by!(auth0_id: user.auth0_id, school_id: invitation.school_id) do |t|
         t.name = invitation.respond_to?(:teacher_name) ? invitation.teacher_name : user.name
         t.email = user.email
+        t.slug = t.name.to_s.parameterize
         t.status = 'active'
       end
 
@@ -127,9 +128,11 @@ module UserServices
           grade_id: gid,
           school_id: invitation.school_id,
           role_type: 'primary',
-          assigned_by: invitation.sender || user,
+          assigned_by: invitation.respond_to?(:sender) ? (invitation.sender || user) : user,
           status: 0
-        )
+        ) do |tga|
+          tga.teacher_model_id = teacher.id
+        end
       end
 
       UserSchoolRole.find_or_create_by!(

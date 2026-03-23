@@ -116,6 +116,7 @@ class Api::V1::InvitationsController < ApplicationController
       render_success(
         message: 'Invitation accepted successfully',
         data: {
+          user: result[:user],
           learners: (result[:learners] || []).map { |l| safe_learner_hash(l) },
           invitation: safe_invitation_hash(result[:invitation])
         }

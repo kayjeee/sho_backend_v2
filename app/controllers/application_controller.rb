@@ -35,11 +35,11 @@ class ApplicationController < ActionController::API
   protected
 
   def render_success(message: nil, data: {}, status: :ok)
-    render json: { status: 'success', message: message, data: data }, status: status
+    render json: { success: true, status: 'success', message: message, data: data }, status: status
   end
 
   def render_error(message, errors = [], status: :unprocessable_entity)
-    render json: { status: 'error', message: message, errors: Array(errors) }, status: status
+    render json: { success: false, status: 'error', message: message, errors: Array(errors) }, status: status
   end
 
   def handle_exception(error, fallback_message)

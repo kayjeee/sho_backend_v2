@@ -37,7 +37,7 @@ module Api
         user_role = UserSchoolRole.find_by(
           school_id: params[:id],
           user_id: params[:parent_id],
-          role: 'Parent'
+          role: 'parent'
         )
 
         unless user_role
@@ -51,7 +51,7 @@ module Api
             name: parent.name,
             email: parent.email,
             auth0_id: parent.auth0_id,
-            role: 'Parent'
+            role: 'parent'
           }
         })
       rescue Mongoid::Errors::DocumentNotFound
