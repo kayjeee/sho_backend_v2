@@ -118,7 +118,8 @@ class Api::V1::InvitationsController < ApplicationController
         data: {
           user: result[:user],
           learners: (result[:learners] || []).map { |l| safe_learner_hash(l) },
-          invitation: safe_invitation_hash(result[:invitation])
+          invitation: safe_invitation_hash(result[:invitation]),
+          redirect_path: result[:redirect_path]
         }
       )
     else

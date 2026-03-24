@@ -26,12 +26,13 @@ module UserServices
 
       # Process invitation acceptance based on type
       if invitation.is_a?(TeacherInvitation) || (invitation.respond_to?(:role) && invitation.role == 'teacher')
-        link_teacher_to_grades(invitation, user)
+        # Use specialized service for teachers
+        return TeacherServices::TeacherInvitationService.accept_invitation(@token, @auth0_id)
       else
         link_parent_to_learners(learners, user)
       end
 
-      # Mark invitation as accepted
+      # Mark invitation as accepted (for non-teacher invitations)
       invitation.update!(
         status: 'accepted',
         accepted_at: Time.current
@@ -41,7 +42,8 @@ module UserServices
         success: true,
         user: user,
         invitation: invitation,
-        learners: learners
+        learners: learners,
+        redirect_path: user.onboarding_completed ? "/dashboard" : "/parent/onboarding"
       }
     rescue => e
       Rails.logger.error "❌ VerifyInvitationService Error: #{e.message}"
@@ -117,36 +119,7 @@ module UserServices
     end
 
     def link_teacher_to_grades(invitation, user)
-      # Create or update the Teacher record
-      teacher = Teacher.find_or_create_by!(auth0_id: user.auth0_id, school_id: invitation.school_id) do |t|
-        t.user = user
-        t.name = invitation.respond_to?(:teacher_name) ? invitation.teacher_name : user.name
-        t.email = user.email
-        t.status = 'active'
-      end
-
-      grade_ids = invitation.respond_to?(:grade_ids) ? (invitation.grade_ids.presence || [invitation.grade_id].compact) : [invitation.grade_id].compact
-
-      grade_ids.each do |gid|
-        TeacherGradeAssignment.find_or_create_by!(
-          teacher: user,
-          grade_id: gid,
-          school_id: invitation.school_id,
-          role_type: 'primary',
-          assigned_by: invitation.respond_to?(:sender) ? (invitation.sender || user) : user,
-          status: 0
-        ) do |tga|
-          tga.teacher_model_id = teacher.id
-        end
-      end
-
-      UserSchoolRole.find_or_create_by!(
-        user: user,
-        school_id: invitation.school_id,
-        role: 'teacher'
-      ) do |role|
-        role.status = 0
-      end
+      # Handled by TeacherInvitationService
     end
 
     def link_parent_to_learners(learners, user)

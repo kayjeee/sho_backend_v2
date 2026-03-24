@@ -17,7 +17,7 @@ class Teacher
   # ===================== ASSOCIATIONS =====================
   belongs_to :school
   belongs_to :user, inverse_of: :teacher_profile, optional: true
-  has_many :teacher_grade_assignments, foreign_key: :teacher_id # Note: this might conflict if existing assignments point to User
+  has_many :teacher_grade_assignments, foreign_key: :teacher_model_id
 
   # ===================== VALIDATIONS ======================
   validates :name,     presence: true

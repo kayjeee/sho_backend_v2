@@ -27,7 +27,8 @@ module Api
               message: 'Invitation accepted successfully',
               data: {
                 user: result[:user].to_api_hash,
-                invitation: result[:invitation].to_api_hash
+                invitation: result[:invitation].to_api_hash,
+                redirect_path: result[:redirect_path]
               }
             )
           else
