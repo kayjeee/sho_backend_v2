@@ -84,6 +84,11 @@ module UserServices
       if user.roles.include?('teacher')
         user.status = 'active' if user.status.blank?
       end
+
+      # For parents, also set status
+      if user.roles.include?('parent')
+        user.status = 'active' if user.status.blank?
+      end
     end
 
     def find_invitation_learners(invitation)
@@ -114,9 +119,9 @@ module UserServices
     def link_teacher_to_grades(invitation, user)
       # Create or update the Teacher record
       teacher = Teacher.find_or_create_by!(auth0_id: user.auth0_id, school_id: invitation.school_id) do |t|
+        t.user = user
         t.name = invitation.respond_to?(:teacher_name) ? invitation.teacher_name : user.name
         t.email = user.email
-        t.slug = t.name.to_s.parameterize
         t.status = 'active'
       end
 

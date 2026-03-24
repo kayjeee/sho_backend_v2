@@ -16,6 +16,7 @@ class Teacher
 
   # ===================== ASSOCIATIONS =====================
   belongs_to :school
+  belongs_to :user, inverse_of: :teacher_profile, optional: true
   has_many :teacher_grade_assignments, foreign_key: :teacher_id # Note: this might conflict if existing assignments point to User
 
   # ===================== VALIDATIONS ======================
@@ -35,9 +36,18 @@ class Teacher
 
   def generate_slug
     return if name.blank?
-    base = name.parameterize
-    # Add uniqueness check or short id if needed
-    self.slug ||= base
+    base = name.to_s.downcase.gsub(/\s+/, '-').gsub(/[^a-z0-9-]/, '')
+
+    # Use user's last 4 chars for short_id if available, else random
+    suffix = if user_id.present?
+               user_id.to_s.last(4)
+             elsif auth0_id.present?
+               auth0_id.to_s.last(4)
+             else
+               SecureRandom.hex(2)
+             end
+
+    self.slug ||= "#{base}-#{suffix}"
   end
 
   def to_api_hash

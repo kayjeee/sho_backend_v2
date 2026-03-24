@@ -48,6 +48,7 @@ class User
   has_many :teacher_invitations_received, class_name: 'TeacherInvitation', inverse_of: :teacher
 
   has_and_belongs_to_many :schools, class_name: 'School', inverse_of: :users, validate: false
+  has_one :teacher_profile, class_name: 'Teacher', inverse_of: :user
 
   # ONBOARDING ASSOCIATION
   embeds_one :onboarding_status, class_name: 'OnboardingStatus', inverse_of: :user
@@ -421,6 +422,7 @@ class User
   # Enhanced API serialization including onboarding status
   def to_api_hash
     base_hash = {
+      id: id.to_s,
       auth0_id: auth0_id,
       name: name,
       email: email,
