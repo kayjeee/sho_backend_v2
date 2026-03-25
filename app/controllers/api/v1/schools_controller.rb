@@ -1,7 +1,7 @@
 module Api
   module V1
     class SchoolsController < ApplicationController
-      before_action :set_school, only: [:show, :update, :destroy, :admins, :teachers, :parents]
+      before_action :set_school, only: [:show, :update, :destroy, :admins, :teachers, :parents, :show_teacher]
 
       # =========================
       # GET /api/v1/schools
@@ -78,6 +78,24 @@ module Api
         render_success(data: teachers.map(&:to_api_hash))
       rescue => e
         handle_exception(e, "Failed to fetch teachers")
+      end
+
+      # =========================
+      # GET /api/v1/schools/:id/teachers/:teacher_id
+      # =========================
+      def show_teacher
+        teacher_id = params[:teacher_id]
+
+        @teacher = Teacher.find(teacher_id) rescue nil
+        @teacher ||= Teacher.find_by(slug: teacher_id, school_id: @school.id)
+
+        unless @teacher
+          return render_error("Teacher not found in this school", [], status: :not_found)
+        end
+
+        render_success(data: @teacher.to_api_hash)
+      rescue => e
+        handle_exception(e, "Failed to fetch teacher")
       end
 
       # =========================

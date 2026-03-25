@@ -44,6 +44,6 @@ class ApplicationController < ActionController::API
 
   def handle_exception(error, fallback_message)
     Rails.logger.error("❌ #{fallback_message}: #{error.message}")
-    render json: { status: 'error', message: fallback_message, errors: [error.message] }, status: :internal_server_error
+    render json: { success: false, status: 'error', message: fallback_message, errors: [error.message] }, status: :internal_server_error
   end
 end
