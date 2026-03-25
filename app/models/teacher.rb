@@ -8,6 +8,7 @@ class Teacher
   field :email,            type: String
   field :auth0_id,         type: String
   field :phone,            type: String
+  field :recipient_phone_number, type: String
   field :slug,             type: String
   field :status,           type: String, default: 'active'
   field :bio,              type: String
