@@ -275,6 +275,20 @@ module Api
           end
         end
 
+        # 3. CRUCIAL: Try finding by Teacher ID link
+        if @user.nil?
+          begin
+            teacher = Teacher.find(id_param)
+            if teacher&.user_id
+              @user = User.find(teacher.user_id)
+            elsif teacher&.auth0_id
+              @user = User.where(auth0_id: teacher.auth0_id).first
+            end
+          rescue Mongoid::Errors::DocumentNotFound, BSON::ObjectId::Invalid
+            @user = nil
+          end
+        end
+
         render_error(["User not found"], status: :not_found) unless @user
       end
 

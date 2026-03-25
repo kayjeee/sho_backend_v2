@@ -25,12 +25,18 @@ module TeacherServices
 
       user.save! if user.changed?
 
-      # 3. CRUCIAL STEP: Finds the existing Teacher record (matching the school_id and
-      # recipient_phone_number from the invitation) and updates it with user_id and auth0_id.
-      teacher = Teacher.where(
-        school_id: invitation.school_id,
-        recipient_phone_number: invitation.recipient_phone_number
-      ).first
+      # 3. CRUCIAL STEP: Finds the existing Teacher record (matching by auth0_id OR
+      # matching the school_id and recipient_phone_number from the invitation)
+      # and updates it with user_id and auth0_id.
+      teacher = Teacher.where(auth0_id: auth0_id).first ||
+                Teacher.where(
+                  school_id: invitation.school_id,
+                  recipient_phone_number: invitation.recipient_phone_number
+                ).first ||
+                Teacher.where(
+                  school_id: invitation.school_id,
+                  email: user.email
+                ).first
 
       if teacher
         teacher.update!(
