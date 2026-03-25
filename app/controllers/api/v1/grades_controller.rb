@@ -272,9 +272,18 @@ module Api
       end
 
 def set_grade
-  @grade = Grade.find(params[:id])
+  grade_id = params[:id] || params[:grade_id]
+
+  if grade_id.blank?
+    Rails.logger.warn "⚠️ set_grade: grade_id is nil or blank. params: #{params.inspect}"
+    return render_error('Grade ID is required', [], status: :bad_request)
+  end
+
+  @grade = Grade.find(grade_id)
 rescue Mongoid::Errors::DocumentNotFound
-  render_error('Grade not found', [], status: :not_found)   # add `status:`
+  render_error('Grade not found', [], status: :not_found)
+rescue BSON::ObjectId::Invalid
+  render_error('Invalid Grade ID format', [], status: :bad_request)
 end
 
       def grade_params
