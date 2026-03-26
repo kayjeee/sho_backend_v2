@@ -88,10 +88,6 @@ module UserServices
         user.roles |= [invitation.role.to_s.downcase]
       end
 
-      # Atomic updates using MongoDB operators ($addToSet) to prevent duplicates in DB
-      user.add_to_set(school_ids: invitation.school_id.to_s)
-      user.add_to_set(roles: invitation.role.to_s.downcase) if invitation.respond_to?(:role) && invitation.role.present?
-
       # Update contact info if blank
       user.phone_number ||= invitation.recipient_phone_number if invitation.respond_to?(:recipient_phone_number)
       user.invited_via ||= invitation.invited_via if invitation.respond_to?(:invited_via)

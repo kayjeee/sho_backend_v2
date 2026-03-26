@@ -13,15 +13,28 @@ module Api
           recent_activity: []
         }
 
-        if params[:teacher_id]
-          teacher = User.find(params[:teacher_id])
-          assignments = TeacherGradeAssignment.by_teacher(teacher.id).active
-          stats[:grades_assigned] = assignments.count
+        # Support lookup by teacher_id (User ID, Teacher ID, or auth0_id)
+        id_param = params[:teacher_id] || params[:auth0_id]
 
-          grade_ids = assignments.pluck(:grade_id)
-          stats[:total_learners] = Learner.where(:grade_id.in => grade_ids).count
-          stats[:pending_invitations] = LearnerInvitation.where(:grade_id.in => grade_ids, status: 'pending').count
-          stats[:accepted_invitations] = LearnerInvitation.where(:grade_id.in => grade_ids, status: 'accepted').count
+        if id_param
+          teacher_user = User.find(id_param) rescue nil
+          teacher_user ||= User.find_by(auth0_id: id_param)
+
+          # Fallback: check if the ID provided belongs to a Teacher record
+          if teacher_user.nil?
+            teacher_record = Teacher.find(id_param) rescue nil
+            teacher_user = teacher_record&.user
+          end
+
+          if teacher_user
+            assignments = TeacherGradeAssignment.by_teacher(teacher_user.id).active
+            stats[:grades_assigned] = assignments.count
+
+            grade_ids = assignments.pluck(:grade_id)
+            stats[:total_learners] = Learner.where(:grade_id.in => grade_ids).count
+            stats[:pending_invitations] = LearnerInvitation.where(:grade_id.in => grade_ids, status: 'pending').count
+            stats[:accepted_invitations] = LearnerInvitation.where(:grade_id.in => grade_ids, status: 'accepted').count
+          end
         end
 
         render_success(data: stats)
