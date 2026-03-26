@@ -31,7 +31,7 @@ module UserServices
       # 4. Handle Role-Specific logic
       if invitation.is_a?(TeacherInvitation) || (invitation.respond_to?(:role) && invitation.role == 'teacher')
         # Call non-recursive completion method
-        teacher = TeacherServices::TeacherInvitationService.complete_teacher_onboarding(invitation, user)
+        teacher = TeacherServices::TeacherInvitationService.link_teacher_to_user(invitation, user)
       else
         # Find learners (parent flow)
         learners = find_invitation_learners(invitation)

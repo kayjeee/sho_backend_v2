@@ -251,8 +251,22 @@ module Api
           # Use .where().first instead of find_by to avoid exception
           @user = User.where(auth0_id: auth0_id).first
         elsif params[:id].present?
-          # Fallback to internal ID if it's a member route call
-          @user = User.find(params[:id])
+          # Try finding by internal User ID
+          begin
+            @user = User.find(params[:id])
+          rescue Mongoid::Errors::DocumentNotFound, BSON::ObjectId::Invalid
+            # Try finding via Teacher ID link
+            begin
+              teacher = Teacher.find(params[:id])
+              if teacher&.user_id
+                @user = User.find(teacher.user_id)
+              elsif teacher&.auth0_id
+                @user = User.where(auth0_id: teacher.auth0_id).first
+              end
+            rescue Mongoid::Errors::DocumentNotFound, BSON::ObjectId::Invalid
+              @user = nil
+            end
+          end
         end
 
         render_error(["User not found or auth0_id missing"], status: :not_found) unless @user
