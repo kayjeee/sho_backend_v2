@@ -2,33 +2,18 @@
 module TeacherServices
   class TeacherInvitationService
     def self.accept_invitation(token, auth0_id)
-      # 1. Find the TeacherInvitation by token and ensure it is pending.
-      invitation = TeacherInvitation.find_by_token(token)
-      return { success: false, message: "Invitation not found or already processed" } unless invitation && invitation.status == 'pending'
+      # This method is now legacy and should be refactored to use link_teacher_to_user
+      # via VerifyInvitationService to prevent recursive loops.
+      # For now, it delegates to VerifyInvitationService.
+      UserServices::VerifyInvitationService.new(token: token, auth0_id: auth0_id).call
+    end
 
-      # 2. Find or initialize the User by auth0_id.
-      user = User.find_or_initialize_by(auth0_id: auth0_id)
-
-      # Use |= for array roles to prevent duplicates in memory
-      user.roles ||= []
-      user.roles |= ['teacher']
-
-      # 4. Atomic Updates: Add "teacher" to the roles array and school_id to school_ids.
-      # Use MongoDB atomic operators like $addToSet to prevent duplicate IDs.
-      user.add_to_set(roles: 'teacher')
-      user.add_to_set(school_ids: invitation.school_id.to_s)
-
-      # Set onboarding_completed to false if they haven't completed the teacher-specific steps.
-      if user.onboarding_completed.nil? || user.onboarding_completed == false
-        user.onboarding_completed = false
-      end
-
-      user.save! if user.changed?
-
+    # Handle "Role-Specific" logic for Teachers
+    def self.link_teacher_to_user(invitation, user)
       # 3. CRUCIAL STEP: Finds the existing Teacher record (matching by auth0_id OR
       # matching the school_id and recipient_phone_number from the invitation)
       # and updates it with user_id and auth0_id.
-      teacher = Teacher.where(auth0_id: auth0_id).first ||
+      teacher = Teacher.where(auth0_id: user.auth0_id).first ||
                 Teacher.where(
                   school_id: invitation.school_id,
                   recipient_phone_number: invitation.recipient_phone_number
@@ -41,14 +26,14 @@ module TeacherServices
       if teacher
         teacher.update!(
           user_id: user.id,
-          auth0_id: auth0_id,
+          auth0_id: user.auth0_id,
           status: 'active'
         )
       else
         # Fallback to create if not found
-        teacher = Teacher.find_or_create_by!(auth0_id: auth0_id, school_id: invitation.school_id) do |t|
+        teacher = Teacher.find_or_create_by!(auth0_id: user.auth0_id, school_id: invitation.school_id) do |t|
           t.user_id = user.id
-          t.name = invitation.teacher_name
+          t.name = invitation.respond_to?(:teacher_name) ? invitation.teacher_name : user.name
           t.email = user.email || "#{invitation.recipient_phone_number}@placeholder.com"
           t.status = 'active'
           t.recipient_phone_number = invitation.recipient_phone_number
@@ -58,26 +43,10 @@ module TeacherServices
       # Consistency: Ensure the Teacher document status is set to active.
       teacher.set(status: 'active') unless teacher.status == 'active'
 
-      # 4. Mark invitation as accepted.
-      invitation.update!(status: 'accepted', accepted_at: Time.current)
-
-      # 5. Create TeacherGradeAssignment records for all grade_ids found in the invitation.
+      # Create TeacherGradeAssignment records for all grade_ids found in the invitation.
       link_grades(invitation, user, teacher)
 
-      # 6. Determine redirect path.
-      user.reload
-      # Points to /teacher/onboarding if the profile is incomplete, or the dashboard if complete.
-      redirect_path = user.onboarding_completed ? "/teacher/dashboard" : "/teacher/onboarding"
-
-      {
-        success: true,
-        user: user,
-        redirect_path: redirect_path
-      }
-    rescue => e
-      Rails.logger.error "❌ TeacherInvitationService Error: #{e.message}"
-      Rails.logger.error e.backtrace.first(5).join("\n")
-      { success: false, message: e.message }
+      teacher
     end
 
     private

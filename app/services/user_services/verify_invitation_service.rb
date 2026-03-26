@@ -12,38 +12,45 @@ module UserServices
 
       user = User.find_or_initialize_by(auth0_id: @auth0_id)
 
-      # Update user attributes from invitation
+      # 1. Update user attributes and atomic fields
       update_user_attributes(user, invitation)
 
-      # FIX: Using .changed? instead of the buggy .changes_to_save
-      if user.changed?
+      # 2. Always save the User record
+      if user.changed? || user.new_record?
         user.save!
-        Rails.logger.info "📝 Updated user #{@auth0_id} during invitation verification"
+        Rails.logger.info "📝 User profile updated/created for #{@auth0_id}"
       end
 
-      # Find learners associated with invitation
-      learners = find_invitation_learners(invitation)
-
-      # Process invitation acceptance based on type
+      # 3. Handle Role-Specific logic
       if invitation.is_a?(TeacherInvitation) || (invitation.respond_to?(:role) && invitation.role == 'teacher')
-        # Use specialized service for teachers
-        return TeacherServices::TeacherInvitationService.accept_invitation(@token, @auth0_id)
+        # Call specific method without recursive loop
+        TeacherServices::TeacherInvitationService.link_teacher_to_user(invitation, user)
       else
+        # Find learners (parent flow)
+        learners = find_invitation_learners(invitation)
         link_parent_to_learners(learners, user)
       end
 
-      # Mark invitation as accepted (for non-teacher invitations)
+      # 4. Mark invitation as accepted
       invitation.update!(
         status: 'accepted',
         accepted_at: Time.current
       )
 
+      # 5. Determine centralized redirect path
+      user.reload
+      redirect_path = if user.roles.include?('teacher')
+                        user.onboarding_completed ? "/teacher/dashboard" : "/teacher/onboarding"
+                      else
+                        user.onboarding_completed ? "/dashboard" : "/parent/onboarding"
+                      end
+
       {
         success: true,
         user: user,
         invitation: invitation,
-        learners: learners,
-        redirect_path: user.onboarding_completed ? "/dashboard" : "/parent/onboarding"
+        learners: learners || [],
+        redirect_path: redirect_path
       }
     rescue => e
       Rails.logger.error "❌ VerifyInvitationService Error: #{e.message}"
@@ -61,6 +68,7 @@ module UserServices
     end
 
     def update_user_attributes(user, invitation)
+      # Use |= for array roles and school_ids to prevent duplicates
       user.school_ids ||= []
       user.school_ids |= [invitation.school_id.to_s]
 
@@ -69,6 +77,10 @@ module UserServices
         user.roles ||= []
         user.roles |= [invitation.role.to_s.downcase]
       end
+
+      # Atomic updates using MongoDB operators ($addToSet) to prevent duplicates in DB
+      user.add_to_set(school_ids: invitation.school_id.to_s)
+      user.add_to_set(roles: invitation.role.to_s.downcase) if invitation.respond_to?(:role) && invitation.role.present?
 
       # Update contact info if blank
       user.phone_number ||= invitation.recipient_phone_number if invitation.respond_to?(:recipient_phone_number)
