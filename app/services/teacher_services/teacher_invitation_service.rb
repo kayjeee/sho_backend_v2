@@ -9,7 +9,7 @@ module TeacherServices
     end
 
     # Handle "Role-Specific" logic for Teachers
-    def self.link_teacher_to_user(invitation, user)
+    def self.complete_teacher_onboarding(invitation, user)
       # 3. CRUCIAL STEP: Finds the existing Teacher record (matching by auth0_id OR
       # matching the school_id and recipient_phone_number from the invitation)
       # and updates it with user_id and auth0_id.

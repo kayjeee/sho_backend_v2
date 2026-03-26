@@ -21,26 +21,36 @@ module UserServices
         Rails.logger.info "📝 User profile updated/created for #{@auth0_id}"
       end
 
-      # 3. Handle Role-Specific logic
+      # 3. CRUCIAL: Mark invitation as accepted BEFORE calling role-specific services
+      # This prevents recursive loops if the role-specific service re-verifies.
+      invitation.update!(
+        status: 'accepted',
+        accepted_at: Time.current
+      )
+
+      # 4. Handle Role-Specific logic
       if invitation.is_a?(TeacherInvitation) || (invitation.respond_to?(:role) && invitation.role == 'teacher')
-        # Call specific method without recursive loop
-        TeacherServices::TeacherInvitationService.link_teacher_to_user(invitation, user)
+        # Call non-recursive completion method
+        teacher = TeacherServices::TeacherInvitationService.complete_teacher_onboarding(invitation, user)
       else
         # Find learners (parent flow)
         learners = find_invitation_learners(invitation)
         link_parent_to_learners(learners, user)
       end
 
-      # 4. Mark invitation as accepted
-      invitation.update!(
-        status: 'accepted',
-        accepted_at: Time.current
-      )
-
       # 5. Determine centralized redirect path
       user.reload
       redirect_path = if user.roles.include?('teacher')
-                        user.onboarding_completed ? "/teacher/dashboard" : "/teacher/onboarding"
+                        if user.onboarding_completed
+                          # Use specific dashboard path if teacher record was found/created
+                          if teacher && invitation.respond_to?(:school_slug)
+                            "/teacher/school/#{invitation.school_slug}/teachers/#{teacher.slug}/dashboard"
+                          else
+                            "/teacher/dashboard"
+                          end
+                        else
+                          "/teacher/onboarding"
+                        end
                       else
                         user.onboarding_completed ? "/dashboard" : "/parent/onboarding"
                       end
