@@ -12,17 +12,27 @@ class Api::V1::InvitationsController < ApplicationController
   # GET /api/v1/invitations/:token/verify_with_details
   # Verify invitation token & return invitation details
   # ------------------------------------------------------------
+  # ------------------------------------------------------------
+  # GET /api/v1/invitations/:token
+  # Alias for verify_with_details to support standard REST
+  # ------------------------------------------------------------
+  def show
+    verify_with_details
+  end
+
+  # ------------------------------------------------------------
+  # GET /api/v1/invitations/:token/verify_with_details
+  # Verify invitation token & return invitation details
+  # ------------------------------------------------------------
   def verify_with_details
-    Rails.logger.info "🔍 [InvitationsController] verify_with_details called for token: #{params[:token]}"
+    token = params[:token] || params[:id]
+    Rails.logger.info "🔍 [InvitationsController] verify_with_details called for token: #{token}"
     
-    invitation = find_invitation_by_token(params[:token])
+    invitation = find_invitation_by_token(token)
     
     if invitation.nil?
-      Rails.logger.warn "❌ No invitation found for token: #{params[:token]}"
-      return render json: {
-        success: false,
-        message: 'Invalid or expired invitation link.'
-      }, status: :not_found
+      Rails.logger.warn "❌ No invitation found for token: #{token}"
+      return render_error('Invalid or expired invitation link.', [], status: :not_found)
     end
     
     Rails.logger.info "✅ Found invitation: #{invitation.class.name}##{invitation.id}"
@@ -37,19 +47,14 @@ class Api::V1::InvitationsController < ApplicationController
     expires_in = calculate_expires_in(expiration_date)
     
     # Generate response
-    render json: {
-      success: true,
+    render_success(data: {
       invitation: safe_invitation_hash(invitation),
       expires_in: expires_in,
       is_expired: is_expired
-    }, status: :ok
+    })
     
   rescue StandardError => e
-    log_error("Invitation verification failed", e)
-    render json: {
-      success: false,
-      message: 'Failed to verify invitation. Please try again.'
-    }, status: :internal_server_error
+    handle_exception(e, "Invitation verification failed")
   end
 
   # ------------------------------------------------------------
@@ -73,35 +78,26 @@ class Api::V1::InvitationsController < ApplicationController
 
     Rails.logger.info "📊 Service result - Success: #{result.success}, Errors: #{result.errors}"
 
-    # ✅ FIX: Changed result.success? to result.success (Struct doesn't have predicate methods)
     if result.success
       invitation = result.invitation
       magic_link = generate_magic_link(invitation)
       
       log_invitation_created(invitation, magic_link)
       
-      render json: {
-        success: true,
+      render_success(
         message: 'Invitation sent successfully.',
-        invitation: safe_invitation_hash(invitation),
-        magic_link: magic_link
-      }, status: :created
+        data: {
+          invitation: safe_invitation_hash(invitation),
+          magic_link: magic_link
+        },
+        status: :created
+      )
     else
-      Rails.logger.error "❌ Invitation creation failed with errors: #{result.errors}"
-      render json: {
-        success: false,
-        errors: result.errors,
-        message: format_errors_for_user(result.errors)
-      }, status: :unprocessable_entity
+      render_error('Invitation creation failed', result.errors)
     end
     
   rescue StandardError => e
-    log_error("Invitation creation failed", e)
-    render json: {
-      success: false,
-      message: 'Failed to create invitation. Please try again.',
-      error: Rails.env.development? ? e.message : nil
-    }, status: :unprocessable_entity
+    handle_exception(e, "Invitation creation failed")
   end
 
   # ------------------------------------------------------------
@@ -109,47 +105,29 @@ class Api::V1::InvitationsController < ApplicationController
   # Verify & accept invitation, linking parent to learners
   # ------------------------------------------------------------
   def verify
-    Rails.logger.info "🔍 [InvitationsController] Verifying invitation"
-    Rails.logger.info "   Token: #{params[:token]}, Auth0 ID: #{params[:auth0_id]}"
+    Rails.logger.info "🔍 [InvitationsController] Verifying invitation via Service"
     
-    # Validate required parameters
-    return render_error('Missing auth0_id') unless params[:auth0_id].present?
-    return render_error('Missing token') unless params[:token].present?
+    result = UserServices::VerifyInvitationService.new(
+      token: params[:token],
+      auth0_id: params[:auth0_id]
+    ).call
 
-    # Find invitation
-    invitation = find_invitation_by_token(params[:token])
-    return render_error('Invitation not found') unless invitation
-
-    # Validate invitation status
-    validation_result = validate_invitation_for_acceptance(invitation)
-    return validation_result if validation_result
-
-    # Find learners associated with invitation
-    learners = find_invitation_learners(invitation)
-    if learners.blank?
-      Rails.logger.error "❌ No learners found for invitation: #{invitation.id}"
-      return render_error('Learners not found for this invitation')
+    if result[:success]
+      render_success(
+        message: 'Invitation accepted successfully',
+        data: {
+          user: result[:user],
+          learners: (result[:learners] || []).map { |l| safe_learner_hash(l) },
+          invitation: safe_invitation_hash(result[:invitation]),
+          redirect_path: result[:redirect_path]
+        }
+      )
+    else
+      render_error(result[:message], [], status: :unprocessable_entity)
     end
     
-    Rails.logger.info "✅ Found #{learners.count} learner(s) for invitation"
-
-    # Process invitation acceptance
-    process_invitation_acceptance(invitation, learners, params[:auth0_id])
-    
-    # Log success
-    log_invitation_accepted(invitation, learners)
-
-    # Return success response
-    render json: {
-      success: true,
-      message: 'Invitation accepted successfully',
-      learners: learners.map { |l| safe_learner_hash(l) },
-      invitation: safe_invitation_hash(invitation)
-    }, status: :ok
-    
   rescue StandardError => e
-    log_error("Invitation verification failed", e)
-    render_error('Failed to verify invitation. Please try again.')
+    handle_exception(e, "Invitation verification failed")
   end
 
   # ------------------------------------------------------------
@@ -162,10 +140,7 @@ class Api::V1::InvitationsController < ApplicationController
 
     # Validate bulk parameters
     if bulk_params[:invitations].blank?
-      return render json: {
-        success: false,
-        message: 'No invitations provided'
-      }, status: :unprocessable_entity
+      return render_error('No invitations provided')
     end
 
     # Find sender user
@@ -182,7 +157,6 @@ class Api::V1::InvitationsController < ApplicationController
       invited_via: bulk_params[:invited_via] || 'whatsapp'
     ).call
 
-    # ✅ FIX: Changed result.success to match Struct attribute access
     # Handle response based on result
     if result.success
       handle_bulk_success(result)
@@ -191,13 +165,7 @@ class Api::V1::InvitationsController < ApplicationController
     end
     
   rescue StandardError => e
-    log_error("Bulk invitation creation failed", e)
-    render json: {
-      success: false,
-      message: 'Failed to create bulk invitations. Please try again.',
-      error: Rails.env.development? ? e.message : nil,
-      invitations: []
-    }, status: :unprocessable_entity
+    handle_exception(e, "Bulk invitation creation failed")
   end
 
   # ============================================================
@@ -303,14 +271,21 @@ class Api::V1::InvitationsController < ApplicationController
     Rails.logger.debug "🔍 Searching for token in all invitation collections: #{token}"
     
     # Search in order of likelihood (with status filter)
+    # Note: TeacherInvitation uses hashed tokens, so we use its custom finder
     invitation = Invitation.where(token: token, status: 'pending').first ||
-                 LearnerInvitation.where(token: token, status: 'pending').first ||
-                 TeacherInvitation.where(token: token, status: 'pending').first
+                 LearnerInvitation.where(token: token, status: 'pending').first
+
+    unless invitation
+      teacher_invitation = TeacherInvitation.find_by_token(token)
+      invitation = teacher_invitation if teacher_invitation&.status == 'pending'
+    end
     
-    # Fallback: search without status filter
-    invitation ||= Invitation.where(token: token).first ||
+    # Fallback: search without status filter (if not already found)
+    unless invitation
+      invitation = Invitation.where(token: token).first ||
                    LearnerInvitation.where(token: token).first ||
-                   TeacherInvitation.where(token: token).first
+                   TeacherInvitation.find_by_token(token)
+    end
     
     invitation
   end
@@ -319,55 +294,49 @@ class Api::V1::InvitationsController < ApplicationController
   # INVITATION VALIDATION
   # ------------------------------------------------------------
   def validate_invitation_status(invitation)
-  expiration_date = extract_expiration_date(invitation)
-  is_expired = check_if_expired(invitation, expiration_date)
+    expiration_date = extract_expiration_date(invitation)
+    is_expired = check_if_expired(invitation, expiration_date)
 
-  if is_expired
-    Rails.logger.warn "⚠️ Invitation expired: #{invitation.id}"
-    return render json: {
-      success: false,
-      message: 'Invitation has expired.'
-    }, status: :gone
+    if is_expired
+      Rails.logger.warn "⚠️ Invitation expired: #{invitation.id}"
+      return render_error('Invitation has expired.', [], status: :gone)
+    end
+
+    # Handle both pending? method and status string check
+    is_pending = if invitation.respond_to?(:pending?)
+      invitation.pending?
+    else
+      invitation.status == 'pending'
+    end
+
+    unless is_pending
+      Rails.logger.warn "⚠️ Invitation not pending: #{invitation.id}, status: #{invitation.status}"
+      return render_error("Invitation has already been #{invitation.status}.", [], status: :conflict)
+    end
+
+    nil
   end
-
-  # ✅ FIX: Handle both pending? method and status string check
-  is_pending = if invitation.respond_to?(:pending?)
-    invitation.pending?
-  else
-    invitation.status == 'pending'
-  end
-
-  unless is_pending
-    Rails.logger.warn "⚠️ Invitation not pending: #{invitation.id}, status: #{invitation.status}"
-    return render json: {
-      success: false,
-      message: "Invitation has already been #{invitation.status}."
-    }, status: :conflict
-  end
-
-  nil
-end
 
   def validate_invitation_for_acceptance(invitation)
-  expiration_date = extract_expiration_date(invitation)
-  is_expired = check_if_expired(invitation, expiration_date)
+    expiration_date = extract_expiration_date(invitation)
+    is_expired = check_if_expired(invitation, expiration_date)
 
-  if is_expired
-    return render_error('Invitation has expired')
+    if is_expired
+      return render_error('Invitation has expired')
+    end
+
+    is_pending = if invitation.respond_to?(:pending?)
+      invitation.pending?
+    else
+      invitation.status == 'pending'
+    end
+
+    unless is_pending
+      return render_error("Invitation has already been #{invitation.status}")
+    end
+
+    nil
   end
-
-  is_pending = if invitation.respond_to?(:pending?)
-    invitation.pending?
-  else
-    invitation.status == 'pending'
-  end
-
-  unless is_pending
-    return render_error("Invitation has already been #{invitation.status}")
-  end
-
-  nil
-end
 
   # ------------------------------------------------------------
   # EXPIRATION HANDLING
@@ -398,10 +367,13 @@ end
   # LEARNER LOOKUP
   # ------------------------------------------------------------
   def find_invitation_learners(invitation)
+    # ✅ FIX: Teachers don't have associated learners in the same way parents do
+    return [] if invitation.is_a?(TeacherInvitation)
+
     Rails.logger.info "🔍 Finding learners for invitation: #{invitation.id}"
     
     # Strategy 1: Direct learner IDs
-    if invitation.learner_ids.present? && invitation.learner_ids.any?
+    if invitation.respond_to?(:learner_ids) && invitation.learner_ids.present? && invitation.learner_ids.any?
       learners = Learner.where(:id.in => invitation.learner_ids).to_a
       if learners.present?
         Rails.logger.info "✅ Found #{learners.count} learner(s) by ID"
@@ -492,12 +464,43 @@ end
   # INVITATION PROCESSING
   # ------------------------------------------------------------
   def process_invitation_acceptance(invitation, learners, auth0_id)
-    link_parent_to_learners(learners, auth0_id)
+    if invitation.is_a?(TeacherInvitation)
+      link_teacher_to_grades(invitation, auth0_id)
+    else
+      link_parent_to_learners(learners, auth0_id)
+    end
     update_user_from_invitation(auth0_id, invitation)
     mark_invitation_accepted(invitation)
   end
 
+  def link_teacher_to_grades(invitation, auth0_id)
+    user = User.find_by(auth0_id: auth0_id)
+    return unless user
+
+    grade_ids = invitation.grade_ids.presence || [invitation.grade_id].compact
+    grade_ids.each do |gid|
+      TeacherGradeAssignment.find_or_create_by!(
+        teacher: user,
+        grade_id: gid,
+        school_id: invitation.school_id,
+        role_type: 'primary',
+        assigned_by: invitation.sender || user,
+        status: 0
+      )
+    end
+
+    UserSchoolRole.find_or_create_by!(
+      user: user,
+      school_id: invitation.school_id,
+      role: 'teacher',
+      status: 0
+    )
+  end
+
   def link_parent_to_learners(learners, parent_auth0_id)
+    user = User.find_by(auth0_id: parent_auth0_id)
+    return unless user
+
     Rails.logger.info "🔗 Linking parent #{parent_auth0_id} to #{learners.count} learner(s)"
     
     learners.each do |learner|
@@ -508,6 +511,16 @@ end
         Rails.logger.error "❌ Failed to link parent to learner #{learner.id}: #{e.message}"
       end
     end
+
+    # Ensure UserSchoolRole exists
+    if learners.any?
+      UserSchoolRole.find_or_create_by!(
+        user: user,
+        school_id: learners.first.school_id,
+        role: 'parent',
+        status: 0
+      )
+    end
   end
 
   def update_user_from_invitation(auth0_id, invitation)
@@ -517,13 +530,19 @@ end
     user.school_ids ||= []
     user.school_ids |= [invitation.school_id.to_s]
     
+    # ROLE LOGIC: Add the role from the invitation if it's not already there
+    if invitation.respond_to?(:role) && invitation.role.present?
+      user.roles ||= []
+      user.roles |= [invitation.role.to_s.downcase] # Use lowercase for consistency
+    end
+
     # Only update if blank (don't overwrite existing data)
     user.phone_number ||= invitation.recipient_phone_number if invitation.respond_to?(:recipient_phone_number)
     user.invited_via ||= invitation.invited_via if invitation.respond_to?(:invited_via)
     
     if user.changed?
       user.save
-      Rails.logger.info "📝 Updated user #{auth0_id} from invitation"
+      Rails.logger.info "📝 Updated user #{auth0_id} from invitation (Roles: #{user.roles})"
     end
   end
 
@@ -579,13 +598,15 @@ end
       Rails.logger.info "🔗 Magic Link: #{magic_link}"
     end
     
-    render json: {
-      success: true,
+    render_success(
       message: "Successfully created #{result.stats[:successful]} invitations",
-      invitations: result.invitations.map { |inv| safe_invitation_hash(inv) },
-      stats: result.stats,
-      magic_links: result.invitations.map { |inv| generate_magic_link(inv) }
-    }, status: :created
+      data: {
+        invitations: result.invitations.map { |inv| safe_invitation_hash(inv) },
+        stats: result.stats,
+        magic_links: result.invitations.map { |inv| generate_magic_link(inv) }
+      },
+      status: :created
+    )
   end
 
   def handle_bulk_partial_failure(result)
@@ -593,13 +614,15 @@ end
     
     status_code = result.stats[:failed] == result.stats[:total] ? :unprocessable_entity : :multi_status
     
-    render json: {
-      success: result.stats[:failed] < result.stats[:total],
+    render_success(
       message: "Bulk invitation completed with some failures",
-      invitations: result.invitations.map { |inv| safe_invitation_hash(inv) },
-      stats: result.stats,
-      errors: result.errors
-    }, status: status_code
+      data: {
+        invitations: result.invitations.map { |inv| safe_invitation_hash(inv) },
+        stats: result.stats,
+        errors: result.errors
+      },
+      status: status_code
+    )
   end
 
   # ------------------------------------------------------------
@@ -687,12 +710,6 @@ end
     end
   end
 
-  def render_error(message, status: :unprocessable_entity)
-    render json: {
-      success: false,
-      message: message
-    }, status: status
-  end
 
   # ------------------------------------------------------------
   # RATE LIMITING

@@ -34,6 +34,11 @@ class TeacherInvitation
   # Virtual attribute for the raw token (not persisted)
   attr_reader :token
 
+  def token=(value)
+    @token = value
+    self.token_hash = Digest::SHA256.hexdigest(value) if value.present?
+  end
+
   # ======================== INDEXES =======================
   index({ token_hash: 1 }, { unique: true })
   index({ status: 1 })

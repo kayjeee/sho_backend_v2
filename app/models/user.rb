@@ -16,6 +16,8 @@ class User
   field :last_login,       type: Time
   field :phone,            type: String
   field :phone_number,     type: String
+  field :invited_via,      type: String
+  field :accepted_at,      type: Time
 
   # ======================== NEW: ONBOARDING SYNC FIELDS ========================
   # These are denormalized from OnboardingStatus for efficient querying
@@ -35,6 +37,8 @@ class User
   has_many :messages,            inverse_of: :user
   has_many :received_messages,   class_name: 'Message', inverse_of: :receiver
   has_many :user_school_roles,   class_name: 'UserSchoolRole', inverse_of: :user
+  has_many :teacher_grade_assignments, class_name: 'TeacherGradeAssignment', inverse_of: :teacher
+  has_many :assigned_teacher_roles, class_name: 'TeacherGradeAssignment', inverse_of: :assigned_by
 
   # GRADE-RELATED ASSOCIATIONS
   has_many :created_grades,      class_name: 'Grade', inverse_of: :created_by
@@ -42,10 +46,9 @@ class User
   has_many :learner_invitations_sent, class_name: 'LearnerInvitation', inverse_of: :invited_by
   has_many :teacher_invitations_sent, class_name: 'TeacherInvitation', inverse_of: :invited_by
   has_many :teacher_invitations_received, class_name: 'TeacherInvitation', inverse_of: :teacher
-  has_many :teacher_grade_assignments, class_name: 'TeacherGradeAssignment', inverse_of: :teacher
-  has_many :assigned_teacher_roles, class_name: 'TeacherGradeAssignment', inverse_of: :assigned_by
 
   has_and_belongs_to_many :schools, class_name: 'School', inverse_of: :users, validate: false
+  has_one :teacher_profile, class_name: 'Teacher', inverse_of: :user
 
   # ONBOARDING ASSOCIATION
   embeds_one :onboarding_status, class_name: 'OnboardingStatus', inverse_of: :user
@@ -67,6 +70,7 @@ class User
   index({ 'onboarding_status.completion_percentage' => 1 })
 
   # ======================== CALLBACKS =======================
+  before_save :normalize_roles
   before_save :log_school_id_changes, if: :school_ids_changed?
   
   # Onboarding callbacks
@@ -93,6 +97,12 @@ class User
 
   def assistant_teaching_grades
     teaching_grades.where(teacher_grade_assignments: { role_type: 'assistant' })
+  end
+
+  def teacher_slug(school_name = nil)
+    base = name.to_s.downcase.gsub(/\s+/, '-').gsub(/[^a-z0-9-]/, '')
+    short_id = id.to_s.last(4)
+    "#{base}-#{short_id}"
   end
 
   def can_access_grade?(grade)
@@ -412,6 +422,7 @@ class User
   # Enhanced API serialization including onboarding status
   def to_api_hash
     base_hash = {
+      id: id.to_s,
       auth0_id: auth0_id,
       name: name,
       email: email,
@@ -541,8 +552,12 @@ class User
 
   private
 
+  def normalize_roles
+    self.roles = Array(roles).map { |r| r.to_s.downcase.strip }.uniq.compact if roles_changed?
+  end
+
   def log_school_id_changes
-    old_school_ids, new_school_ids = changes_to_save['school_ids']
+    old_school_ids, new_school_ids = changes['school_ids']
 
     old_school_ids = old_school_ids || []
     new_school_ids = new_school_ids || []

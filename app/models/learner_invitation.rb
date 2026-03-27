@@ -104,6 +104,12 @@ class LearnerInvitation
     pending? && !expired?
   end
 
+  # ========================= SCOPES =========================
+  scope :pending, -> { where(status: 'pending') }
+  scope :accepted, -> { where(status: 'accepted') }
+  scope :expired, -> { where(status: 'expired') }
+  scope :by_grade, ->(grade_id) { where(grade_id: grade_id.to_s) }
+
   def learner_count
     return learner_ids.size if learner_ids.present?
     return learner_numbers.size if learner_numbers.present?

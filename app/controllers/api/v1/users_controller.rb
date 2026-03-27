@@ -28,7 +28,7 @@ module Api
             status: result.new_record ? :created : :ok
           )
         else
-          render_error(result.errors, status: :unprocessable_entity)
+          render_error("Failed to create user", result.errors)
         end
       rescue => e
         log_error "CREATE USER ERROR", { error: e.message, backtrace: e.backtrace.first(5) }
@@ -64,7 +64,7 @@ module Api
       # =========================================================
       def me
         auth0_id = extract_auth0_id_from_token || params[:auth0_id]
-        return render_error(["Authentication required"], status: :unauthorized) if auth0_id.blank?
+        return render_error("Authentication required", [], status: :unauthorized) if auth0_id.blank?
 
         # Use .where().first to avoid Mongoid exception
         user = User.where(auth0_id: auth0_id).first
@@ -75,7 +75,7 @@ module Api
             data: { user: user }
           )
         else
-          render_error(["User not found"], status: :not_found)
+          render_error("User not found", [], status: :not_found)
         end
       end
 
@@ -145,7 +145,7 @@ module Api
             data: { user: serialize_user(@user) }
           )
         else
-          render_error(@user.errors.full_messages, status: :unprocessable_entity)
+          render_error("Failed to update profile", @user.errors.full_messages)
         end
       end
 
@@ -154,7 +154,7 @@ module Api
       # =========================================================
       def update_roles
         roles = normalize_roles(params[:roles])
-        return render_error(["Roles parameter is required"], status: :bad_request) if roles.empty?
+        return render_error("Roles parameter is required", [], status: :bad_request) if roles.empty?
 
         user = UserServices::UpdateRolesService.call(user: @user, roles: roles)
         
@@ -164,11 +164,11 @@ module Api
             data: { user: user }
           )
         else
-          render_error(["Failed to update roles"], status: :unprocessable_entity)
+          render_error("Failed to update roles")
         end
       rescue => e
         log_error "UPDATE ROLES ERROR", { error: e.message }
-        render_error(["Failed to update roles: #{e.message}"], status: :unprocessable_entity)
+        handle_exception(e, "Failed to update roles")
       end
 
       # =========================================================
@@ -176,7 +176,7 @@ module Api
       # =========================================================
       def add_school
         school_id = extract_school_id
-        return render_error(["schoolId parameter is required"], status: :bad_request) if school_id.blank?
+        return render_error("schoolId parameter is required", [], status: :bad_request) if school_id.blank?
 
         result = UserServices::AddSchoolService.call(user: @user, school_id: school_id)
         
@@ -186,11 +186,11 @@ module Api
             data: { user: result.user }
           )
         else
-          render_error(["Failed to add school to user"], status: :unprocessable_entity)
+          render_error("Failed to add school to user")
         end
       rescue => e
         log_error "ADD SCHOOL ERROR", { error: e.message }
-        render_error(["Failed to add school: #{e.message}"], status: :unprocessable_entity)
+        handle_exception(e, "Failed to add school")
       end
 
       # =========================================================
@@ -209,7 +209,7 @@ module Api
       def add_role
         user = User.find(params[:id])
         role = params[:role]
-        return render_error(["Role parameter is required"], status: :bad_request) if role.blank?
+        return render_error("Role parameter is required", [], status: :bad_request) if role.blank?
 
         updated_user = UserServices::AddRoleService.call(user: user, role: role)
         
@@ -219,10 +219,10 @@ module Api
             data: { user: updated_user }
           )
         else
-          render_error(["Failed to add role"], status: :unprocessable_entity)
+          render_error("Failed to add role")
         end
       rescue Mongoid::Errors::DocumentNotFound
-        render_error(["User not found"], status: :not_found)
+        render_error("User not found", [], status: :not_found)
       end
 
       def onboarding_required
@@ -251,8 +251,22 @@ module Api
           # Use .where().first instead of find_by to avoid exception
           @user = User.where(auth0_id: auth0_id).first
         elsif params[:id].present?
-          # Fallback to internal ID if it's a member route call
-          @user = User.find(params[:id])
+          # Try finding by internal User ID
+          begin
+            @user = User.find(params[:id])
+          rescue Mongoid::Errors::DocumentNotFound, BSON::ObjectId::Invalid
+            # Try finding via Teacher ID link
+            begin
+              teacher = Teacher.find(params[:id])
+              if teacher&.user_id
+                @user = User.find(teacher.user_id)
+              elsif teacher&.auth0_id
+                @user = User.where(auth0_id: teacher.auth0_id).first
+              end
+            rescue Mongoid::Errors::DocumentNotFound, BSON::ObjectId::Invalid
+              @user = nil
+            end
+          end
         end
 
         render_error(["User not found or auth0_id missing"], status: :not_found) unless @user
@@ -261,8 +275,34 @@ module Api
       end
 
       def load_user_by_path!
-        # Use .where().first instead of find_by to avoid exception
-        @user = User.where(auth0_id: params[:auth0_id]).first
+        id_param = params[:auth0_id]
+
+        # 1. Try finding by auth0_id
+        @user = User.where(auth0_id: id_param).first
+
+        # 2. Fallback to finding by MongoDB _id
+        if @user.nil?
+          begin
+            @user = User.find(id_param)
+          rescue Mongoid::Errors::DocumentNotFound, BSON::ObjectId::Invalid
+            @user = nil
+          end
+        end
+
+        # 3. CRUCIAL: Try finding by Teacher ID link
+        if @user.nil?
+          begin
+            teacher = Teacher.find(id_param)
+            if teacher&.user_id
+              @user = User.find(teacher.user_id)
+            elsif teacher&.auth0_id
+              @user = User.where(auth0_id: teacher.auth0_id).first
+            end
+          rescue Mongoid::Errors::DocumentNotFound, BSON::ObjectId::Invalid
+            @user = nil
+          end
+        end
+
         render_error(["User not found"], status: :not_found) unless @user
       end
 
@@ -356,20 +396,6 @@ module Api
         }
       end
 
-      def render_success(message: nil, data: {}, status: :ok)
-        response = { success: true }
-        response[:message] = message if message.present?
-        response[:data] = data if data.present?
-        
-        render json: response, status: status
-      end
-
-      def render_error(errors, status: :bad_request)
-        render json: { 
-          success: false, 
-          errors: Array.wrap(errors).compact 
-        }, status: status
-      end
 
       def log_debug(action, data = {}); Rails.logger.debug "[Users] #{action}: #{data.inspect}"; end
       def log_warning(action, data = {}); Rails.logger.warn "⚠️ [Users] #{action}: #{data.inspect}"; end

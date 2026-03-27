@@ -33,16 +33,17 @@ module GradeServices
       grade_ids = grades.map(&:id)
 
       # Aggregate to count active learners per grade in a single MongoDB query
+      # Note: Learner model uses 'gradeId' field in MongoDB (aliased as grade_id in Ruby)
       counts = Learner.collection.aggregate([
-        { '$match' => { 'grade_id' => { '$in' => grade_ids }, 'status' => 0 } }, # Active learners only
-        { '$group' => { '_id' => '$grade_id', 'count' => { '$sum' => 1 } } }
+        { '$match' => { 'gradeId' => { '$in' => grade_ids.map(&:to_s) }, 'status' => 0 } }, # Active learners only
+        { '$group' => { '_id' => '$gradeId', 'count' => { '$sum' => 1 } } }
       ]).to_a
 
-      counts_map = counts.each_with_object({}) { |doc, h| h[doc['_id']] = doc['count'] }
+      counts_map = counts.each_with_object({}) { |doc, h| h[doc['_id'].to_s] = doc['count'] }
 
       # Attach learnerCount dynamically to each grade instance (not persisted)
       grades.each do |grade|
-        learner_count = counts_map[grade.id] || 0
+        learner_count = counts_map[grade.id.to_s] || 0
         # Define a getter method dynamically or set instance var
         grade.instance_variable_set(:@learner_count, learner_count)
         def grade.learnerCount

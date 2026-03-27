@@ -49,7 +49,9 @@ Rails.application.routes.draw do
           get  :onboarding_required
 
           resource :onboarding_status, controller: :onboarding_statuses, only: [:show, :update] do
-            post :complete_step, :skip_step, :reset
+            post :complete_step
+            post :skip_step
+            post :reset
           end
         end
       end
@@ -75,7 +77,7 @@ Rails.application.routes.draw do
       end
 
       # ✅ FIXED: verify_with_details now lives inside the namespace as a member route
-      resources :invitations, param: :token, only: [:create] do
+      resources :invitations, param: :token, only: [:create, :show] do
         member do
           get :verify_with_details   # GET /api/v1/invitations/:token/verify_with_details
         end
@@ -93,6 +95,7 @@ Rails.application.routes.draw do
           post :resend
         end
         collection do
+          get :verify                # GET /api/v1/learner_invitations/verify?token=...
           get :pending
           get :expired
           get 'by_grade/:grade_id', action: :by_grade
@@ -107,6 +110,7 @@ Rails.application.routes.draw do
           post :resend
         end
         collection do
+          get :verify                # GET /api/v1/teacher_invitations/verify?token=...
           get :pending
           get :expired
           get 'by_school/:school_id', action: :by_school
@@ -118,7 +122,10 @@ Rails.application.routes.draw do
       # =========================================================
       resources :schools do
         member do
-          get :admins, :teachers, :parents
+          get :admins
+          get :teachers
+          get :parents
+          get 'teachers/:teacher_id', to: 'schools#show_teacher'
           get 'parents/:parent_id', to: 'schools#show_parent'
         end
         collection { get :search }
@@ -148,19 +155,32 @@ Rails.application.routes.draw do
       # =========================================================
       resources :grades, only: [:show, :update, :destroy] do
         member do
-          get    :learners, :teachers, :stats
-          post   :invite_learner, :invite_teacher
+          get    :learners
+          get    :teachers
+          get    :stats
+          post   :invite_learner
+          post   :invite_teacher
           post   'learners/:learner_id', action: :add_learner
           delete 'learners/:learner_id', action: :remove_learner
         end
 
         resources :teacher_assignments, controller: :teacher_grade_assignments do
-          member { patch :activate, :deactivate, :terminate, :suspend }
+          member do
+            patch :activate
+            patch :deactivate
+            patch :terminate
+            patch :suspend
+          end
         end
       end
 
       resources :teacher_grade_assignments do
-        member { patch :activate, :deactivate, :terminate, :suspend }
+        member do
+          patch :activate
+          patch :deactivate
+          patch :terminate
+          patch :suspend
+        end
         collection do
           get 'by_teacher/:teacher_id', action: :by_teacher
           get 'by_grade/:grade_id',     action: :by_grade
@@ -172,26 +192,66 @@ Rails.application.routes.draw do
       # ACADEMIC DATA (LEARNERS, SUBJECTS, ASSESSMENTS)
       # =========================================================
       resources :learners do
-        collection { post :bulk_upload; get :search, :export, :statistics }
-        member     { patch :graduate, :transfer, :activate, :deactivate; get :history, :grades }
+        collection do
+          post :bulk_upload
+          get :search
+          get :export
+          get :statistics
+        end
+        member do
+          patch :graduate
+          patch :transfer
+          patch :activate
+          patch :deactivate
+          get :history
+          get :grades
+        end
       end
 
       resources :subjects do
-        collection { post :bulk_upload; get :search }
-        member     { patch :activate, :deactivate }
+        collection do
+          post :bulk_upload
+          get :search
+        end
+        member do
+          patch :activate
+          patch :deactivate
+        end
       end
 
       resources :assessments do
-        collection { post :bulk_upload; get :search, :upcoming, :completed }
-        member     { patch :publish, :unpublish; post :duplicate }
+        collection do
+          post :bulk_upload
+          get :search
+          get :upcoming
+          get :completed
+        end
+        member do
+          patch :publish
+          patch :unpublish
+          post :duplicate
+        end
         resources :results, only: [:index, :show, :create, :update, :destroy] do
-          collection { post :bulk_upload; get :statistics, :export, :search }
+          collection do
+            post :bulk_upload
+            get :statistics
+            get :export
+            get :search
+          end
         end
       end
 
       resources :results do
-        collection { post :bulk_upload; get :search, :statistics, :export }
-        member     { patch :approve, :reject }
+        collection do
+          post :bulk_upload
+          get :search
+          get :statistics
+          get :export
+        end
+        member do
+          patch :approve
+          patch :reject
+        end
       end
 
       # =========================================================
@@ -204,8 +264,10 @@ Rails.application.routes.draw do
       resources :request_accesses do
         collection do
           get  'school/:school_id', action: :by_school
-          get  :pending_requests, :approved_schools
-          post :approve, :reject
+          get  :pending_requests
+          get  :approved_schools
+          post :approve
+          post :reject
         end
         member { get :users_by_roles }
       end
@@ -215,28 +277,47 @@ Rails.application.routes.draw do
       end
 
       namespace :dashboard do
-        get :overview, :learner_statistics, :school_statistics,
-            :assessment_statistics, :performance_trends, :grade_statistics
+        get :overview
+        get :learner_statistics
+        get :school_statistics
+        get :assessment_statistics
+        get :performance_trends
+        get :grade_statistics
       end
 
       namespace :reports do
-        get  :learner_performance, :school_performance, :grade_performance, :subject_performance
+        get  :learner_performance
+        get  :school_performance
+        get  :grade_performance
+        get  :subject_performance
         post :generate_custom
         get  'download/:id', action: :download
       end
 
       namespace :import_export do
-        post :import_learners, :import_schools, :import_grades, :import_results
-        get  :export_learners, :export_schools, :export_grades, :export_results
+        post :import_learners
+        post :import_schools
+        post :import_grades
+        post :import_results
+        get  :export_learners
+        get  :export_schools
+        get  :export_grades
+        get  :export_results
         get  'template/:type', action: :download_template
       end
 
       scope :auth, controller: :authentication do
-        post :login, :logout, :refresh, :forgot_password, :reset_password
+        post :login
+        post :logout
+        post :refresh
+        post :forgot_password
+        post :reset_password
       end
 
       namespace :admin do
-        get   :system_info, :audit_logs, :backup_status
+        get   :system_info
+        get   :audit_logs
+        get   :backup_status
         post  :backup_database
         patch :system_settings, action: :update_system_settings
       end
@@ -244,23 +325,32 @@ Rails.application.routes.draw do
       resources :uploads, only: [:create, :show, :destroy]
 
       resources :notifications do
-        collection { patch :mark_all_read; get :unread_count }
-        member     { patch :mark_read, :mark_unread }
+        collection do
+          patch :mark_all_read
+          get :unread_count
+        end
+        member do
+          patch :mark_read
+          patch :mark_unread
+        end
       end
 
       namespace :public do
-        namespace :invitations do
-          post 'learner/:token/accept', action: :accept_learner_invitation
-          post 'teacher/:token/accept', action: :accept_teacher_invitation
-          get  'learner/:token',        action: :show_learner_invitation
-          get  'teacher/:token',        action: :show_teacher_invitation
+        resources :invitations, only: [] do
+          collection do
+            post 'learner/:token/accept', action: :accept_learner_invitation
+            post 'teacher/:token/accept', action: :accept_teacher_invitation
+            get  'learner/:token',        action: :show_learner_invitation
+            get  'teacher/:token',        action: :show_teacher_invitation
+          end
         end
       end
 
       get 'health', to: 'home#health'
 
       scope :pr_codes, controller: :pr_codes do
-        post :validate, :use
+        post :validate
+        post :use
       end
 
     end

@@ -254,15 +254,36 @@ module Api
       private
 
       def set_school
-  @school = School.find(params[:school_id])
-rescue Mongoid::Errors::DocumentNotFound
-  render_error('School not found', [], status: :not_found)  # add `status:`
-end
+        # Support finding by ID, Slug, or Name fallback
+        id_param = params[:school_id] || params[:school_slug] || params[:id]
+
+        @school = School.find(id_param) rescue nil
+        @school ||= School.find_by(slug: id_param)
+
+        # Name-based fallback (replace hyphens with spaces and regex match)
+        if @school.nil? && id_param.present?
+          search_name = id_param.to_s.gsub('-', ' ')
+          @school = School.where(schoolName: /#{Regexp.escape(search_name)}/i).first
+        end
+
+        unless @school
+          render_error('School not found', [], status: :not_found)
+        end
+      end
 
 def set_grade
-  @grade = Grade.find(params[:id])
+  grade_id = params[:id] || params[:grade_id]
+
+  if grade_id.blank?
+    Rails.logger.warn "⚠️ set_grade: grade_id is nil or blank. params: #{params.inspect}"
+    return render_error('Grade ID is required', [], status: :bad_request)
+  end
+
+  @grade = Grade.find(grade_id)
 rescue Mongoid::Errors::DocumentNotFound
-  render_error('Grade not found', [], status: :not_found)   # add `status:`
+  render_error('Grade not found', [], status: :not_found)
+rescue BSON::ObjectId::Invalid
+  render_error('Invalid Grade ID format', [], status: :bad_request)
 end
 
       def grade_params
@@ -293,18 +314,6 @@ end
         params.require(:invitation).permit(:recipient_phone_number, :teacher_name, :invited_via, :expires_at, assigned_grades: [], invitation_data: {})
       end
 
-      def render_success(message: nil, data: {}, status: :ok)
-        render json: { status: 'success', message: message, data: data }, status: status
-      end
-
-      def render_error(message, errors = [], status: :unprocessable_entity)
-        render json: { status: 'error', message: message, errors: Array(errors) }, status: status
-      end
-
-      def handle_exception(error, fallback_message)
-        Rails.logger.error("❌ #{fallback_message}: #{error.message}")
-        render json: { status: 'error', message: fallback_message, errors: [error.message] }, status: :internal_server_error
-      end
     end
   end
 end
