@@ -86,11 +86,16 @@ module Api
       def show_teacher
         teacher_id = params[:teacher_id]
 
-        @teacher = Teacher.find(teacher_id) rescue nil
+        if teacher_id.blank?
+          return render_error("Teacher ID is missing", [], status: :bad_request)
+        end
+
+        # Ensure we only find teachers belonging to this school
+        @teacher = Teacher.find_by(id: teacher_id, school_id: @school.id) rescue nil
         @teacher ||= Teacher.find_by(slug: teacher_id, school_id: @school.id)
 
         unless @teacher
-          return render_error("Teacher not found in this school", [], status: :not_found)
+          return render_error("Teacher not found in school #{@school.schoolName}: #{teacher_id}", [], status: :not_found)
         end
 
         render_success(data: @teacher.to_api_hash)
@@ -257,17 +262,21 @@ module Api
         # Support finding by ID, Slug, or Name fallback
         id_param = params[:id] || params[:school_id] || params[:school_slug]
 
+        if id_param.blank?
+          return render_error("School ID is missing", [], status: :bad_request)
+        end
+
         @school = School.find(id_param) rescue nil
         @school ||= School.find_by(slug: id_param)
 
         # Name-based fallback (replace hyphens with spaces and regex match)
-        if @school.nil? && id_param.present?
+        if @school.nil?
           search_name = id_param.to_s.gsub('-', ' ')
           @school = School.where(schoolName: /#{Regexp.escape(search_name)}/i).first
         end
 
         unless @school
-          render_error("School not found", [], status: :not_found)
+          render_error("School not found: #{id_param}", [], status: :not_found)
         end
       end
 
