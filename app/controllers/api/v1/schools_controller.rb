@@ -21,7 +21,7 @@ module Api
         schools_paginated = schools.skip((page - 1) * limit).limit(limit)
 
         render_success(data: {
-          schools: schools_paginated.map(&:to_api_hash),
+          schools: schools_paginated.map { |s| s.to_api_hash(include_stats: true) },
           totalCount: total_count,
           page: page,
           limit: limit
@@ -195,7 +195,7 @@ module Api
       # GET /api/v1/schools/:id
       # =========================
       def show
-        render_success(data: { school: @school.to_api_hash })
+        render_success(data: { school: @school.to_api_hash(include_stats: true) })
       end
 
       # =========================

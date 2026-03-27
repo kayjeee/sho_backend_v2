@@ -68,8 +68,8 @@ class School
   end
 
   # Serialization for API
-  def to_api_hash
-    {
+  def to_api_hash(include_stats: false)
+    hash = {
       id: id.to_s,
       schoolName: schoolName,
       slug: slug,
@@ -86,13 +86,18 @@ class School
       user_id: user_id,
       user_email: user_email,
       created_at: created_at,
-      updated_at: updated_at,
-      stats: {
+      updated_at: updated_at
+    }
+
+    if include_stats
+      hash[:stats] = {
         teacherCount: UserSchoolRole.where(school_id: id, role: 'teacher').count,
         learnerCount: Learner.where(school_id: id).count,
         gradeCount: grades.count
       }
-    }
+    end
+
+    hash
   end
 
   private

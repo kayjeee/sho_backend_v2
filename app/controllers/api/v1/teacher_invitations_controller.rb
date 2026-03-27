@@ -114,7 +114,14 @@ module Api
 
       # GET /api/v1/teacher_invitations/pending
       def pending
-        invitations = TeacherInvitation.pending
+        school_id = params[:school_id]
+
+        invitations = if school_id.present?
+          TeacherInvitation.pending.for_school(school_id)
+        else
+          return render_error('A school_id is required to fetch pending teacher invitations', [], status: :bad_request)
+        end
+
         render_success(data: { invitations: invitations.map(&:to_api_hash) })
       end
 
