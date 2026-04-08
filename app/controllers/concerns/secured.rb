@@ -25,11 +25,20 @@ module Secured
   
       validation_response = Auth0Client.validate_token(token)
   
+      if validation_response.error
+        render json: { message: validation_response.error.message }, status: validation_response.error.status
+        return
+      end
+
       @decoded_token = validation_response.decoded_token
-  
-      return unless (error = validation_response.error)
-  
-      render json: { message: error.message }, status: error.status
+
+      # Automatically set @current_user based on the Auth0 sub claim
+      auth0_id = @decoded_token.token[0]['sub']
+      @current_user = User.find_by(auth0_id: auth0_id)
+
+      unless @current_user
+        render json: { message: 'User not found in local database' }, status: :unauthorized
+      end
     end
   
     def validate_permissions(permissions)

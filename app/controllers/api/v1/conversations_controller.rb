@@ -5,12 +5,11 @@ module Api
 
       # GET /api/v1/conversations
       def index
+        # Scoped strictly to @current_user
+        conversations = Conversation.where(user_id: @current_user.id).order(last_message_at: :desc)
+
         if params[:school_id].present?
-          conversations = Conversation.where(school_id: params[:school_id]).order(last_message_at: :desc)
-        elsif params[:user_id].present?
-          conversations = Conversation.where(user_id: params[:user_id]).order(last_message_at: :desc)
-        else
-          return render json: { success: false, error: "Missing school_id or user_id" }, status: :bad_request
+          conversations = conversations.where(school_id: params[:school_id])
         end
 
         render json: { success: true, data: conversations }, status: :ok
@@ -56,7 +55,7 @@ module Api
       private
 
       def set_conversation
-        @conversation = Conversation.find_by(id: params[:id], school_id: params[:school_id], user_id: params[:user_id])
+        @conversation = Conversation.find_by(id: params[:id], user_id: @current_user.id)
         return render json: { success: false, error: "Conversation not found" }, status: :not_found unless @conversation
       end
     end

@@ -199,6 +199,23 @@ module Api
       end
 
       # =========================
+      # GET /api/v1/schools/:id/directory
+      # =========================
+      def directory
+        admins = fetch_users_by_role('admin')
+        teachers = Teacher.where(school_id: @school.id).map(&:to_api_hash)
+        parents = fetch_users_by_role('parent')
+
+        render_success(data: {
+          admins: admins,
+          teachers: teachers,
+          parents: parents
+        })
+      rescue => e
+        handle_exception(e, "Failed to fetch school directory")
+      end
+
+      # =========================
       # PATCH/PUT /api/v1/schools/:id
       # =========================
       def update
