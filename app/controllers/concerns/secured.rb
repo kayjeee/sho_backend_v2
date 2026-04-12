@@ -33,11 +33,21 @@ module Secured
       @decoded_token = validation_response.decoded_token
 
       # Automatically set @current_user based on the Auth0 sub claim
-      auth0_id = @decoded_token.token[0]['sub']
+      # The @decoded_token is a Auth0Client::Token struct which wraps the result of JWT.decode
+      # JWT.decode returns an array [payload, header]
+      payload = @decoded_token.token[0]
+      auth0_id = payload['sub']
+
+      Rails.logger.debug "[AUTH] Decoded Auth0 ID: #{auth0_id}"
+
       @current_user = User.find_by(auth0_id: auth0_id)
 
       unless @current_user
-        render json: { message: 'User not found in local database' }, status: :unauthorized
+        render json: {
+          error: 'User not found in DB',
+          auth0_id: auth0_id
+        }, status: :unauthorized
+        return # Immediate exit to prevent controller execution
       end
     end
   

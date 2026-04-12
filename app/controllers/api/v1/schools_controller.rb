@@ -1,7 +1,8 @@
 module Api
   module V1
     class SchoolsController < ApplicationController
-      before_action :set_school, only: [:show, :update, :destroy, :admins, :teachers, :parents, :show_teacher]
+      before_action :authorize, only: [:create, :update, :destroy, :directory]
+      before_action :set_school, only: [:show, :update, :destroy, :admins, :teachers, :parents, :show_teacher, :directory]
 
       # =========================
       # GET /api/v1/schools
