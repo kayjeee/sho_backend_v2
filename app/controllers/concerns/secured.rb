@@ -52,13 +52,17 @@ module Secured
           Rails.logger.info "Updated User #{@current_user.email} with new Auth0 ID: #{sub}"
         end
       else
-        render json: {
-          error: 'User not found in DB',
+        # If they truly don't exist, create them so the app can continue
+        @current_user = User.create!(
           auth0_id: sub,
-          email: email
-        }, status: :unauthorized
-        return # Immediate exit to prevent controller execution
+          email: email,
+          name: payload['name'] || email,
+          status: "active"
+        )
+        Rails.logger.info "Created new User #{@current_user.email} with Auth0 ID: #{sub}"
       end
+
+      puts "DEBUG: Authorized as #{@current_user.email}"
     end
   
     def validate_permissions(permissions)
