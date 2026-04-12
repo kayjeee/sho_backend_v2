@@ -36,16 +36,26 @@ module Secured
       # The @decoded_token is a Auth0Client::Token struct which wraps the result of JWT.decode
       # JWT.decode returns an array [payload, header]
       payload = @decoded_token.token[0]
-      auth0_id = payload['sub']
+      sub = payload['sub']
+      email = payload['email']
 
-      Rails.logger.debug "[AUTH] Decoded Auth0 ID: #{auth0_id}"
+      puts "Incoming Token Sub: #{sub}"
+      Rails.logger.debug "[AUTH] Incoming Token Sub: #{sub}, Email: #{email}"
 
-      @current_user = User.find_by(auth0_id: auth0_id)
+      # Flexible lookup: auth0_id first, then fallback to email
+      @current_user = User.find_by(auth0_id: sub) || User.find_by(email: email)
 
-      unless @current_user
+      if @current_user
+        # Link auth0_id if it's missing or different (e.g. found by email)
+        if @current_user.auth0_id != sub
+          @current_user.update(auth0_id: sub)
+          Rails.logger.info "Updated User #{@current_user.email} with new Auth0 ID: #{sub}"
+        end
+      else
         render json: {
           error: 'User not found in DB',
-          auth0_id: auth0_id
+          auth0_id: sub,
+          email: email
         }, status: :unauthorized
         return # Immediate exit to prevent controller execution
       end
