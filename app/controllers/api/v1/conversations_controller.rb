@@ -1,7 +1,7 @@
 module Api
   module V1
     class ConversationsController < ApplicationController
-      before_action :authorize
+     # before_action :authorize
       before_action :set_conversation, only: [:show, :destroy]
 
       # GET /api/v1/conversations
