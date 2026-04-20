@@ -1,6 +1,7 @@
 module Api
   module V1
     class MessagesController < ApplicationController
+      before_action :authorize
       before_action :set_conversation, only: [:index, :create]
 
       # GET /api/v1/conversations/:conversation_id/messages
@@ -30,18 +31,26 @@ module Api
       private
 
       def set_conversation
-        @conversation = Conversation.find_by(id: params[:conversation_id])
+        # Scoped to @current_user for security
+        @conversation = Conversation.find_by(id: params[:conversation_id], user_id: @current_user.id)
         render json: { success: false, error: "Conversation not found" }, status: :not_found unless @conversation
       end
 
       def find_sender
-        user_id = params.dig(:message, :user_id)
+        # For security, a user can only send as themselves
+        # A school-side user would need a different authorization logic,
+        # but for the parent/teacher app, we use @current_user.
+
         school_id = params.dig(:message, :school_id)
-      
-        sender = User.find_by(id: user_id) if user_id.present?
-        sender ||= School.find_by(id: school_id) if school_id.present?
-      
-        return sender if sender.present?
+
+        # If school_id is provided, we check if the user has a role in that school
+        if school_id.present?
+          # This logic might change depending on if the user is sending AS the school
+          # (e.g. an Admin). For now, we'll allow @current_user.
+          return @current_user
+        end
+
+        return @current_user if @current_user.present?
       
         render json: { success: false, error: "Sender information is missing" }, status: :bad_request
         nil

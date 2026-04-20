@@ -125,6 +125,7 @@ Rails.application.routes.draw do
           get :admins
           get :teachers
           get :parents
+          get :directory
           get 'teachers/:teacher_id', to: 'schools#show_teacher'
           get 'parents/:parent_id', to: 'schools#show_parent'
         end

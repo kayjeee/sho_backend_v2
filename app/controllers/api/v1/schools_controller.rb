@@ -1,7 +1,8 @@
 module Api
   module V1
     class SchoolsController < ApplicationController
-      before_action :set_school, only: [:show, :update, :destroy, :admins, :teachers, :parents, :show_teacher]
+      before_action :authorize, only: [:create, :update, :destroy, :directory]
+      before_action :set_school, only: [:show, :update, :destroy, :admins, :teachers, :parents, :show_teacher, :directory]
 
       # =========================
       # GET /api/v1/schools
@@ -196,6 +197,23 @@ module Api
       # =========================
       def show
         render_success(data: { school: @school.to_api_hash(include_stats: true) })
+      end
+
+      # =========================
+      # GET /api/v1/schools/:id/directory
+      # =========================
+      def directory
+        admins = fetch_users_by_role('admin')
+        teachers = Teacher.where(school_id: @school.id).map(&:to_api_hash)
+        parents = fetch_users_by_role('parent')
+
+        render_success(data: {
+          admins: admins,
+          teachers: teachers,
+          parents: parents
+        })
+      rescue => e
+        handle_exception(e, "Failed to fetch school directory")
       end
 
       # =========================

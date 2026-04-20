@@ -1,6 +1,8 @@
 # app/controllers/api/v1/application_controller.rb
 class ApplicationController < ActionController::API
   include Secured
+  # We'll let specific controllers define which actions need authorization
+  # to avoid breaking public endpoints.
 
   # Health check endpoint
   def health
