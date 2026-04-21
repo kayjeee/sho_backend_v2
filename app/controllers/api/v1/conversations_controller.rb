@@ -7,7 +7,11 @@ module Api
       # GET /api/v1/conversations
       def index
         # Scoped strictly to @current_user.id to prevent data leakage
-        conversations = Conversation.where(user_id: @current_user.id).order(last_message_at: :desc)
+        # We search for conversations where the current user is a participant
+        conversations = Conversation.any_of(
+          { user_id: @current_user.id },
+          { participant_ids: @current_user.id.to_s }
+        ).order(last_message_at: :desc)
 
         if params[:school_id].present?
           conversations = conversations.where(school_id: params[:school_id])
@@ -24,19 +28,23 @@ module Api
       # POST /api/v1/conversations
       def create
         school_id = params.dig(:conversation, :school_id)
+        p_ids = params[:participant_ids] || params.dig(:conversation, :participant_ids) || []
 
-        if school_id.blank?
-          return render json: {
-            success: false,
-            error: "Missing parameters: school_id is required"
-          }, status: :bad_request
+        # Ensure current user is in participants
+        all_participants = (Array(p_ids) + [@current_user.id.to_s]).uniq.sort
+
+        # Build query attributes
+        attrs = { participant_ids: all_participants }
+        attrs[:school_id] = school_id if school_id.present?
+        attrs[:user_id] = @current_user.id
+
+        # Use participant_ids for uniqueness check if possible,
+        # but find_or_create_by with an array might be tricky with Mongoid
+        # if the order is different, but we sorted them.
+        conversation = Conversation.find_or_create_by(participant_ids: all_participants) do |c|
+          c.school_id = school_id if school_id.present?
+          c.user_id = @current_user.id
         end
-
-        # For security, we always use the @current_user.id for new conversations
-        conversation = Conversation.find_or_create_by(
-          school_id: school_id,
-          user_id: @current_user.id
-        )
 
         if conversation.persisted?
           render json: {
@@ -65,7 +73,10 @@ module Api
 
       def set_conversation
         # Scoping query to current_user.id
-        @conversation = Conversation.find_by(id: params[:id], user_id: @current_user.id)
+        @conversation = Conversation.any_of(
+          { user_id: @current_user.id },
+          { participant_ids: @current_user.id.to_s }
+        ).find_by(id: params[:id])
 
         unless @conversation
           render json: {
