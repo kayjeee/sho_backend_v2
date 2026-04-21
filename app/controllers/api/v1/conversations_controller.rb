@@ -30,19 +30,20 @@ module Api
         school_id = params.dig(:conversation, :school_id)
         p_ids = params[:participant_ids] || params.dig(:conversation, :participant_ids) || []
 
+        if school_id.blank?
+          return render json: {
+            success: false,
+            error: "Missing parameters: school_id is required"
+          }, status: :bad_request
+        end
+
         # Ensure current user is in participants
         all_participants = (Array(p_ids) + [@current_user.id.to_s]).uniq.sort
 
-        # Build query attributes
-        attrs = { participant_ids: all_participants }
-        attrs[:school_id] = school_id if school_id.present?
-        attrs[:user_id] = @current_user.id
-
-        # Use participant_ids for uniqueness check if possible,
-        # but find_or_create_by with an array might be tricky with Mongoid
-        # if the order is different, but we sorted them.
+        # Use participant_ids for uniqueness check.
+        # We sort them to ensure deterministic find_or_create_by.
         conversation = Conversation.find_or_create_by(participant_ids: all_participants) do |c|
-          c.school_id = school_id if school_id.present?
+          c.school_id = school_id
           c.user_id = @current_user.id
         end
 

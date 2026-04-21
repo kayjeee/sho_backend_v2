@@ -14,9 +14,4 @@ class Conversation
   index({ participant_ids: 1 })
   index({ school_id: 1 })
   index({ user_id: 1 })
-
-  def self.find_or_create_by_school_and_user(school_id, user_id)
-    conversation = find_by(school_id: school_id, user_id: user_id)
-    conversation || create(school_id: school_id, user_id: user_id)
-  end
 end
