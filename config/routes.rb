@@ -273,7 +273,10 @@ Rails.application.routes.draw do
         member { get :users_by_roles }
       end
 
-      resources :conversations, only: [:index, :show, :create] do
+      resources :conversations, only: [:index, :show, :create, :destroy] do
+        member do
+          put :read
+        end
         resources :messages, only: [:index, :create]
       end
 

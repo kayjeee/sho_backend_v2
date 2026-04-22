@@ -2,7 +2,7 @@ module Api
   module V1
     class ConversationsController < ApplicationController
       before_action :authorize
-      before_action :set_conversation, only: [:show, :destroy]
+      before_action :set_conversation, only: [:show, :destroy, :read]
 
       # GET /api/v1/conversations
       def index
@@ -38,27 +38,59 @@ module Api
         end
 
         # Ensure current user is in participants
-        all_participants = (Array(p_ids) + [@current_user.id.to_s]).uniq.sort
+        all_participants = (Array(p_ids).map(&:to_s) + [@current_user.id.to_s]).uniq.sort
 
-        # Use participant_ids for uniqueness check.
-        # We sort them to ensure deterministic find_or_create_by.
-        conversation = Conversation.find_or_create_by(participant_ids: all_participants) do |c|
-          c.school_id = school_id
-          c.user_id = @current_user.id
+        # Prevent messaging oneself (if there are no other participants)
+        if all_participants.size < 2
+           return render json: {
+             success: false,
+             error: "Cannot create a conversation with only yourself"
+           }, status: :unprocessable_entity
         end
 
-        if conversation.persisted?
+        # Use participant_ids for uniqueness check.
+        # We sort them to ensure deterministic search.
+        conversation = Conversation.where(participant_ids: all_participants).first
+
+        if conversation
           render json: {
             success: true,
             data: conversation,
-            message: "Conversation created or retrieved"
+            message: "Existing conversation retrieved"
           }, status: :ok
         else
-          render json: {
-            success: false,
-            errors: conversation.errors.full_messages
-          }, status: :unprocessable_entity
+          conversation = Conversation.create(
+            participant_ids: all_participants,
+            school_id: school_id,
+            user_id: @current_user.id
+          )
+
+          if conversation.persisted?
+            render json: {
+              success: true,
+              data: conversation,
+              message: "Conversation created successfully"
+            }, status: :ok
+          else
+            render json: {
+              success: false,
+              errors: conversation.errors.full_messages
+            }, status: :unprocessable_entity
+          end
         end
+      end
+
+      # PUT /api/v1/conversations/:id/read
+      def read
+        # Mark all messages as read where the sender is NOT the current user
+        # This assumes Message model has 'read' field and 'sender_id'
+        affected = @conversation.messages.where(:sender_id.ne => @current_user.id, read: false).update_all(read: true)
+
+        render json: {
+          success: true,
+          message: "Messages marked as read",
+          count: affected
+        }, status: :ok
       end
 
       # DELETE /api/v1/conversations/:id

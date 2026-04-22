@@ -7,6 +7,8 @@ class Message
   field :user_id, type: BSON::ObjectId
   field :schoolName, type:String
   field :name,  type:String
+  field :read, type: Boolean, default: false
+  field :sender_id, type: BSON::ObjectId
   
     belongs_to :user, class_name: 'User', inverse_of: :conversations
     belongs_to :school, class_name: 'School', inverse_of: :conversations, optional: true
