@@ -9,7 +9,7 @@ module Api
         conversations = Conversation.any_of(
           { user_id: @current_user.id },
           { participant_ids: @current_user.id.to_s }
-        ).order(last_message_at: :desc)
+        ).order(updated_at: :desc)
 
         conversations = conversations.where(school_id: params[:school_id]) if params[:school_id].present?
 
@@ -26,67 +26,93 @@ module Api
 
       # POST /api/v1/conversations
       def create
-        school_id   = params.dig(:conversation, :school_id)
-        p_ids       = params[:participant_ids] ||
-                      params.dig(:conversation, :participant_ids) || []
+        school_id = params.dig(:conversation, :school_id)
+        p_ids     = Array(
+          params[:participant_ids] || params.dig(:conversation, :participant_ids) || []
+        ).map(&:to_s).reject(&:blank?)
 
+        # ── Guard 1: school_id is mandatory ─────────────────────────────────
         if school_id.blank?
           return render json: {
             success: false,
-            error: "Missing parameters: school_id is required"
+            error:   "school_id is required"
           }, status: :bad_request
         end
 
-        all_participants = (Array(p_ids).map(&:to_s) + [@current_user.id.to_s]).uniq.sort
-
-        if all_participants.size < 2
+        # ── Guard 2: all requested participants must actually exist ──────────
+        # This also surfaces a clear error if the frontend sends a bad ID
+        # rather than silently creating a broken conversation.
+        target_users = User.where(:id.in => p_ids)
+        if target_users.count != p_ids.uniq.size
+          missing = p_ids.uniq - target_users.map { |u| u.id.to_s }
           return render json: {
             success: false,
-            error: "Cannot create a conversation with only yourself"
+            error:   "Participant(s) not found: #{missing.join(', ')}"
           }, status: :unprocessable_entity
         end
 
-        # Find existing conversation with exactly these participants
+        # ── Guard 3: self-messaging detection ────────────────────────────────
+        # The only participant after deduplication is the current user themselves.
+        # We still allow a user to open a "Note to self" conversation by sending
+        # their own ID — we just route them to/create that single-participant conv.
+        other_ids    = p_ids.map(&:to_s).reject { |id| id == @current_user.id.to_s }
+        is_self_conv = other_ids.empty?
+
+        all_participants = (p_ids + [@current_user.id.to_s]).map(&:to_s).uniq.sort
+
+        # ── Guard 4: minimum participants for a normal conversation ──────────
+        # A real conversation needs at least 2 distinct users.
+        # The only exception we permit is the explicit self-conversation.
+        if all_participants.size < 2 && !is_self_conv
+          return render json: {
+            success: false,
+            error:   "A conversation requires at least one other participant"
+          }, status: :unprocessable_entity
+        end
+
+        # ── Find or create ───────────────────────────────────────────────────
+        # Sorted participant list guarantees that the query is deterministic
+        # regardless of the order IDs were sent from the client.
         conversation = Conversation.where(participant_ids: all_participants).first
 
         if conversation
+          return render json: {
+            success: true,
+            data:    serialize_conversation(conversation),
+            message: is_self_conv ? "Self-conversation retrieved" : "Existing conversation retrieved"
+          }, status: :ok
+        end
+
+        conversation = Conversation.create(
+          participant_ids: all_participants,
+          school_id:       school_id,
+          user_id:         @current_user.id
+        )
+
+        if conversation.persisted?
           render json: {
             success: true,
-            data: serialize_conversation(conversation),
-            message: "Existing conversation retrieved"
+            data:    serialize_conversation(conversation),
+            message: is_self_conv ? "Self-conversation created" : "Conversation created successfully"
           }, status: :ok
         else
-          conversation = Conversation.create(
-            participant_ids: all_participants,
-            school_id: school_id,
-            user_id: @current_user.id
-          )
-
-          if conversation.persisted?
-            render json: {
-              success: true,
-              data: serialize_conversation(conversation),
-              message: "Conversation created successfully"
-            }, status: :ok
-          else
-            render json: {
-              success: false,
-              errors: conversation.errors.full_messages
-            }, status: :unprocessable_entity
-          end
+          render json: {
+            success: false,
+            errors:  conversation.errors.full_messages
+          }, status: :unprocessable_entity
         end
       end
 
       # PUT /api/v1/conversations/:id/read
       def read
         affected = @conversation.messages
-                                .where(:sender_id.ne => @current_user.id, read: false)
+                                .where(:sender_id.ne => @current_user.id.to_s, read: false)
                                 .update_all(read: true)
 
         render json: {
           success: true,
           message: "Messages marked as read",
-          count: affected
+          count:   affected
         }, status: :ok
       end
 
@@ -110,96 +136,117 @@ module Api
         unless @conversation
           render json: {
             success: false,
-            error: "Conversation not found or access denied"
+            error:   "Conversation not found or access denied"
           }, status: :not_found
         end
       end
 
-      # ---------------------------------------------------------------
-      # Serialize a single conversation with:
-      #   - participants: array of { id, name, avatar, role, online_status }
-      #   - last_message: { content, sender_id, timestamp }
-      #   - unread_count: integer
-      # ---------------------------------------------------------------
+      # -----------------------------------------------------------------------
+      # Serialize a single Conversation to a plain Ruby Hash.
+      #
+      # Returns:
+      #   id, title, participant_ids, participants[], school_id,
+      #   last_message{}, unread_count, last_message_at, updated_at, created_at
+      #
+      # ⚠️  NEVER use .only() or .without() on the User query here.
+      #     Mongoid raises AttributeNotLoaded when any callback or embedded
+      #     association (e.g. onboarding_status) touches an excluded field.
+      #     Loading the full document is cheaper than the debugging cost.
+      # -----------------------------------------------------------------------
       def serialize_conversation(conversation)
-        # Resolve participant User records in one DB query
         participant_ids = (conversation.participant_ids || []).map(&:to_s)
-        users           = User.where(:id.in => participant_ids)
-                              .only(:id, :name, :first_name, :last_name, :avatar,
-                                    :profile_image, :role, :roles)
 
+        # One DB round-trip for all participants — no projection.
+        users        = User.where(:id.in => participant_ids)
         participants = users.map { |u| serialize_participant(u) }
 
-        # Fetch last message (one extra query per conversation — acceptable for now)
+        # One query for the last message preview.
         last_msg = conversation.messages.order(created_at: :desc).first
 
-        # Unread count: messages not sent by current user that haven't been read
+        # Unread: messages from others that haven't been read yet.
         unread = conversation.messages
                              .where(:sender_id.ne => @current_user.id.to_s, read: false)
                              .count
 
         {
           id:              conversation.id.to_s,
+          title:           conversation_title(participants),
           participant_ids: participant_ids,
           participants:    participants,
           school_id:       conversation.school_id&.to_s,
-          title:           conversation_title(participants),
           last_message:    last_msg ? serialize_message(last_msg) : nil,
           unread_count:    unread,
-          last_message_at: conversation.last_message_at || conversation.created_at,
+          last_message_at: conversation.try(:last_message_at) || conversation.updated_at || conversation.created_at,
           updated_at:      conversation.updated_at,
           created_at:      conversation.created_at
         }
       end
 
+      # Converts a User document to a plain hash for inclusion in the response.
+      # Uses safe_read throughout to avoid AttributeNotLoaded on any field.
       def serialize_participant(user)
-        name = user.name.presence ||
-               [user.first_name, user.last_name].compact.join(" ").presence ||
-               "Unknown"
-
-        role = resolve_role(user)
+        # Build full_name from every available field, most-preferred first.
+        full_name = safe_read(user, :name).presence ||
+                    safe_read(user, :full_name).presence ||
+                    [
+                      safe_read(user, :first_name),
+                      safe_read(user, :last_name)
+                    ].compact.reject(&:blank?).join(" ").presence ||
+                    "Unknown"
 
         {
-          id:            user.id.to_s,
-          name:          name,
-          avatar:        user.try(:avatar) || user.try(:profile_image),
-          role:          role,
-          online_status: "offline"   # extend later with presence tracking
+          id:        user.id.to_s,
+          name:      full_name,
+          full_name: full_name,          # redundant alias — keeps frontend options open
+          avatar:    safe_read(user, :avatar) || safe_read(user, :profile_image),
+          role:      resolve_role(user),
+          online_status: "offline"       # extend with presence tracking later
         }
+      end
+
+      # Raw attribute access — bypasses all Mongoid accessor magic and
+      # embedded-document auto-loading. Returns nil on any unloaded field.
+      def safe_read(user, field)
+        user.read_attribute(field)
+      rescue Mongoid::Errors::AttributeNotLoaded
+        nil
       end
 
       def serialize_message(message)
         {
-          id:         message.id.to_s,
-          content:    message.content.presence || message.try(:body) || message.try(:text) || "",
-          sender_id:  message.sender_id.to_s,
-          timestamp:  message.created_at,
-          read:       message.try(:read) || false
+          id:        message.id.to_s,
+          content:   message.try(:content).presence ||
+                     message.try(:body).presence ||
+                     message.try(:text).presence || "",
+          sender_id: message.sender_id.to_s,
+          timestamp: message.created_at,
+          read:      message.try(:read) || false
         }
       end
 
-      # Build a human-readable title from participants, excluding current user
+      # Builds the conversation display title from the perspective of @current_user.
+      # participants is already a plain Array of Hashes — no Mongoid touching here.
       def conversation_title(participants)
         others = participants.reject { |p| p[:id] == @current_user.id.to_s }
+
         return "Note to self" if others.empty?
 
-        if others.size == 1
-          others.first[:name]
-        elsif others.size == 2
-          others.map { |p| p[:name].split(" ").first }.join(" & ")
-        else
-          "#{others.first[:name].split(' ').first} & #{others.size - 1} others"
+        case others.size
+        when 1 then others.first[:name]
+        when 2 then others.map { |p| p[:name].split(" ").first }.join(" & ")
+        else        "#{others.first[:name].split(' ').first} & #{others.size - 1} others"
         end
       end
 
+      # Resolves a user's role from either a single :role field or a :roles array.
+      # Uses safe_read to avoid AttributeNotLoaded for either field.
       def resolve_role(user)
-        # Handle both a single `role` field and a `roles` array
-        roles_list = Array(user.try(:roles)).map(&:to_s)
-        single     = user.try(:role).to_s
+        roles_list = Array(safe_read(user, :roles)).map(&:to_s)
+        single     = safe_read(user, :role).to_s
 
-        return "admin"    if roles_list.include?("admin")    || single == "admin"
-        return "teacher"  if roles_list.include?("teacher")  || single == "teacher"
-        return "parent"   if roles_list.include?("parent")   || single == "parent"
+        return "admin"     if roles_list.include?("admin")     || single == "admin"
+        return "teacher"   if roles_list.include?("teacher")   || single == "teacher"
+        return "parent"    if roles_list.include?("parent")    || single == "parent"
         return "principal" if roles_list.include?("principal") || single == "principal"
 
         "staff"
