@@ -22,6 +22,9 @@ module Api
         message.school = sender if sender.is_a?(School)
 
         if message.save
+          # Broadcast the new message via Action Cable
+          ConversationChannel.broadcast_to(@conversation, message)
+
           render json: { success: true, data: message, message: "Message created successfully." }, status: :created
         else
           render json: { success: false, errors: message.errors.full_messages }, status: :unprocessable_entity
