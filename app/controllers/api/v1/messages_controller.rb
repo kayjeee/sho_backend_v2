@@ -23,7 +23,7 @@ module Api
 
         if message.save
           # Broadcast the new message via Action Cable
-          ConversationChannel.broadcast_to(@conversation, message)
+          ConversationChannel.broadcast_to(@conversation, serialize_message(message))
 
           render json: { success: true, data: message, message: "Message created successfully." }, status: :created
         else
@@ -62,6 +62,18 @@ module Api
 
       def message_params
         params.require(:message).permit(:content, :user_id, :school_id, :name, :schoolName)
+      end
+
+      def serialize_message(message)
+        {
+          id:        message.id.to_s,
+          content:   message.content,
+          sender_id: message.user_id&.to_s || message.school_id&.to_s,
+          timestamp: message.created_at,
+          read:      message.read,
+          name:      message.name,
+          schoolName: message.schoolName
+        }
       end
     end
   end

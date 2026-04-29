@@ -16,7 +16,7 @@ module Secured
       return
     end
 
-    @current_user = User.find_by(email: email)
+    @current_user ||= User.find_by(email: email)
 
     if @current_user.nil?
       render json: {
