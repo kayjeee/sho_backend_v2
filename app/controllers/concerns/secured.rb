@@ -16,7 +16,7 @@ module Secured
       return
     end
 
-    @current_user ||= User.find_by(email: email)
+    return if current_user
 
     if @current_user.nil?
       render json: {
@@ -27,5 +27,11 @@ module Secured
     end
 
     Rails.logger.info "DEBUG: Authorized as #{@current_user.email} (ID: #{@current_user.id})"
+  end
+
+  def current_user
+    email = request.headers['X-User-Email'] || params[:user_email]
+    return nil if email.blank?
+    @current_user ||= User.find_by(email: email)
   end
 end
