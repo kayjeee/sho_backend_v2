@@ -52,6 +52,11 @@ Rails.application.configure do
   # Controllers
   config.action_controller.raise_on_missing_callback_actions = true
 
-  # Action Cable CORS
+  # Action Cable Configuration
+  config.action_cable.mount_path = '/cable'
   config.action_cable.allowed_request_origins = [/http:\/\/localhost:3000/, /http:\/\/127.0.0.1:3000/]
+
+  # Suppress Mongoid heartbeat logs but keep general logs
+  Mongoid.logger.level = Logger::INFO
+  Mongo::Logger.logger.level = Logger::INFO
 end
