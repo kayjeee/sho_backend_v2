@@ -10,8 +10,8 @@ module ApplicationCable
     private
 
     def find_verified_user
-      # Follow the same logic as Secured concern
-      email = request.params[:user_email] || request.headers["X-User-Email"]
+      # Identify user via the user_email parameter provided in the connection string
+      email = request.params[:user_email]
 
       if email.present? && (user = User.find_by(email: email))
         user
