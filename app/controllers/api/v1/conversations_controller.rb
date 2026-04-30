@@ -13,6 +13,10 @@ module Api
 
         conversations = conversations.where(school_id: params[:school_id]) if params[:school_id].present?
 
+        # Pre-fetch all participants to avoid N+1 queries during serialization
+        all_participant_ids = conversations.pluck(:participant_ids).flatten.uniq
+        @prefetched_users = User.in(id: all_participant_ids).index_by { |u| u.id.to_s }
+
         render json: {
           success: true,
           data: conversations.map { |c| serialize_conversation(c) }
@@ -156,9 +160,13 @@ module Api
       def serialize_conversation(conversation)
         participant_ids = (conversation.participant_ids || []).map(&:to_s)
 
-        # One DB round-trip for all participants — no projection.
-        users        = User.where(:id.in => participant_ids)
-        participants = users.map { |u| serialize_participant(u) }
+        # Use pre-fetched users if available, otherwise fallback to query
+        if @prefetched_users
+          participants = participant_ids.map { |id| @prefetched_users[id] }.compact.map { |u| serialize_participant(u) }
+        else
+          users        = User.in(id: participant_ids)
+          participants = users.map { |u| serialize_participant(u) }
+        end
 
         # One query for the last message preview.
         last_msg = conversation.messages.order(created_at: :desc).first
