@@ -11,6 +11,11 @@ class Conversation
   # @current_user.id.to_s without casting. Always keep sorted + unique.
   field :participant_ids,  type: Array,          default: []
 
+  # Unique key generated from sorted participant_ids.
+  # Used for uniqueness enforcement instead of the array itself to avoid
+  # multi-key index constraints.
+  field :participants_key, type: String
+
   # Denormalised timestamp — set by the MessagesController every time a new
   # message is saved. Used to sort conversations newest-first without a join.
   # Falls back to updated_at in the controller if nil (legacy records).
@@ -19,6 +24,7 @@ class Conversation
   # Optional title override (e.g. group chat name). Usually nil — the
   # controller derives the display title from participant names at runtime.
   field :title,            type: String
+  field :group_name,       type: String
 
   # Foreign keys stored as ObjectIds (native Mongoid convention).
   field :school_id,        type: BSON::ObjectId
@@ -76,9 +82,11 @@ class Conversation
 
   # Unique-ness enforcement: prevents duplicate conversations between the same
   # set of participants in the same school.
+  # We use participants_key instead of participant_ids to avoid multi-key index issues.
+  # Including group_name allows multiple named groups with same participants.
   # sparse: true allows multiple documents where school_id is nil.
   index(
-    { participant_ids: 1, school_id: 1 },
+    { participants_key: 1, school_id: 1, group_name: 1 },
     { unique: true, sparse: true, name: 'unique_participants_per_school' }
   )
 
@@ -109,6 +117,11 @@ class Conversation
     participant_ids.uniq.size == 1
   end
 
+  # True when the conversation has 3 or more participants OR has a group name.
+  def group?
+    group_name.present? || participant_ids.size > 2
+  end
+
   private
 
   # Ensures participant_ids is always an array of plain strings, sorted and
@@ -119,6 +132,7 @@ class Conversation
                              .reject(&:blank?)
                              .uniq
                              .sort
+    self.participants_key = participant_ids.join(',')
   end
 
   def participant_ids_are_strings

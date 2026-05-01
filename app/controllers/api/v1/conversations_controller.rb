@@ -2,7 +2,7 @@ module Api
   module V1
     class ConversationsController < ApplicationController
       before_action :authorize
-      before_action :set_conversation, only: [:show, :destroy, :read]
+      before_action :set_conversation, only: [:show, :destroy, :read, :update_participants]
 
       # GET /api/v1/conversations
       def index
@@ -30,8 +30,9 @@ module Api
 
       # POST /api/v1/conversations
       def create
-        school_id = params.dig(:conversation, :school_id)
-        p_ids     = Array(
+        school_id  = params.dig(:conversation, :school_id)
+        group_name = params.dig(:conversation, :group_name) || params[:group_name]
+        p_ids      = Array(
           params[:participant_ids] || params.dig(:conversation, :participant_ids) || []
         ).map(&:to_s).reject(&:blank?)
 
@@ -77,7 +78,18 @@ module Api
         # ── Find or create ───────────────────────────────────────────────────
         # Sorted participant list guarantees that the query is deterministic
         # regardless of the order IDs were sent from the client.
-        conversation = Conversation.where(participant_ids: all_participants).first
+        # We only search for existing 1-on-1 or self-conversations.
+        # Group conversations (3+ people or named) are always created fresh.
+        is_group = all_participants.size > 2 || group_name.present?
+        conversation = nil
+
+        unless is_group
+          p_key = all_participants.join(',')
+          conversation = Conversation.where(
+            participants_key: p_key,
+            group_name:       nil # Don't match named groups when looking for 1-on-1s
+          ).first
+        end
 
         if conversation
           return render json: {
@@ -90,7 +102,8 @@ module Api
         conversation = Conversation.create(
           participant_ids: all_participants,
           school_id:       school_id,
-          user_id:         @current_user.id
+          user_id:         @current_user.id,
+          group_name:      group_name
         )
 
         if conversation.persisted?
@@ -118,6 +131,50 @@ module Api
           message: "Messages marked as read",
           count:   affected
         }, status: :ok
+      end
+
+      # PATCH /api/v1/conversations/:id/update_participants
+      def update_participants
+        add_ids    = Array(params[:add_participant_ids]).map(&:to_s).reject(&:blank?)
+        remove_ids = Array(params[:remove_participant_ids]).map(&:to_s).reject(&:blank?)
+
+        # ── Guard 1: Validate users to add exist ──────────────────────────────
+        if add_ids.any?
+          target_users = User.where(:id.in => add_ids)
+          if target_users.count != add_ids.uniq.size
+            missing = add_ids.uniq - target_users.map { |u| u.id.to_s }
+            return render json: {
+              success: false,
+              error:   "Participant(s) not found: #{missing.join(', ')}"
+            }, status: :unprocessable_entity
+          end
+        end
+
+        # ── Apply changes ───────────────────────────────────────────────────
+        current_ids = @conversation.participant_ids
+        new_ids     = (current_ids + add_ids - remove_ids).uniq
+
+        # ── Guard 2: Minimum participants ───────────────────────────────────
+        # Don't allow removing everyone or ending up with < 1 participant
+        if new_ids.empty?
+          return render json: {
+            success: false,
+            error:   "A conversation must have at least one participant"
+          }, status: :unprocessable_entity
+        end
+
+        if @conversation.update(participant_ids: new_ids)
+          render json: {
+            success: true,
+            data:    serialize_conversation(@conversation),
+            message: "Participants updated successfully"
+          }, status: :ok
+        else
+          render json: {
+            success: false,
+            errors:  @conversation.errors.full_messages
+          }, status: :unprocessable_entity
+        end
       end
 
       # DELETE /api/v1/conversations/:id
@@ -178,7 +235,8 @@ module Api
 
         {
           id:              conversation.id.to_s,
-          title:           conversation_title(participants),
+          title:           conversation_title(participants, conversation.group_name),
+          group_name:      conversation.group_name,
           participant_ids: participant_ids,
           participants:    participants,
           school_id:       conversation.school_id&.to_s,
@@ -234,15 +292,21 @@ module Api
 
       # Builds the conversation display title from the perspective of @current_user.
       # participants is already a plain Array of Hashes — no Mongoid touching here.
-      def conversation_title(participants)
+      def conversation_title(participants, group_name = nil)
+        return group_name if group_name.present?
+
         others = participants.reject { |p| p[:id] == @current_user.id.to_s }
 
         return "Note to self" if others.empty?
 
-        case others.size
-        when 1 then others.first[:name]
-        when 2 then others.map { |p| p[:name].split(" ").first }.join(" & ")
-        else        "#{others.first[:name].split(' ').first} & #{others.size - 1} others"
+        if others.size == 1
+          others.first[:name]
+        elsif others.size <= 3
+          others.map { |p| p[:name].split(" ").first }.to_sentence
+        else
+          first_names = others.take(2).map { |p| p[:name].split(" ").first }
+          remaining_count = others.size - 2
+          "#{first_names.join(', ')}, and #{remaining_count} others"
         end
       end
 
