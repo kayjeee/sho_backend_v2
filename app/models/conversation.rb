@@ -58,6 +58,7 @@ class Conversation
   # A conversation must have at least one participant (the creator).
   validates :participant_ids, presence: true
   validate  :participant_ids_are_strings
+  validate  :at_least_two_participants
 
   # school_id is required for all new conversations created through the API.
   # Marked optional on the association above so Mongoid doesn't do a DB lookup
@@ -142,5 +143,12 @@ class Conversation
     return if non_strings.empty?
 
     errors.add(:participant_ids, "must contain only string IDs (got: #{non_strings.map(&:class).uniq.join(', ')})")
+  end
+
+  def at_least_two_participants
+    # Allow 2 or more for groups, or 1 if it's a "Note to Self"
+    if participant_ids.blank? || participant_ids.size < 1
+      errors.add(:participant_ids, "must have at least one participant")
+    end
   end
 end

@@ -137,9 +137,9 @@ module Api
       # PUT /api/v1/conversations/:id/participants
       def participants
         if request.get?
-          participant_ids = (@conversation.participant_ids || []).map(&:to_s)
-          users           = User.in(id: participant_ids)
-          participants    = users.map { |u| serialize_participant(u) }
+          p_ids        = (@conversation.participant_ids || []).map(&:to_s)
+          users        = User.in(id: p_ids)
+          participants = users.map { |u| serialize_participant(u) }
 
           return render json: {
             success: true,
@@ -147,7 +147,10 @@ module Api
           }, status: :ok
         end
 
-        new_ids = Array(params[:participant_ids]).map(&:to_s).reject(&:blank?)
+        # Support both direct array and nested conversation param
+        new_ids = Array(
+          params[:participant_ids] || params.dig(:conversation, :participant_ids)
+        ).map(&:to_s).reject(&:blank?)
 
         if new_ids.blank?
           return render json: {
