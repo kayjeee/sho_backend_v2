@@ -2,7 +2,7 @@ module Api
   module V1
     class ConversationsController < ApplicationController
       before_action :authorize
-      before_action :set_conversation, only: [:show, :destroy, :read, :update_participants]
+      before_action :set_conversation, only: [:show, :destroy, :read, :participants]
 
       # GET /api/v1/conversations
       def index
@@ -133,33 +133,24 @@ module Api
         }, status: :ok
       end
 
-      # PATCH /api/v1/conversations/:id/update_participants
-      def update_participants
-        add_ids    = Array(params[:add_participant_ids]).map(&:to_s).reject(&:blank?)
-        remove_ids = Array(params[:remove_participant_ids]).map(&:to_s).reject(&:blank?)
+      # PUT /api/v1/conversations/:id/participants
+      def participants
+        new_ids = Array(params[:participant_ids]).map(&:to_s).reject(&:blank?)
 
-        # ── Guard 1: Validate users to add exist ──────────────────────────────
-        if add_ids.any?
-          target_users = User.where(:id.in => add_ids)
-          if target_users.count != add_ids.uniq.size
-            missing = add_ids.uniq - target_users.map { |u| u.id.to_s }
-            return render json: {
-              success: false,
-              error:   "Participant(s) not found: #{missing.join(', ')}"
-            }, status: :unprocessable_entity
-          end
-        end
-
-        # ── Apply changes ───────────────────────────────────────────────────
-        current_ids = @conversation.participant_ids
-        new_ids     = (current_ids + add_ids - remove_ids).uniq
-
-        # ── Guard 2: Minimum participants ───────────────────────────────────
-        # Don't allow removing everyone or ending up with < 1 participant
-        if new_ids.empty?
+        if new_ids.blank?
           return render json: {
             success: false,
-            error:   "A conversation must have at least one participant"
+            error:   "No participants provided"
+          }, status: :bad_request
+        end
+
+        # ── Guard 1: all requested participants must actually exist ──────────
+        target_users = User.where(:id.in => new_ids)
+        if target_users.count != new_ids.uniq.size
+          missing = new_ids.uniq - target_users.map { |u| u.id.to_s }
+          return render json: {
+            success: false,
+            error:   "Participant(s) not found: #{missing.join(', ')}"
           }, status: :unprocessable_entity
         end
 
@@ -175,6 +166,11 @@ module Api
             errors:  @conversation.errors.full_messages
           }, status: :unprocessable_entity
         end
+      rescue Mongoid::Errors::DocumentNotFound
+        render json: {
+          success: false,
+          error:   "Conversation not found"
+        }, status: :not_found
       end
 
       # DELETE /api/v1/conversations/:id
