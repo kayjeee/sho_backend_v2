@@ -11,6 +11,11 @@ class Conversation
   # @current_user.id.to_s without casting. Always keep sorted + unique.
   field :participant_ids,  type: Array,          default: []
 
+  # Unique key generated from sorted participant_ids.
+  # Used for uniqueness enforcement instead of the array itself to avoid
+  # multi-key index constraints.
+  field :participants_key, type: String
+
   # Denormalised timestamp — set by the MessagesController every time a new
   # message is saved. Used to sort conversations newest-first without a join.
   # Falls back to updated_at in the controller if nil (legacy records).
@@ -19,6 +24,7 @@ class Conversation
   # Optional title override (e.g. group chat name). Usually nil — the
   # controller derives the display title from participant names at runtime.
   field :title,            type: String
+  field :group_name,       type: String
 
   # Foreign keys stored as ObjectIds (native Mongoid convention).
   field :school_id,        type: BSON::ObjectId
@@ -52,6 +58,7 @@ class Conversation
   # A conversation must have at least one participant (the creator).
   validates :participant_ids, presence: true
   validate  :participant_ids_are_strings
+  validate  :must_have_at_least_one_participant
 
   # school_id is required for all new conversations created through the API.
   # Marked optional on the association above so Mongoid doesn't do a DB lookup
@@ -74,12 +81,11 @@ class Conversation
   # Lookup by creator — used in set_conversation authorisation guard.
   index({ user_id: 1 })
 
-  # Unique-ness enforcement: prevents duplicate conversations between the same
-  # set of participants in the same school.
-  # sparse: true allows multiple documents where school_id is nil.
+  # Uniqueness is now enforced at the controller level for 1-on-1s.
+  # We keep the index for fast lookups by the participants set.
   index(
-    { participant_ids: 1, school_id: 1 },
-    { unique: true, sparse: true, name: 'unique_participants_per_school' }
+    { participants_key: 1, school_id: 1, group_name: 1 },
+    { sparse: true, name: 'unique_participants_per_school' }
   )
 
   # ── Scopes ───────────────────────────────────────────────────────────────────
@@ -109,6 +115,11 @@ class Conversation
     participant_ids.uniq.size == 1
   end
 
+  # True when the conversation has 3 or more participants OR has a group name.
+  def group?
+    group_name.present? || participant_ids.size > 2
+  end
+
   private
 
   # Ensures participant_ids is always an array of plain strings, sorted and
@@ -119,6 +130,7 @@ class Conversation
                              .reject(&:blank?)
                              .uniq
                              .sort
+    self.participants_key = participant_ids.join(',')
   end
 
   def participant_ids_are_strings
@@ -128,5 +140,12 @@ class Conversation
     return if non_strings.empty?
 
     errors.add(:participant_ids, "must contain only string IDs (got: #{non_strings.map(&:class).uniq.join(', ')})")
+  end
+
+  def must_have_at_least_one_participant
+    # Allow 2 or more for groups, or 1 if it's a "Note to Self"
+    if participant_ids.blank? || participant_ids.size < 1
+      errors.add(:participant_ids, "must have at least one participant")
+    end
   end
 end

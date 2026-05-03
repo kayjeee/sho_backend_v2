@@ -276,6 +276,8 @@ Rails.application.routes.draw do
       resources :conversations, only: [:index, :show, :create, :destroy] do
         member do
           put :read
+          get :participants
+          put :participants
         end
         resources :messages, only: [:index, :create]
       end
