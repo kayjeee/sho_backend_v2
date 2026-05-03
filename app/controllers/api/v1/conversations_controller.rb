@@ -87,6 +87,7 @@ module Api
           p_key = all_participants.join(',')
           conversation = Conversation.where(
             participants_key: p_key,
+            school_id:        school_id,
             group_name:       nil # Don't match named groups when looking for 1-on-1s
           ).first
         end
@@ -169,11 +170,28 @@ module Api
           }, status: :unprocessable_entity
         end
 
-        if @conversation.update(participant_ids: new_ids)
+        # Merge new IDs with existing ones — never remove participants via this endpoint
+        # unless explicitly requested with replace: true
+        merged_ids = if params[:replace] == 'true'
+                       new_ids
+                     else
+                       (@conversation.participant_ids + new_ids).uniq.sort
+                     end
+
+        # A school group chat can have unlimited participants —
+        # only enforce minimum of 1
+        if merged_ids.empty?
+          return render json: {
+            success: false,
+            error:   "Conversation must have at least one participant"
+          }, status: :unprocessable_entity
+        end
+
+        if @conversation.update(participant_ids: merged_ids)
           render json: {
             success: true,
             data:    serialize_conversation(@conversation),
-            message: "Participants updated successfully"
+            message: "Participants updated — #{merged_ids.size} total members"
           }, status: :ok
         else
           render json: {

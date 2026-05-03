@@ -58,7 +58,7 @@ class Conversation
   # A conversation must have at least one participant (the creator).
   validates :participant_ids, presence: true
   validate  :participant_ids_are_strings
-  validate  :at_least_two_participants
+  validate  :at_least_one_participant
 
   # school_id is required for all new conversations created through the API.
   # Marked optional on the association above so Mongoid doesn't do a DB lookup
@@ -81,14 +81,11 @@ class Conversation
   # Lookup by creator — used in set_conversation authorisation guard.
   index({ user_id: 1 })
 
-  # Unique-ness enforcement: prevents duplicate conversations between the same
-  # set of participants in the same school.
-  # We use participants_key instead of participant_ids to avoid multi-key index issues.
-  # Including group_name allows multiple named groups with same participants.
-  # sparse: true allows multiple documents where school_id is nil.
+  # Uniqueness is now enforced at the controller level for 1-on-1s.
+  # We keep the index for fast lookups by the participants set.
   index(
     { participants_key: 1, school_id: 1, group_name: 1 },
-    { unique: true, sparse: true, name: 'unique_participants_per_school' }
+    { sparse: true, name: 'unique_participants_per_school' }
   )
 
   # ── Scopes ───────────────────────────────────────────────────────────────────
@@ -145,8 +142,8 @@ class Conversation
     errors.add(:participant_ids, "must contain only string IDs (got: #{non_strings.map(&:class).uniq.join(', ')})")
   end
 
-  def at_least_two_participants
-    # Allow 2 or more for groups, or 1 if it's a "Note to Self"
+  def at_least_one_participant
+    # A conversation must always have at least one user (even if it's a Note to Self)
     if participant_ids.blank? || participant_ids.size < 1
       errors.add(:participant_ids, "must have at least one participant")
     end

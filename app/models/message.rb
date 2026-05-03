@@ -3,19 +3,21 @@ class Message
   include Mongoid::Timestamps
 
   field :content,     type: String
-  field :sender_id,   type: BSON::ObjectId
-  field :user_id,     type: BSON::ObjectId
-  field :school_id,   type: BSON::ObjectId
+  field :sender_id,   type: String
+  field :receiver_id, type: String
+  field :user_id,     type: String
+  field :school_id,   type: String
   field :schoolName,  type: String
   field :name,        type: String
   field :read,        type: Boolean, default: false
 
-  belongs_to :user, class_name: 'User', inverse_of: :conversations
-  belongs_to :school, class_name: 'School', inverse_of: :conversations, optional: true
+  belongs_to :school,       class_name: 'School',       inverse_of: :messages, optional: true
   belongs_to :conversation, class_name: 'Conversation', inverse_of: :messages
 
   # Validations
-  validates :content, presence: true
+  validates :content,      presence: true
+  validates :sender_id,    presence: true
+  validates :conversation, presence: true
 
   # FIX: Mongoid 9 does NOT support after_create_commit :method_name
   # You must use a block instead
