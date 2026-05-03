@@ -141,69 +141,24 @@ module Api
           p_ids        = (@conversation.participant_ids || []).map(&:to_s)
           users        = User.in(id: p_ids)
           participants = users.map { |u| serialize_participant(u) }
-
-          return render json: {
-            success: true,
-            data:    participants
-          }, status: :ok
+          return render json: { success: true, data: participants }, status: :ok
         end
 
-        # Support both direct array and nested conversation param
-        new_ids = Array(
-          params[:participant_ids] || params.dig(:conversation, :participant_ids)
-        ).map(&:to_s).reject(&:blank?)
+        # Ensure we take the IDs from the correct parameter key
+        new_ids = params[:participant_ids] || params.dig(:conversation, :participant_ids)
 
-        if new_ids.blank?
-          return render json: {
-            success: false,
-            error:   "No participants provided"
-          }, status: :bad_request
-        end
-
-        # ── Guard 1: all requested participants must actually exist ──────────
-        target_users = User.where(:id.in => new_ids)
-        if target_users.count != new_ids.uniq.size
-          missing = new_ids.uniq - target_users.map { |u| u.id.to_s }
-          return render json: {
-            success: false,
-            error:   "Participant(s) not found: #{missing.join(', ')}"
-          }, status: :unprocessable_entity
-        end
-
-        # Merge new IDs with existing ones — never remove participants via this endpoint
-        # unless explicitly requested with replace: true
-        merged_ids = if params[:replace] == 'true'
-                       new_ids
-                     else
-                       (@conversation.participant_ids + new_ids).uniq.sort
-                     end
-
-        # A school group chat can have unlimited participants —
-        # only enforce minimum of 1
-        if merged_ids.empty?
-          return render json: {
-            success: false,
-            error:   "Conversation must have at least one participant"
-          }, status: :unprocessable_entity
-        end
-
-        if @conversation.update(participant_ids: merged_ids)
+        if @conversation.update(participant_ids: new_ids)
           render json: {
             success: true,
-            data:    serialize_conversation(@conversation),
-            message: "Participants updated — #{merged_ids.size} total members"
+            data:    serialize_conversation(@conversation)
           }, status: :ok
         else
+          # Return the actual validation errors
           render json: {
             success: false,
             errors:  @conversation.errors.full_messages
           }, status: :unprocessable_entity
         end
-      rescue Mongoid::Errors::DocumentNotFound
-        render json: {
-          success: false,
-          error:   "Conversation not found"
-        }, status: :not_found
       end
 
       # DELETE /api/v1/conversations/:id
