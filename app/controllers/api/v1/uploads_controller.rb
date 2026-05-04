@@ -4,49 +4,40 @@ module Api
       before_action :authorize
 
       # POST /api/v1/uploads
-      # Expects: { "filename": "image.jpg", "content_type": "image/jpeg" }
+      # Generates a Cloudinary upload signature for client-side uploads.
       def create
-        filename = params[:filename]
-        content_type = params[:content_type]
+        timestamp = Time.now.to_i
 
-        if filename.blank? || content_type.blank?
-          return render_error("filename and content_type are required", [], status: :bad_request)
-        end
+        # We can accept additional upload parameters from the frontend if needed
+        # (e.g., folder, public_id, upload_preset)
+        params_to_sign = {
+          timestamp: timestamp
+        }
 
-        key = "uploads/#{SecureRandom.uuid}/#{filename}"
-
-        # Check if AWS SDK is available
-        if defined?(Aws::S3::Resource)
+        # Check if Cloudinary gem is available and configured
+        if defined?(Cloudinary::Utils)
           begin
-            s3 = Aws::S3::Resource.new(
-              region: ENV['AWS_REGION'] || 'us-east-1',
-              access_key_id: ENV['AWS_ACCESS_KEY_ID'],
-              secret_access_key: ENV['AWS_SECRET_ACCESS_KEY']
-            )
-            bucket = s3.bucket(ENV['AWS_BUCKET'])
-            obj = bucket.object(key)
+            # The cloudinary gem should be configured via environment variables:
+            # CLOUDINARY_URL or CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET
 
-            presigned_url = obj.presigned_url(:put, acl: 'public-read', content_type: content_type, expires_in: 3600)
-            download_url = obj.public_url
+            signature = Cloudinary::Utils.api_sign_request(params_to_sign, Cloudinary.config.api_secret)
+
+            render_success(data: {
+              signature: signature,
+              timestamp: timestamp,
+              api_key: Cloudinary.config.api_key,
+              cloud_name: Cloudinary.config.cloud_name
+            })
           rescue => e
-            Rails.logger.error "S3 Presigned URL error: #{e.message}"
-            # Fallback to mock if AWS fails or not configured
-            presigned_url = mock_presigned_url(key)
-            download_url = mock_download_url(key)
+            Rails.logger.error "Cloudinary signature error: #{e.message}"
+            render_mock_signature(params_to_sign, timestamp)
           end
         else
-          # Fallback if gem not installed
-          presigned_url = mock_presigned_url(key)
-          download_url = mock_download_url(key)
+          # Fallback if gem not installed or not configured properly in this environment
+          render_mock_signature(params_to_sign, timestamp)
         end
-
-        render_success(data: {
-          presigned_url: presigned_url,
-          download_url: download_url,
-          key: key
-        })
       rescue => e
-        handle_exception(e, "Failed to generate presigned URL")
+        handle_exception(e, "Failed to generate upload signature")
       end
 
       # GET /api/v1/uploads/:id
@@ -61,16 +52,14 @@ module Api
 
       private
 
-      def mock_presigned_url(key)
-        bucket = ENV['AWS_BUCKET'] || "sho-uploads"
-        region = ENV['AWS_REGION'] || "us-east-1"
-        "https://#{bucket}.s3.#{region}.amazonaws.com/#{key}?signature=mock_signature"
-      end
-
-      def mock_download_url(key)
-        bucket = ENV['AWS_BUCKET'] || "sho-uploads"
-        region = ENV['AWS_REGION'] || "us-east-1"
-        "https://#{bucket}.s3.#{region}.amazonaws.com/#{key}"
+      def render_mock_signature(params_to_sign, timestamp)
+        render_success(data: {
+          signature: "mock_signature_for_#{timestamp}",
+          timestamp: timestamp,
+          api_key: ENV['CLOUDINARY_API_KEY'] || "mock_api_key",
+          cloud_name: ENV['CLOUDINARY_CLOUD_NAME'] || "mock_cloud_name",
+          note: "Cloudinary gem not detected or error occurred; returning mock data."
+        })
       end
     end
   end

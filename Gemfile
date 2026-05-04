@@ -28,6 +28,7 @@ gem "redis", "~> 5.0"
 
 # File Processing
 gem "roo"
+gem "cloudinary"
 # csv is part of Ruby stdlib — no need to include it as a gem
 
 # Performance
