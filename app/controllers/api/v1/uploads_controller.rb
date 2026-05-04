@@ -7,17 +7,24 @@ module Api
       # Generates a Cloudinary upload signature for client-side uploads.
       def index
         timestamp = Time.now.to_i
-        params_to_sign = { timestamp: timestamp }
+
+        # We can accept additional upload parameters from the frontend if needed
+        # (e.g., folder, public_id, upload_preset)
+        params_to_sign = {
+          timestamp: timestamp,
+          folder: params[:folder],
+          upload_preset: params[:upload_preset]
+        }.compact
 
         if defined?(Cloudinary::Utils)
           begin
             signature = Cloudinary::Utils.api_sign_request(params_to_sign, Cloudinary.config.api_secret)
-            render_success(data: {
-              signature: signature,
-              timestamp: timestamp,
-              api_key: Cloudinary.config.api_key,
-              cloud_name: Cloudinary.config.cloud_name
-            })
+            render json: {
+              signature: signature.to_s,
+              timestamp: timestamp.to_s,
+              api_key: Cloudinary.config.api_key.to_s,
+              cloud_name: Cloudinary.config.cloud_name.to_s
+            }, status: :ok
           rescue => e
             Rails.logger.error "Cloudinary signature error: #{e.message}"
             render_mock_signature(params_to_sign, timestamp)
@@ -77,13 +84,13 @@ module Api
       private
 
       def render_mock_signature(params_to_sign, timestamp)
-        render_success(data: {
+        render json: {
           signature: "mock_signature_for_#{timestamp}",
-          timestamp: timestamp,
-          api_key: ENV['CLOUDINARY_API_KEY'] || "mock_api_key",
-          cloud_name: ENV['CLOUDINARY_CLOUD_NAME'] || "mock_cloud_name",
+          timestamp: timestamp.to_s,
+          api_key: (ENV['CLOUDINARY_API_KEY'] || "mock_api_key").to_s,
+          cloud_name: (ENV['CLOUDINARY_CLOUD_NAME'] || "mock_cloud_name").to_s,
           note: "Cloudinary gem not detected or error occurred; returning mock data."
-        })
+        }, status: :ok
       end
     end
   end
