@@ -7,7 +7,8 @@ module Api
       # GET /api/v1/conversations/:conversation_id/messages
       def index
         messages = @conversation.messages.order(created_at: :asc)
-        render json: { success: true, data: messages }, status: :ok
+        serialized_messages = messages.map { |m| MessageSerializer.new(m).as_json }
+        render json: { success: true, data: serialized_messages }, status: :ok
       end
 
       # POST /api/v1/conversations/:conversation_id/messages
@@ -22,7 +23,11 @@ module Api
         message.school = sender if sender.is_a?(School)
 
         if message.save
-          render json: { success: true, data: message, message: "Message created successfully." }, status: :created
+          render json: {
+            success: true,
+            data: MessageSerializer.new(message).as_json,
+            message: "Message created successfully."
+          }, status: :created
         else
           render json: { success: false, errors: message.errors.full_messages }, status: :unprocessable_entity
         end
