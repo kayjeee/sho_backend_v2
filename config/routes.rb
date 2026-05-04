@@ -328,7 +328,7 @@ Rails.application.routes.draw do
         patch :system_settings, action: :update_system_settings
       end
 
-      resources :uploads, only: [:create, :show, :destroy]
+      resources :uploads, only: [:index, :create, :show, :destroy]
 
       resources :notifications do
         collection do

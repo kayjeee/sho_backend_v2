@@ -3,6 +3,30 @@ module Api
     class UploadsController < ApplicationController
       before_action :authorize
 
+      # GET /api/v1/uploads
+      # Generates a Cloudinary upload signature for client-side uploads.
+      def index
+        timestamp = Time.now.to_i
+        params_to_sign = { timestamp: timestamp }
+
+        if defined?(Cloudinary::Utils)
+          begin
+            signature = Cloudinary::Utils.api_sign_request(params_to_sign, Cloudinary.config.api_secret)
+            render_success(data: {
+              signature: signature,
+              timestamp: timestamp,
+              api_key: Cloudinary.config.api_key,
+              cloud_name: Cloudinary.config.cloud_name
+            })
+          rescue => e
+            Rails.logger.error "Cloudinary signature error: #{e.message}"
+            render_mock_signature(params_to_sign, timestamp)
+          end
+        else
+          render_mock_signature(params_to_sign, timestamp)
+        end
+      end
+
       # POST /api/v1/uploads
       # Generates a Cloudinary upload signature for client-side uploads.
       def create
