@@ -11,7 +11,11 @@ class MessageSerializer
       timestamp: @message.created_at,
       read:      @message.read,
       name:      @message.name,
-      schoolName: @message.schoolName
+      schoolName: @message.schoolName,
+      attachment_url: @message.attachment_url,
+      attachment_type: @message.attachment_type,
+      attachment_name: @message.attachment_name,
+      attachment_size: @message.attachment_size
     }
   end
 end

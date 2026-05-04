@@ -58,7 +58,10 @@ module Api
       
 
       def message_params
-        params.require(:message).permit(:content, :user_id, :school_id, :name, :schoolName)
+        params.require(:message).permit(
+          :content, :user_id, :school_id, :name, :schoolName,
+          :attachment_url, :attachment_type, :attachment_name, :attachment_size
+        )
       end
 
       def serialize_message(message)
