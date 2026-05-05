@@ -279,7 +279,7 @@ Rails.application.routes.draw do
           get :participants
           put :participants
         end
-        resources :messages, only: [:index, :create] do
+        resources :messages, only: [:index, :create], param: :message_id do
           member do
             post :react
           end
