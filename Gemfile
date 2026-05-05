@@ -1,28 +1,35 @@
 source "https://rubygems.org"
 
-# Rails framework
+# Core Framework
 gem "rails", "~> 8.0.2"
-gem "propshaft"
 gem "puma", ">= 5.0"
+
+# Asset & Frontend
+gem "propshaft"
 gem "importmap-rails"
 gem "turbo-rails"
 gem "stimulus-rails"
 gem "jbuilder"
 
-gem 'rack-cors'
+# API & CORS
+gem "rack-cors"
 
 # Database
 gem "mongoid"
 
 # Authentication & Security
-gem 'jwt'
+gem "jwt"
 
 # Serialization
-gem 'active_model_serializers'
+gem "active_model_serializers"
+
+# Background / Realtime (Action Cable)
+gem "redis", "~> 5.0"
 
 # File Processing
-gem 'roo'
-gem 'csv'
+gem "roo"
+gem "cloudinary"
+# csv is part of Ruby stdlib — no need to include it as a gem
 
 # Performance
 gem "bootsnap", require: false
@@ -31,7 +38,7 @@ gem "thruster", require: false
 # Deployment
 gem "kamal", require: false
 
-# Platform specific
+# Platform-specific
 gem "tzinfo-data", platforms: [:jruby]
 
 group :development, :test do

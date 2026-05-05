@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 Rails.application.routes.draw do
+  mount ActionCable.server => '/cable'
+
   namespace :api do
     namespace :v1 do
 
@@ -14,14 +16,28 @@ Rails.application.routes.draw do
       # =========================================================
       # USERS (Auth0-safe — PREFERRED)
       # =========================================================
-      scope :users, controller: :users do
-        get   :show                # ?auth0_id=
-        get   :schools             # ?auth0_id=
-        get   :me                  # token-based
-        put   :update_roles        # ?auth0_id=
-        post  :add_school          # ?auth0_id=
-        get   :onboarding_status   # ?auth0_id=
-        patch :update_profile      # ?auth0_id=
+      resources :users, param: :auth0_id do
+        collection do
+          get   :me                  # token-based
+          get   :onboarding_status
+          get   :schools
+        end
+        member do
+          put   :update_roles
+          post  :add_school
+          patch :update_profile
+
+          # Internal DB ID compatibility
+          get  :roles
+          post :add_role
+          get  :onboarding_required
+
+          resource :onboarding_status, controller: :onboarding_statuses, only: [:show, :update] do
+            post :complete_step
+            post :skip_step
+            post :reset
+          end
+        end
       end
 
       # =========================================================
@@ -38,23 +54,6 @@ Rails.application.routes.draw do
       get 'users/:auth0_id/onboarding_status',
           to: 'users#onboarding_status_by_path',
           constraints: { auth0_id: /[^\/]+/ }, as: :user_onboarding_by_auth0_deprecated
-
-      # =========================================================
-      # USERS (Internal DB Only)
-      # =========================================================
-      resources :users, only: [:create] do
-        member do
-          get  :roles
-          post :add_role
-          get  :onboarding_required
-
-          resource :onboarding_status, controller: :onboarding_statuses, only: [:show, :update] do
-            post :complete_step
-            post :skip_step
-            post :reset
-          end
-        end
-      end
 
       # =========================================================
       # PARENTS & LEARNERS
@@ -76,7 +75,6 @@ Rails.application.routes.draw do
         end
       end
 
-      # ✅ FIXED: verify_with_details now lives inside the namespace as a member route
       resources :invitations, param: :token, only: [:create, :show] do
         member do
           get :verify_with_details   # GET /api/v1/invitations/:token/verify_with_details
@@ -129,7 +127,9 @@ Rails.application.routes.draw do
           get 'teachers/:teacher_id', to: 'schools#show_teacher'
           get 'parents/:parent_id', to: 'schools#show_parent'
         end
-        collection { get :search }
+        collection do
+          get :search
+        end
 
         resources :students
         resources :grades,   only: [:index, :create]
@@ -273,7 +273,12 @@ Rails.application.routes.draw do
         member { get :users_by_roles }
       end
 
-      resources :conversations, only: [:index, :show, :create] do
+      resources :conversations, only: [:index, :show, :create, :destroy] do
+        member do
+          put :read
+          get :participants
+          put :participants
+        end
         resources :messages, only: [:index, :create]
       end
 
@@ -323,7 +328,7 @@ Rails.application.routes.draw do
         patch :system_settings, action: :update_system_settings
       end
 
-      resources :uploads, only: [:create, :show, :destroy]
+      resources :uploads, only: [:index, :create, :show, :destroy]
 
       resources :notifications do
         collection do

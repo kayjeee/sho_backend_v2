@@ -33,9 +33,8 @@ class User
   # ===================== ASSOCIATIONS =====================
   has_many :conversations,       foreign_key: :user_id
   has_many :accounts,            class_name: 'Account', inverse_of: :user
-  has_many :sent_messages,       class_name: 'Message', inverse_of: :sender
-  has_many :messages,            inverse_of: :user
-  has_many :received_messages,   class_name: 'Message', inverse_of: :receiver
+  has_many :sent_messages,       class_name: 'Message', inverse_of: :sender, primary_key: :id, foreign_key: :sender_id
+  has_many :received_messages,   class_name: 'Message', inverse_of: :receiver, primary_key: :id, foreign_key: :receiver_id
   has_many :user_school_roles,   class_name: 'UserSchoolRole', inverse_of: :user
   has_many :teacher_grade_assignments, class_name: 'TeacherGradeAssignment', inverse_of: :teacher
   has_many :assigned_teacher_roles, class_name: 'TeacherGradeAssignment', inverse_of: :assigned_by

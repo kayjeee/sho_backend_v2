@@ -44,7 +44,8 @@ class School
   field :school_created_by, type: String
   
   # Associations
-  has_many :grades, dependent: :destroy  # Add this line
+  has_many :grades,   dependent: :destroy
+  has_many :messages, inverse_of: :school
   
   # Callbacks
   before_validation :generate_slug, if: :schoolName_changed?
