@@ -10,12 +10,18 @@ class Message
   field :name,       type: String
   field :read,       type: Boolean, default: false
 
+  # Attachments
+  field :attachment_url,  type: String
+  field :attachment_type, type: String # image/pdf/video/audio/other
+  field :attachment_name, type: String
+  field :attachment_size, type: Integer # bytes
+
   belongs_to :school,       class_name: 'School',       inverse_of: :messages,          optional: true, primary_key: :id, foreign_key: :school_id
   belongs_to :conversation, class_name: 'Conversation', inverse_of: :messages
   belongs_to :sender,       class_name: 'User',         inverse_of: :sent_messages,     optional: true, primary_key: :id, foreign_key: :sender_id
   belongs_to :receiver,     class_name: 'User',         inverse_of: :received_messages, optional: true, primary_key: :id, foreign_key: :receiver_id
 
-  validates :content,      presence: true
+  validates :content,      presence: true, unless: -> { attachment_url.present? }
   validates :sender_id,    presence: true
   validates :conversation, presence: true
 

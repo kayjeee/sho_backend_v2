@@ -7,7 +7,8 @@ module Api
       # GET /api/v1/conversations/:conversation_id/messages
       def index
         messages = @conversation.messages.order(created_at: :asc)
-        render json: { success: true, data: messages }, status: :ok
+        serialized_messages = messages.map { |m| MessageSerializer.new(m).as_json }
+        render json: { success: true, data: serialized_messages }, status: :ok
       end
 
       # POST /api/v1/conversations/:conversation_id/messages
@@ -17,12 +18,21 @@ module Api
 
         message = @conversation.messages.build(message_params)
 
-        # Assign the sender to the message
-        message.user = sender if sender.is_a?(User)
+        # Assign the sender to the message and ensure ID consistency
+        if sender.is_a?(User)
+          message.sender = sender
+          message.sender_id = sender.id.to_s
+          message.user_id = sender.id.to_s
+        end
+
         message.school = sender if sender.is_a?(School)
 
         if message.save
-          render json: { success: true, data: message, message: "Message created successfully." }, status: :created
+          render json: {
+            success: true,
+            data: MessageSerializer.new(message).as_json,
+            message: "Message created successfully."
+          }, status: :created
         else
           render json: { success: false, errors: message.errors.full_messages }, status: :unprocessable_entity
         end
@@ -58,7 +68,10 @@ module Api
       
 
       def message_params
-        params.require(:message).permit(:content, :user_id, :school_id, :name, :schoolName)
+        params.require(:message).permit(
+          :content, :user_id, :school_id, :name, :schoolName,
+          :attachment_url, :attachment_type, :attachment_name, :attachment_size
+        )
       end
 
       def serialize_message(message)
