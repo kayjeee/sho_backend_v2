@@ -3,9 +3,16 @@ module Api
     class MessagesController < ApplicationController
       before_action :authorize
       before_action :set_conversation, only: [:index, :create]
+      before_action :set_message, only: [:react]
 
       # GET /api/v1/conversations/:conversation_id/messages
       def index
+        delivered_messages = @conversation.messages
+                                          .where(:sender_id.ne => @current_user.id.to_s, status: "sent")
+        delivered_message_ids = delivered_messages.pluck(:id)
+        delivered_messages.update_all(status: "delivered") if delivered_message_ids.any?
+        broadcast_messages(delivered_message_ids)
+
         messages = @conversation.messages.order(created_at: :asc)
         serialized_messages = messages.map { |m| MessageSerializer.new(m).as_json }
         render json: { success: true, data: serialized_messages }, status: :ok
@@ -38,12 +45,41 @@ module Api
         end
       end
 
+      # POST /api/v1/conversations/:conversation_id/messages/:id/react
+      def react
+        emoji = params[:emoji] || params.dig(:reaction, :emoji)
+        return render json: { success: false, error: "emoji is required" }, status: :bad_request if emoji.blank?
+
+        @message.toggle_reaction!(emoji, @current_user.id)
+
+        render json: {
+          success: true,
+          data: MessageSerializer.new(@message).as_json,
+          message: "Reaction updated successfully."
+        }, status: :ok
+      end
+
       private
 
       def set_conversation
         # Scoped to @current_user for security
         @conversation = Conversation.find_by(id: params[:conversation_id], user_id: @current_user.id)
         render json: { success: false, error: "Conversation not found" }, status: :not_found unless @conversation
+      end
+
+      def set_message
+        @message = Message.find(params[:id])
+        conversation = @message.conversation
+        current_user_id = @current_user.id.to_s
+
+        allowed = conversation.user_id.to_s == current_user_id ||
+                  Array(conversation.participant_ids).map(&:to_s).include?(current_user_id)
+
+        return if allowed
+
+        render json: { success: false, error: "Message not found or access denied" }, status: :not_found
+      rescue Mongoid::Errors::DocumentNotFound
+        render json: { success: false, error: "Message not found" }, status: :not_found
       end
 
       def find_sender
@@ -81,9 +117,15 @@ module Api
           sender_id: message.user_id&.to_s || message.school_id&.to_s,
           timestamp: message.created_at,
           read:      message.read,
+          status:    message.status,
+          reactions: message.reactions || [],
           name:      message.name,
           schoolName: message.schoolName
         }
+      end
+
+      def broadcast_messages(message_ids)
+        Message.in(id: message_ids).each(&:broadcast_update!)
       end
     end
   end

@@ -279,7 +279,11 @@ Rails.application.routes.draw do
           get :participants
           put :participants
         end
-        resources :messages, only: [:index, :create]
+        resources :messages, only: [:index, :create] do
+          member do
+            post :react
+          end
+        end
       end
 
       namespace :dashboard do

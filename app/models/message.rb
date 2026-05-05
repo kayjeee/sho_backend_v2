@@ -9,6 +9,8 @@ class Message
   field :schoolName, type: String
   field :name,       type: String
   field :read,       type: Boolean, default: false
+  field :reactions,  type: Array,   default: []
+  field :status,     type: String,  default: "sent"
 
   # Attachments
   field :attachment_url,  type: String
@@ -24,13 +26,59 @@ class Message
   validates :content,      presence: true, unless: -> { attachment_url.present? }
   validates :sender_id,    presence: true
   validates :conversation, presence: true
+  validates :status,       inclusion: { in: %w[sent delivered read] }
 
   # FIX: Mongoid 9 does NOT support after_create_commit :method_name
   # You must use a block instead
   after_create do |doc|
+    doc.broadcast_update!
+  end
+
+  def toggle_reaction!(emoji, user_id)
+    emoji = emoji.to_s
+    user_id = user_id.to_s
+
+    raise ArgumentError, "emoji is required" if emoji.blank?
+    raise ArgumentError, "user_id is required" if user_id.blank?
+
+    removed = self.class.collection.find(
+      _id: id,
+      "reactions.emoji" => emoji,
+      "reactions.user_ids" => user_id
+    ).find_one_and_update(
+      { "$pull" => { "reactions.$.user_ids" => user_id } },
+      return_document: :after
+    )
+
+    if removed
+      self.class.collection.find(_id: id).find_one_and_update(
+        { "$pull" => { reactions: { emoji: emoji, user_ids: [] } } },
+        return_document: :after
+      )
+    else
+      added_to_existing = self.class.collection.find(
+        _id: id,
+        "reactions.emoji" => emoji
+      ).find_one_and_update(
+        { "$addToSet" => { "reactions.$.user_ids" => user_id } },
+        return_document: :after
+      )
+
+      unless added_to_existing
+        self.class.collection.find(_id: id).find_one_and_update(
+          { "$addToSet" => { reactions: { emoji: emoji, user_ids: [user_id] } } },
+          return_document: :after
+        )
+      end
+    end
+
+    reload.tap(&:broadcast_update!)
+  end
+
+  def broadcast_update!
     MessagesChannel.broadcast_to(
-      doc.conversation,
-      MessageSerializer.new(doc).as_json
+      conversation,
+      MessageSerializer.new(self).as_json
     )
   end
 end

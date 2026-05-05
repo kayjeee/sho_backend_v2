@@ -123,9 +123,13 @@ module Api
 
       # PUT /api/v1/conversations/:id/read
       def read
-        affected = @conversation.messages
-                                .where(:sender_id.ne => @current_user.id.to_s, read: false)
-                                .update_all(read: true)
+        unread_messages = @conversation.messages
+                                       .where(:sender_id.ne => @current_user.id.to_s)
+                                       .any_of({ read: false }, { :status.ne => "read" })
+        unread_message_ids = unread_messages.pluck(:id)
+        affected = unread_messages.update_all(read: true, status: "read")
+
+        Message.in(id: unread_message_ids).each(&:broadcast_update!)
 
         render json: {
           success: true,
@@ -270,7 +274,9 @@ module Api
                      message.try(:text).presence || "",
           sender_id: message.sender_id.to_s,
           timestamp: message.created_at,
-          read:      message.try(:read) || false
+          read:      message.try(:read) || false,
+          status:    message.try(:status) || "sent",
+          reactions: message.try(:reactions) || []
         }
       end
 

@@ -11,6 +11,8 @@ class MessageSerializer
       user_id:   @message.user_id&.to_s,
       timestamp: @message.created_at,
       read:      @message.read,
+      status:    @message.status,
+      reactions: @message.reactions || [],
       name:      @message.name,
       schoolName: @message.schoolName,
       attachment_url: @message.attachment_url,
