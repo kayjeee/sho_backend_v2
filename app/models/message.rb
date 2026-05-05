@@ -81,4 +81,34 @@ class Message
       MessageSerializer.new(self).as_json
     )
   end
+
+  def self.mark_as_delivered!(conversation, current_user)
+    to_update = conversation.messages.where(
+      :sender_id.ne => current_user.id.to_s,
+      status: "sent"
+    )
+
+    ids = to_update.pluck(:id)
+    return 0 if ids.empty?
+
+    to_update.update_all(status: "delivered")
+
+    # Broadcast updates for each message so the sender's UI updates
+    Message.in(id: ids).each(&:broadcast_update!)
+    ids.size
+  end
+
+  def self.mark_as_read!(conversation, current_user)
+    to_update = conversation.messages.where(:sender_id.ne => current_user.id.to_s)
+                            .any_of({ read: false }, { :status.ne => "read" })
+
+    ids = to_update.pluck(:id)
+    return 0 if ids.empty?
+
+    to_update.update_all(read: true, status: "read")
+
+    # Broadcast updates for each message so the sender's UI updates
+    Message.in(id: ids).each(&:broadcast_update!)
+    ids.size
+  end
 end

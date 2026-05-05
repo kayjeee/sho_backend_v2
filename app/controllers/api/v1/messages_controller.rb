@@ -7,14 +7,10 @@ module Api
 
       # GET /api/v1/conversations/:conversation_id/messages
       def index
-        delivered_messages = @conversation.messages
-                                          .where(:sender_id.ne => @current_user.id.to_s, status: "sent")
-        delivered_message_ids = delivered_messages.pluck(:id)
-        delivered_messages.update_all(status: "delivered") if delivered_message_ids.any?
-        broadcast_messages(delivered_message_ids)
+        Message.mark_as_delivered!(@conversation, @current_user)
 
         messages = @conversation.messages.order(created_at: :asc)
-        serialized_messages = messages.map { |m| MessageSerializer.new(m).as_json }
+        serialized_messages = messages.map { |m| serialize_message(m) }
         render json: { success: true, data: serialized_messages }, status: :ok
       end
 
