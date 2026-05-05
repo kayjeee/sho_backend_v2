@@ -2,7 +2,7 @@ module Api
   module V1
     class MessagesController < ApplicationController
       before_action :authorize
-      before_action :set_conversation, only: [:index, :create]
+      before_action :set_conversation, only: [:index, :create, :react]
       before_action :set_message, only: [:react]
 
       # GET /api/v1/conversations/:conversation_id/messages
@@ -45,7 +45,7 @@ module Api
         end
       end
 
-      # POST /api/v1/conversations/:conversation_id/messages/:id/react
+      # POST /api/v1/conversations/:conversation_id/messages/:message_id/react
       def react
         emoji = params[:emoji] || params.dig(:reaction, :emoji)
         return render json: { success: false, error: "emoji is required" }, status: :bad_request if emoji.blank?
@@ -68,8 +68,8 @@ module Api
       end
 
       def set_message
-        @message = Message.find(params[:id])
-        conversation = @message.conversation
+        @message = @conversation.messages.find(params[:message_id] || params[:id])
+        conversation = @conversation
         current_user_id = @current_user.id.to_s
 
         allowed = conversation.user_id.to_s == current_user_id ||
