@@ -42,8 +42,10 @@ module Api
         # We can accept additional upload parameters from the frontend if needed
         # (e.g., folder, public_id, upload_preset)
         params_to_sign = {
-          timestamp: timestamp
-        }
+          timestamp: timestamp,
+          folder: params[:folder],
+          upload_preset: params[:upload_preset]
+        }.compact
 
         # Check if Cloudinary gem is available and configured
         if defined?(Cloudinary::Utils)
@@ -53,12 +55,12 @@ module Api
 
             signature = Cloudinary::Utils.api_sign_request(params_to_sign, Cloudinary.config.api_secret)
 
-            render_success(data: {
-              signature: signature,
-              timestamp: timestamp,
-              api_key: Cloudinary.config.api_key,
-              cloud_name: Cloudinary.config.cloud_name
-            })
+            render json: {
+              signature: signature.to_s,
+              timestamp: timestamp.to_s,
+              api_key: Cloudinary.config.api_key.to_s,
+              cloud_name: Cloudinary.config.cloud_name.to_s
+            }, status: :ok
           rescue => e
             Rails.logger.error "Cloudinary signature error: #{e.message}"
             render_mock_signature(params_to_sign, timestamp)
@@ -67,8 +69,6 @@ module Api
           # Fallback if gem not installed or not configured properly in this environment
           render_mock_signature(params_to_sign, timestamp)
         end
-      rescue => e
-        handle_exception(e, "Failed to generate upload signature")
       end
 
       # GET /api/v1/uploads/:id

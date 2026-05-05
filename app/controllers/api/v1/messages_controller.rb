@@ -18,8 +18,13 @@ module Api
 
         message = @conversation.messages.build(message_params)
 
-        # Assign the sender to the message
-        message.user = sender if sender.is_a?(User)
+        # Assign the sender to the message and ensure ID consistency
+        if sender.is_a?(User)
+          message.sender = sender
+          message.sender_id = sender.id.to_s
+          message.user_id = sender.id.to_s
+        end
+
         message.school = sender if sender.is_a?(School)
 
         if message.save
