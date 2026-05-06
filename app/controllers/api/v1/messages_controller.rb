@@ -2,7 +2,7 @@ module Api
   module V1
     class MessagesController < ApplicationController
       before_action :authorize
-      before_action :set_conversation, only: [:index, :create, :react]
+      before_action :set_conversation, only: [:index, :create, :react, :search]
       before_action :set_message, only: [:react]
 
       # GET /api/v1/conversations/:conversation_id/messages
@@ -43,6 +43,20 @@ module Api
         else
           render json: { success: false, errors: message.errors.full_messages }, status: :unprocessable_entity
         end
+      end
+
+      # GET /api/v1/conversations/:conversation_id/messages/search
+      def search
+        query = params[:q]
+        return render json: { success: true, data: [] } if query.blank?
+
+        # Use high-performance text index with $text operator
+        messages = @conversation.messages.where("$text" => { "$search" => query })
+                                .order(created_at: :desc)
+                                .limit(50)
+
+        serialized_messages = messages.map { |m| serialize_message(m) }
+        render json: { success: true, data: serialized_messages }, status: :ok
       end
 
       # POST /api/v1/conversations/:conversation_id/messages/:message_id/react

@@ -18,6 +18,8 @@ class Message
   field :attachment_name, type: String
   field :attachment_size, type: Integer # bytes
 
+  index({ content: "text" })
+
   belongs_to :school,       class_name: 'School',       inverse_of: :messages,          optional: true, primary_key: :id, foreign_key: :school_id
   belongs_to :conversation, class_name: 'Conversation', inverse_of: :messages
   belongs_to :sender,       class_name: 'User',         inverse_of: :sent_messages,     optional: true, primary_key: :id, foreign_key: :sender_id
