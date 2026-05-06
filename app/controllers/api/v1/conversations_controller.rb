@@ -2,7 +2,7 @@ module Api
   module V1
     class ConversationsController < ApplicationController
       before_action :authorize
-      before_action :set_conversation, only: [:show, :destroy, :read, :participants]
+      before_action :set_conversation, only: [:show, :destroy, :read, :participants, :typing]
 
       # GET /api/v1/conversations
       def index
@@ -130,6 +130,23 @@ module Api
           message: "Messages marked as read",
           count:   affected
         }, status: :ok
+      end
+
+      # POST /api/v1/conversations/:id/typing
+      def typing
+        is_typing = params[:is_typing]
+
+        MessagesChannel.broadcast_to(
+          @conversation,
+          {
+            type: "typing",
+            user_id: @current_user.id.to_s,
+            name: @current_user.name,
+            is_typing: is_typing
+          }
+        )
+
+        render json: { success: true }, status: :ok
       end
 
       # GET /api/v1/conversations/:id/participants

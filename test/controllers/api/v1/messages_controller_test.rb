@@ -46,4 +46,27 @@ class Api::V1::MessagesControllerTest < ActionDispatch::IntegrationTest
     assert_equal "read", msg.status
     assert msg.read
   end
+
+  test "POST typing broadcasts typing status" do
+    post typing_api_v1_conversation_url(@conversation),
+         params: { is_typing: true },
+         headers: { "X-User-Email" => @user1.email },
+         as: :json
+
+    assert_response :success
+  end
+
+  test "POST create creates a message correctly linked to conversation" do
+    assert_difference -> { @conversation.messages.count }, 1 do
+      post api_v1_conversation_messages_url(@conversation),
+           params: { message: { content: "New Message" } },
+           headers: { "X-User-Email" => @user1.email },
+           as: :json
+    end
+
+    assert_response :created
+    data = JSON.parse(response.body)["data"]
+    assert_equal "sent", data["status"]
+    assert_equal @user1.id.to_s, data["sender_id"]
+  end
 end
