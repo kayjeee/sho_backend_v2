@@ -2,7 +2,7 @@ module Api
   module V1
     class ConversationsController < ApplicationController
       before_action :authorize
-      before_action :set_conversation, only: [:show, :destroy, :read, :participants]
+      before_action :set_conversation, only: [:show, :destroy, :read, :participants, :typing]
 
       # GET /api/v1/conversations
       def index
@@ -123,19 +123,30 @@ module Api
 
       # PUT /api/v1/conversations/:id/read
       def read
-        unread_messages = @conversation.messages
-                                       .where(:sender_id.ne => @current_user.id.to_s)
-                                       .any_of({ read: false }, { :status.ne => "read" })
-        unread_message_ids = unread_messages.pluck(:id)
-        affected = unread_messages.update_all(read: true, status: "read")
-
-        Message.in(id: unread_message_ids).each(&:broadcast_update!)
+        affected = Message.mark_as_read!(@conversation, @current_user)
 
         render json: {
           success: true,
           message: "Messages marked as read",
           count:   affected
         }, status: :ok
+      end
+
+      # POST /api/v1/conversations/:id/typing
+      def typing
+        is_typing = params[:is_typing]
+
+        MessagesChannel.broadcast_to(
+          @conversation,
+          {
+            type: "typing",
+            user_id: @current_user.id.to_s,
+            name: @current_user.name,
+            is_typing: is_typing
+          }
+        )
+
+        render json: { success: true }, status: :ok
       end
 
       # GET /api/v1/conversations/:id/participants

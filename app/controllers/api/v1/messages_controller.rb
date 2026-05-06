@@ -7,14 +7,10 @@ module Api
 
       # GET /api/v1/conversations/:conversation_id/messages
       def index
-        delivered_messages = @conversation.messages
-                                          .where(:sender_id.ne => @current_user.id.to_s, status: "sent")
-        delivered_message_ids = delivered_messages.pluck(:id)
-        delivered_messages.update_all(status: "delivered") if delivered_message_ids.any?
-        broadcast_messages(delivered_message_ids)
+        Message.mark_as_delivered!(@conversation, @current_user)
 
         messages = @conversation.messages.order(created_at: :asc)
-        serialized_messages = messages.map { |m| MessageSerializer.new(m).as_json }
+        serialized_messages = messages.map { |m| serialize_message(m) }
         render json: { success: true, data: serialized_messages }, status: :ok
       end
 
@@ -23,6 +19,7 @@ module Api
         sender = find_sender
         return unless sender
 
+        # Ensure we are building through the association to link conversation_id correctly
         message = @conversation.messages.build(message_params)
 
         # Assign the sender to the message and ensure ID consistency
@@ -35,9 +32,12 @@ module Api
         message.school = sender if sender.is_a?(School)
 
         if message.save
+          # After saving, we touch the last_message_at for the conversation
+          @conversation.touch_last_message_at!
+
           render json: {
             success: true,
-            data: MessageSerializer.new(message).as_json,
+            data: serialize_message(message),
             message: "Message created successfully."
           }, status: :created
         else
@@ -63,7 +63,11 @@ module Api
 
       def set_conversation
         # Scoped to @current_user for security
-        @conversation = Conversation.find_by(id: params[:conversation_id], user_id: @current_user.id)
+        @conversation = Conversation.any_of(
+          { user_id: @current_user.id },
+          { participant_ids: @current_user.id.to_s }
+        ).find_by(id: params[:conversation_id])
+
         render json: { success: false, error: "Conversation not found" }, status: :not_found unless @conversation
       end
 
@@ -111,17 +115,7 @@ module Api
       end
 
       def serialize_message(message)
-        {
-          id:        message.id.to_s,
-          content:   message.content,
-          sender_id: message.user_id&.to_s || message.school_id&.to_s,
-          timestamp: message.created_at,
-          read:      message.read,
-          status:    message.status,
-          reactions: message.reactions || [],
-          name:      message.name,
-          schoolName: message.schoolName
-        }
+        MessageSerializer.new(message).as_json
       end
 
       def broadcast_messages(message_ids)
