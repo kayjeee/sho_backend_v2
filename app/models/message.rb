@@ -33,7 +33,7 @@ class Message
   # =========================================================
 
   # Text search index
-  index({ content: "text" })
+  index({ content: "text" }, { name: "content_text_index" })
 
   # Helpful query indexes
   index({ conversation_id: 1 })

@@ -41,25 +41,40 @@ module Api
           data: []
         }, status: :ok if q.blank?
 
-        messages =
-          if q.length >= 3
-            # MongoDB full-text indexed search
-            @conversation.messages
-                         .where("$text" => { "$search" => q })
-                         .order(created_at: :desc)
-                         .limit(50)
-          else
-            # Regex fallback for short terms
-            @conversation.messages
-                         .where(content: /#{Regexp.escape(q)}/i)
-                         .order(created_at: :desc)
-                         .limit(50)
-          end
+        begin
+          messages =
+            if q.length >= 3
+              # MongoDB full-text indexed search
+              @conversation.messages
+                           .where("$text" => { "$search" => q })
+                           .order(created_at: :desc)
+                           .limit(50)
+            else
+              # Regex fallback for short terms
+              @conversation.messages
+                           .where(content: /#{Regexp.escape(q)}/i)
+                           .order(created_at: :desc)
+                           .limit(50)
+            end
 
-        render json: {
-          success: true,
-          data: messages.map { |m| serialize_message(m) }
-        }, status: :ok
+          render json: {
+            success: true,
+            data: messages.map { |m| serialize_message(m) }
+          }, status: :ok
+        rescue Mongo::Error::OperationFailure => e
+          # Fallback to regex search if text index is missing or not yet built
+          Rails.logger.warn "Search fallback to regex due to: #{e.message}"
+
+          messages = @conversation.messages
+                                  .where(content: /#{Regexp.escape(q)}/i)
+                                  .order(created_at: :desc)
+                                  .limit(50)
+
+          render json: {
+            success: true,
+            data: messages.map { |m| serialize_message(m) }
+          }, status: :ok
+        end
       end
 
       # =========================================================
