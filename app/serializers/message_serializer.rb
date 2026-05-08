@@ -13,6 +13,9 @@ class MessageSerializer
       id:              @message.id.to_s,
       conversation_id: @message.conversation_id.to_s,
 
+      reply_to_id:      @message.reply_to_id&.to_s,
+      reply_to_preview: @message.reply_to_preview,
+
       content:         @message.content,
 
       # =====================================================

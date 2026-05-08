@@ -21,6 +21,12 @@ class Message
   field :status,      type: String,   default: "sent"
 
   # =========================================================
+  # THREADING
+  # =========================================================
+  field :reply_to_id,      type: BSON::ObjectId
+  field :reply_to_preview, type: String
+
+  # =========================================================
   # ATTACHMENTS
   # =========================================================
   field :attachment_url,  type: String
@@ -72,6 +78,11 @@ class Message
              inverse_of: :received_messages,
              optional: true
 
+  belongs_to :parent_message,
+             class_name: "Message",
+             foreign_key: :reply_to_id,
+             optional: true
+
   # =========================================================
   # VALIDATIONS
   # =========================================================
@@ -97,8 +108,25 @@ class Message
   # CALLBACKS
   # =========================================================
   before_validation :normalize_attachment_type
+  before_create :populate_reply_preview
 
   after_create :broadcast_update!
+
+  # =========================================================
+  # THREADING LOGIC
+  # =========================================================
+  def populate_reply_preview
+    return if reply_to_id.blank?
+
+    parent = Message.find(reply_to_id) rescue nil
+    return unless parent
+
+    if parent.content.present?
+      self.reply_to_preview = parent.content.truncate(80)
+    elsif parent.attachment_url.present?
+      self.reply_to_preview = "Attachment"
+    end
+  end
 
   # =========================================================
   # 🔥 FIX: NORMALIZE ATTACHMENT TYPE

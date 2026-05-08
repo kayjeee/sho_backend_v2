@@ -391,7 +391,8 @@ module Api
           :attachment_url,
           :attachment_type,
           :attachment_name,
-          :attachment_size
+          :attachment_size,
+          :reply_to_id
         )
       end
 
