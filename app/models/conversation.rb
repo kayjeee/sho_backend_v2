@@ -2,150 +2,305 @@
 
 class Conversation
   include Mongoid::Document
-  include Mongoid::Timestamps   # provides created_at, updated_at
+  include Mongoid::Timestamps
 
-  # ── Fields ──────────────────────────────────────────────────────────────────
+  # =========================================================
+  # FIELDS
+  # =========================================================
 
-  # Sorted array of participant User ID strings.
-  # Stored as strings (not ObjectIds) so the controller can compare with
-  # @current_user.id.to_s without casting. Always keep sorted + unique.
-  field :participant_ids,  type: Array,          default: []
+  # Array of participant user IDs stored as STRINGS
+  field :participant_ids, type: Array, default: []
 
-  # Unique key generated from sorted participant_ids.
-  # Used for uniqueness enforcement instead of the array itself to avoid
-  # multi-key index constraints.
+  # Cached participant lookup key
+  # Example: "123,456"
   field :participants_key, type: String
 
-  # Denormalised timestamp — set by the MessagesController every time a new
-  # message is saved. Used to sort conversations newest-first without a join.
-  # Falls back to updated_at in the controller if nil (legacy records).
-  field :last_message_at,  type: Time
+  # Used for sorting latest conversations
+  field :last_message_at, type: Time
 
-  # Optional title override (e.g. group chat name). Usually nil — the
-  # controller derives the display title from participant names at runtime.
-  field :title,            type: String
-  field :group_name,       type: String
+  # Optional title/group name
+  field :title,      type: String
+  field :group_name, type: String
 
-  # Foreign keys stored as ObjectIds (native Mongoid convention).
-  field :school_id,        type: BSON::ObjectId
-  field :user_id,          type: BSON::ObjectId
+  # ObjectId references
+  field :school_id, type: BSON::ObjectId
+  field :user_id,   type: BSON::ObjectId
 
-  # ── Associations ─────────────────────────────────────────────────────────────
+  # =========================================================
+  # ASSOCIATIONS
+  # =========================================================
 
-  # The user who created the conversation.
-  # optional: true prevents a validation error if the creator is later deleted.
   belongs_to :user,
-             class_name:   'User',
-             inverse_of:   :conversations,
-             optional:     true
+             class_name: "User",
+             inverse_of: :conversations,
+             optional: true
 
-  # School context — not every conversation belongs to a school.
   belongs_to :school,
-             class_name:   'School',
-             inverse_of:   :conversations,
-             optional:     true
+             class_name: "School",
+             inverse_of: :conversations,
+             optional: true
 
-  # Messages are stored in their own collection, referencing this conversation.
-  # dependent: :destroy ensures no orphaned messages remain if a conversation
-  # is deleted.
   has_many :messages,
-           class_name:   'Message',
-           inverse_of:   :conversation,
-           dependent:    :destroy
+           class_name: "Message",
+           inverse_of: :conversation,
+           dependent: :destroy
 
-  # ── Validations ──────────────────────────────────────────────────────────────
+  # =========================================================
+  # VALIDATIONS
+  # =========================================================
 
-  # A conversation must have at least one participant (the creator).
   validates :participant_ids, presence: true
-  validate  :participant_ids_are_strings
-  validate  :must_have_at_least_one_participant
-
-  # school_id is required for all new conversations created through the API.
-  # Marked optional on the association above so Mongoid doesn't do a DB lookup
-  # on every instantiation; we enforce the requirement here instead.
   validates :school_id, presence: true
 
-  # ── Callbacks ────────────────────────────────────────────────────────────────
+  validate :participant_ids_are_strings
+  validate :must_have_at_least_one_participant
 
-  before_save :normalise_participant_ids
+  # =========================================================
+  # CALLBACKS
+  # =========================================================
 
-  # ── Indexes ──────────────────────────────────────────────────────────────────
+  before_validation :normalize_participant_ids
+  before_save :generate_participants_key
 
-  # Primary access pattern: "all conversations for a user"
-  # Compound with last_message_at so the sort is covered by the index.
-  index({ participant_ids: 1, last_message_at: -1 })
+  # =========================================================
+  # INDEXES
+  # =========================================================
 
-  # Secondary access pattern: "all conversations for a school"
-  index({ school_id: 1, last_message_at: -1 })
-
-  # Lookup by creator — used in set_conversation authorisation guard.
-  index({ user_id: 1 })
-
-  # Uniqueness is now enforced at the controller level for 1-on-1s.
-  # We keep the index for fast lookups by the participants set.
   index(
-    { participants_key: 1, school_id: 1, group_name: 1 },
-    { sparse: true, name: 'unique_participants_per_school' }
+    {
+      participant_ids: 1,
+      last_message_at: -1
+    }
   )
 
-  # ── Scopes ───────────────────────────────────────────────────────────────────
+  index(
+    {
+      school_id: 1,
+      last_message_at: -1
+    }
+  )
 
-  # All conversations a given user participates in, newest first.
-  scope :for_user, ->(user_id) {
+  index({ user_id: 1 })
+
+  index(
+    {
+      participants_key: 1,
+      school_id: 1,
+      group_name: 1
+    },
+    {
+      sparse: true,
+      name: "unique_participants_per_school"
+    }
+  )
+
+  # =========================================================
+  # SCOPES
+  # =========================================================
+
+  scope :for_user, lambda { |user_id|
+    user_id = user_id.to_s
+
+    Rails.logger.info(
+      "[Conversation.for_user] user_id=#{user_id}"
+    )
+
+    bson_user_id = safe_object_id(user_id)
+
     any_of(
-      { user_id: user_id },
-      { participant_ids: user_id.to_s }
-    ).order(last_message_at: :desc, updated_at: :desc)
+      { user_id: bson_user_id },
+      { participant_ids: user_id }
+    ).order(
+      last_message_at: :desc,
+      updated_at: :desc
+    )
   }
 
-  # ── Instance helpers ─────────────────────────────────────────────────────────
+  # =========================================================
+  # INSTANCE METHODS
+  # =========================================================
 
-  # Convenience: touch last_message_at. Called by MessagesController after save.
   def touch_last_message_at!
+    Rails.logger.info(
+      "[Conversation##{id}] touch_last_message_at!"
+    )
+
     update_attribute(:last_message_at, Time.current)
   end
 
-  # Returns participant IDs excluding a given user ID.
   def other_participant_ids(current_user_id)
-    participant_ids.reject { |id| id.to_s == current_user_id.to_s }
+    participant_ids.reject do |id|
+      id.to_s == current_user_id.to_s
+    end
   end
 
-  # True when the conversation has only one unique participant (self-notes).
   def self_conversation?
     participant_ids.uniq.size == 1
   end
 
-  # True when the conversation has 3 or more participants OR has a group name.
   def group?
     group_name.present? || participant_ids.size > 2
   end
 
-  private
+  # =========================================================
+  # DEBUG HELPERS
+  # =========================================================
 
-  # Ensures participant_ids is always an array of plain strings, sorted and
-  # deduplicated. Prevents type mismatches when comparing against string user IDs.
-  def normalise_participant_ids
-    self.participant_ids = Array(participant_ids)
-                             .map(&:to_s)
-                             .reject(&:blank?)
-                             .uniq
-                             .sort
-    self.participants_key = participant_ids.join(',')
+  def debug_summary
+    {
+      id: id.to_s,
+      participant_ids: participant_ids,
+      participants_key: participants_key,
+      user_id: user_id.to_s,
+      school_id: school_id.to_s,
+      group_name: group_name,
+      created_at: created_at,
+      updated_at: updated_at
+    }
   end
 
+  # =========================================================
+  # CLASS HELPERS
+  # =========================================================
+
+  def self.safe_object_id(value)
+    return value if value.is_a?(BSON::ObjectId)
+
+    BSON::ObjectId.from_string(value.to_s)
+  rescue BSON::Error::InvalidObjectId
+    nil
+  end
+
+  # Safe conversation lookup for controllers
+  def self.safe_find_for_user!(conversation_id, current_user)
+    Rails.logger.info(
+      "[Conversation.safe_find_for_user!] " \
+      "conversation_id=#{conversation_id} " \
+      "current_user_id=#{current_user.id}"
+    )
+
+    conversation = any_of(
+      { user_id: current_user.id },
+      { participant_ids: current_user.id.to_s }
+    ).find_by(id: conversation_id)
+
+    if conversation.present?
+      Rails.logger.info(
+        "[Conversation.safe_find_for_user!] FOUND #{conversation.id}"
+      )
+
+      Rails.logger.info(
+        "[Conversation.safe_find_for_user!] DATA=#{conversation.debug_summary}"
+      )
+    else
+      Rails.logger.warn(
+        "[Conversation.safe_find_for_user!] Conversation NOT FOUND"
+      )
+    end
+
+    conversation
+  rescue Mongoid::Errors::DocumentNotFound => e
+    Rails.logger.error(
+      "[Conversation.safe_find_for_user!] DocumentNotFound #{e.message}"
+    )
+
+    nil
+  rescue Mongoid::Errors::InvalidFind => e
+    Rails.logger.error(
+      "[Conversation.safe_find_for_user!] InvalidFind #{e.message}"
+    )
+
+    nil
+  rescue BSON::Error::InvalidObjectId => e
+    Rails.logger.error(
+      "[Conversation.safe_find_for_user!] InvalidObjectId #{e.message}"
+    )
+
+    nil
+  rescue StandardError => e
+    Rails.logger.error(
+      "[Conversation.safe_find_for_user!] #{e.class} #{e.message}"
+    )
+
+    Rails.logger.error(e.backtrace.join("\n"))
+
+    nil
+  end
+
+  # =========================================================
+  # PRIVATE
+  # =========================================================
+
+  private
+
+  # =========================================================
+  # NORMALIZATION
+  # =========================================================
+
+  def normalize_participant_ids
+    Rails.logger.info(
+      "[Conversation##{id || 'new'}] " \
+      "Raw participant_ids=#{participant_ids.inspect}"
+    )
+
+    self.participant_ids =
+      Array(participant_ids)
+        .flatten
+        .map(&:to_s)
+        .map(&:strip)
+        .reject(&:blank?)
+        .uniq
+        .sort
+
+    Rails.logger.info(
+      "[Conversation##{id || 'new'}] " \
+      "Normalized participant_ids=#{participant_ids.inspect}"
+    )
+  end
+
+  def generate_participants_key
+    self.participants_key = participant_ids.join(",")
+
+    Rails.logger.info(
+      "[Conversation##{id || 'new'}] " \
+      "participants_key=#{participants_key}"
+    )
+  end
+
+  # =========================================================
+  # VALIDATION HELPERS
+  # =========================================================
+
   def participant_ids_are_strings
-    return unless participant_ids.present?
+    return if participant_ids.blank?
 
-    non_strings = participant_ids.reject { |id| id.is_a?(String) }
-    return if non_strings.empty?
+    invalid = participant_ids.reject do |id|
+      id.is_a?(String)
+    end
 
-    errors.add(:participant_ids, "must contain only string IDs (got: #{non_strings.map(&:class).uniq.join(', ')})")
+    return if invalid.empty?
+
+    Rails.logger.warn(
+      "[Conversation Validation] " \
+      "Invalid participant_ids=#{invalid.inspect}"
+    )
+
+    errors.add(
+      :participant_ids,
+      "must contain only string IDs"
+    )
   end
 
   def must_have_at_least_one_participant
-    # Allow 2 or more for groups, or 1 if it's a "Note to Self"
-    if participant_ids.blank? || participant_ids.size < 1
-      errors.add(:participant_ids, "must have at least one participant")
-    end
+    return if participant_ids.present?
+
+    Rails.logger.warn(
+      "[Conversation Validation] participant_ids missing"
+    )
+
+    errors.add(
+      :participant_ids,
+      "must have at least one participant"
+    )
   end
 end

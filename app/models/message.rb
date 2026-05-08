@@ -1,5 +1,3 @@
-# frozen_string_literal: true
-
 class Message
   include Mongoid::Document
   include Mongoid::Timestamps
@@ -7,50 +5,58 @@ class Message
   # =========================================================
   # FIELDS
   # =========================================================
-  field :content,    type: String
-  field :sender_id,  type: String
-  field :user_id,    type: String
+  field :content,     type: String
+
+  field :sender_id,   type: String
+  field :user_id,     type: String
   field :receiver_id, type: String
 
-  field :school_id,  type: String
-  field :schoolName, type: String
-  field :name,       type: String
+  field :school_id,   type: String
+  field :schoolName,  type: String
+  field :name,        type: String
 
-  field :read,       type: Boolean, default: false
-  field :reactions,  type: Array,   default: []
-  field :status,     type: String,  default: "sent"
+  field :read,        type: Boolean, default: false
+  field :reactions,   type: Array,   default: []
+
+  field :status,      type: String,   default: "sent"
 
   # =========================================================
   # ATTACHMENTS
   # =========================================================
   field :attachment_url,  type: String
-  field :attachment_type, type: String # image/pdf/video/audio/other
+  field :attachment_type, type: String
   field :attachment_name, type: String
-  field :attachment_size, type: Integer # bytes
+  field :attachment_size, type: Integer
+
+  # =========================================================
+  # CONSTANTS
+  # =========================================================
+  STATUSES = %w[sent delivered read].freeze
+
+  ATTACHMENT_TYPES = %w[
+    image
+    pdf
+    video
+    audio
+    other
+  ].freeze
 
   # =========================================================
   # INDEXES
   # =========================================================
-
-  # Text search index
-  index({ content: "text" }, { name: "content_text_index" })
-
-  # Helpful query indexes
-  index({ conversation_id: 1 })
+  index({ conversation_id: 1, created_at: 1 })
   index({ sender_id: 1 })
   index({ receiver_id: 1 })
-  index({ created_at: -1 })
-  index({ status: 1 })
+  index({ school_id: 1 })
+  index({ content: "text" })
 
   # =========================================================
-  # RELATIONSHIPS
+  # ASSOCIATIONS
   # =========================================================
   belongs_to :school,
              class_name: "School",
              inverse_of: :messages,
-             optional: true,
-             primary_key: :id,
-             foreign_key: :school_id
+             optional: true
 
   belongs_to :conversation,
              class_name: "Conversation",
@@ -59,20 +65,17 @@ class Message
   belongs_to :sender,
              class_name: "User",
              inverse_of: :sent_messages,
-             optional: true,
-             primary_key: :id,
-             foreign_key: :sender_id
+             optional: true
 
   belongs_to :receiver,
              class_name: "User",
              inverse_of: :received_messages,
-             optional: true,
-             primary_key: :id,
-             foreign_key: :receiver_id
+             optional: true
 
   # =========================================================
   # VALIDATIONS
   # =========================================================
+
   validates :content,
             presence: true,
             unless: -> { attachment_url.present? }
@@ -81,24 +84,42 @@ class Message
   validates :conversation, presence: true
 
   validates :status,
+            inclusion: { in: STATUSES }
+
+  validates :attachment_type,
             inclusion: {
-              in: %w[sent delivered read]
-            }
+              in: ATTACHMENT_TYPES,
+              message: "%{value} is not a valid attachment type"
+            },
+            allow_blank: true
 
   # =========================================================
   # CALLBACKS
   # =========================================================
+  before_validation :normalize_attachment_type
 
-  # Mongoid 9 safe callback
-  after_create do |doc|
-    doc.broadcast_update!
+  after_create :broadcast_update!
+
+  # =========================================================
+  # 🔥 FIX: NORMALIZE ATTACHMENT TYPE
+  # =========================================================
+  def normalize_attachment_type
+    return if attachment_type.blank?
+
+    base = attachment_type.to_s.split(';').first.strip
+
+    # "audio/webm" → "audio"
+    # "image/jpeg" → "image"
+    # "audio" → "audio"
+    self.attachment_type =
+      base.include?('/') ? base.split('/').first : base
   end
 
   # =========================================================
   # REACTIONS
   # =========================================================
   def toggle_reaction!(emoji, user_id)
-    emoji = emoji.to_s
+    emoji   = emoji.to_s
     user_id = user_id.to_s
 
     raise ArgumentError, "emoji is required" if emoji.blank?
@@ -130,7 +151,7 @@ class Message
         return_document: :after
       )
     else
-      added_to_existing = self.class.collection.find(
+      added = self.class.collection.find(
         _id: id,
         "reactions.emoji" => emoji
       ).find_one_and_update(
@@ -142,7 +163,7 @@ class Message
         return_document: :after
       )
 
-      unless added_to_existing
+      unless added
         self.class.collection.find(_id: id).find_one_and_update(
           {
             "$addToSet" => {
@@ -184,19 +205,21 @@ class Message
 
     to_update.update_all(status: "delivered")
 
-    # Broadcast updates
     Message.in(id: ids).each(&:broadcast_update!)
 
     ids.size
   end
 
+  # =========================================================
+  # READ STATUS
+  # =========================================================
   def self.mark_as_read!(conversation, current_user)
-    to_update = conversation.messages
-                            .where(:sender_id.ne => current_user.id.to_s)
-                            .any_of(
-                              { read: false },
-                              { :status.ne => "read" }
-                            )
+    to_update = conversation.messages.where(
+      :sender_id.ne => current_user.id.to_s
+    ).any_of(
+      { read: false },
+      { :status.ne => "read" }
+    )
 
     ids = to_update.pluck(:id)
     return 0 if ids.empty?
@@ -206,7 +229,6 @@ class Message
       status: "read"
     )
 
-    # Broadcast updates
     Message.in(id: ids).each(&:broadcast_update!)
 
     ids.size
