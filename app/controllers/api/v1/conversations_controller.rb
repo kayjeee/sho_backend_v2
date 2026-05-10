@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module Api
   module V1
     class ConversationsController < ApplicationController
@@ -45,8 +47,6 @@ module Api
         end
 
         # ── Guard 2: all requested participants must actually exist ──────────
-        # This also surfaces a clear error if the frontend sends a bad ID
-        # rather than silently creating a broken conversation.
         target_users = User.where(:id.in => p_ids)
         if target_users.count != p_ids.uniq.size
           missing = p_ids.uniq - target_users.map { |u| u.id.to_s }
@@ -57,17 +57,12 @@ module Api
         end
 
         # ── Guard 3: self-messaging detection ────────────────────────────────
-        # The only participant after deduplication is the current user themselves.
-        # We still allow a user to open a "Note to self" conversation by sending
-        # their own ID — we just route them to/create that single-participant conv.
         other_ids    = p_ids.map(&:to_s).reject { |id| id == @current_user.id.to_s }
         is_self_conv = other_ids.empty?
 
         all_participants = (p_ids + [@current_user.id.to_s]).map(&:to_s).uniq.sort
 
         # ── Guard 4: minimum participants for a normal conversation ──────────
-        # A real conversation needs at least 2 distinct users.
-        # The only exception we permit is the explicit self-conversation.
         if all_participants.size < 2 && !is_self_conv
           return render json: {
             success: false,
@@ -76,10 +71,6 @@ module Api
         end
 
         # ── Find or create ───────────────────────────────────────────────────
-        # Sorted participant list guarantees that the query is deterministic
-        # regardless of the order IDs were sent from the client.
-        # We only search for existing 1-on-1 or self-conversations.
-        # Group conversations (3+ people or named) are always created fresh.
         is_group = all_participants.size > 2 || group_name.present?
         conversation = nil
 
@@ -88,7 +79,7 @@ module Api
           conversation = Conversation.where(
             participants_key: p_key,
             school_id:        school_id,
-            group_name:       nil # Don't match named groups when looking for 1-on-1s
+            group_name:       nil
           ).first
         end
 
@@ -134,19 +125,17 @@ module Api
 
       # POST /api/v1/conversations/:id/typing
       def typing
-        is_typing = params[:is_typing]
-
         MessagesChannel.broadcast_to(
           @conversation,
           {
-            type: "typing",
-            user_id: @current_user.id.to_s,
-            name: @current_user.name,
-            is_typing: is_typing
+            type:      "typing",
+            user_id:   @current_user.id.to_s,
+            name:      @current_user.name,
+            is_typing: params[:is_typing]
           }
         )
 
-        render json: { success: true }, status: :ok
+        head :ok # no body — fastest possible response for a fire-and-forget endpoint
       end
 
       # GET /api/v1/conversations/:id/participants
@@ -159,7 +148,6 @@ module Api
           return render json: { success: true, data: participants }, status: :ok
         end
 
-        # Ensure we take the IDs from the correct parameter key
         new_ids = params[:participant_ids] || params.dig(:conversation, :participant_ids)
 
         if @conversation.update(participant_ids: new_ids)
@@ -168,7 +156,6 @@ module Api
             data:    serialize_conversation(@conversation)
           }, status: :ok
         else
-          # Return the actual validation errors
           render json: {
             success: false,
             errors:  @conversation.errors.full_messages
@@ -216,18 +203,18 @@ module Api
       def serialize_conversation(conversation)
         participant_ids = (conversation.participant_ids || []).map(&:to_s)
 
-        # Use pre-fetched users if available, otherwise fallback to query
         if @prefetched_users
-          participants = participant_ids.map { |id| @prefetched_users[id] }.compact.map { |u| serialize_participant(u) }
+          participants = participant_ids
+            .map { |id| @prefetched_users[id] }
+            .compact
+            .map { |u| serialize_participant(u) }
         else
           users        = User.in(id: participant_ids)
           participants = users.map { |u| serialize_participant(u) }
         end
 
-        # One query for the last message preview.
         last_msg = conversation.messages.order(created_at: :desc).first
 
-        # Unread: messages from others that haven't been read yet.
         unread = conversation.messages
                              .where(:sender_id.ne => @current_user.id.to_s, read: false)
                              .count
@@ -250,22 +237,22 @@ module Api
       # Converts a User document to a plain hash for inclusion in the response.
       # Uses safe_read throughout to avoid AttributeNotLoaded on any field.
       def serialize_participant(user)
-        # Build full_name from every available field, most-preferred first.
-        full_name = safe_read(user, :name).presence ||
-                    safe_read(user, :full_name).presence ||
-                    [
-                      safe_read(user, :first_name),
-                      safe_read(user, :last_name)
-                    ].compact.reject(&:blank?).join(" ").presence ||
-                    "Unknown"
+        full_name =
+          safe_read(user, :name).presence ||
+          safe_read(user, :full_name).presence ||
+          [
+            safe_read(user, :first_name),
+            safe_read(user, :last_name)
+          ].compact.reject(&:blank?).join(" ").presence ||
+          "Unknown"
 
         {
-          id:        user.id.to_s,
-          name:      full_name,
-          full_name: full_name,          # redundant alias — keeps frontend options open
-          avatar:    safe_read(user, :avatar) || safe_read(user, :profile_image),
-          role:      resolve_role(user),
-          online_status: "offline"       # extend with presence tracking later
+          id:           user.id.to_s,
+          name:         full_name,
+          full_name:    full_name,
+          avatar:       safe_read(user, :avatar) || safe_read(user, :profile_image),
+          role:         resolve_role(user),
+          online_status: "offline"
         }
       end
 
@@ -292,7 +279,6 @@ module Api
       end
 
       # Builds the conversation display title from the perspective of @current_user.
-      # participants is already a plain Array of Hashes — no Mongoid touching here.
       def conversation_title(participants, group_name = nil)
         return group_name if group_name.present?
 
@@ -305,14 +291,13 @@ module Api
         elsif others.size <= 3
           others.map { |p| p[:name].split(" ").first }.to_sentence
         else
-          first_names = others.take(2).map { |p| p[:name].split(" ").first }
+          first_names    = others.take(2).map { |p| p[:name].split(" ").first }
           remaining_count = others.size - 2
           "#{first_names.join(', ')}, and #{remaining_count} others"
         end
       end
 
       # Resolves a user's role from either a single :role field or a :roles array.
-      # Uses safe_read to avoid AttributeNotLoaded for either field.
       def resolve_role(user)
         roles_list = Array(safe_read(user, :roles)).map(&:to_s)
         single     = safe_read(user, :role).to_s
