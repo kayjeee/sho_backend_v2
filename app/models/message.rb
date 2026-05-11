@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 class Message
   include Mongoid::Document
   include Mongoid::Timestamps
@@ -18,7 +20,7 @@ class Message
   field :read,        type: Boolean, default: false
   field :reactions,   type: Array,   default: []
 
-  field :status,      type: String,   default: "sent"
+  field :status,      type: String, default: "sent"
 
   # =========================================================
   # THREADING
@@ -86,7 +88,6 @@ class Message
   # =========================================================
   # VALIDATIONS
   # =========================================================
-
   validates :content,
             presence: true,
             unless: -> { attachment_url.present? }
@@ -107,10 +108,13 @@ class Message
   # =========================================================
   # CALLBACKS
   # =========================================================
+  before_validation :normalize_content
   before_validation :normalize_attachment_type
+
   before_create :populate_reply_preview
 
   after_create :broadcast_update!
+  after_create_commit :enqueue_notification
 
   # =========================================================
   # THREADING LOGIC
@@ -129,18 +133,25 @@ class Message
   end
 
   # =========================================================
-  # 🔥 FIX: NORMALIZE ATTACHMENT TYPE
+  # NORMALIZATION
+  # =========================================================
+  def normalize_content
+    self.content = content.to_s.strip
+  end
+
+  # =========================================================
+  # NORMALIZE ATTACHMENT TYPE
   # =========================================================
   def normalize_attachment_type
     return if attachment_type.blank?
 
-    base = attachment_type.to_s.split(';').first.strip
+    base = attachment_type.to_s.split(";").first.strip
 
     # "audio/webm" → "audio"
     # "image/jpeg" → "image"
     # "audio" → "audio"
     self.attachment_type =
-      base.include?('/') ? base.split('/').first : base
+      base.include?("/") ? base.split("/").first : base
   end
 
   # =========================================================
@@ -217,6 +228,13 @@ class Message
       conversation,
       MessageSerializer.new(self).as_json
     )
+  end
+
+  # =========================================================
+  # NOTIFICATIONS
+  # =========================================================
+  def enqueue_notification
+    SendMessageNotificationJob.perform_later(id.to_s)
   end
 
   # =========================================================

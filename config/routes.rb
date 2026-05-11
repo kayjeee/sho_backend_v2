@@ -1,8 +1,14 @@
 # frozen_string_literal: true
 
 Rails.application.routes.draw do
+  # =========================================================
+  # ACTION CABLE
+  # =========================================================
   mount ActionCable.server => "/cable"
 
+  # =========================================================
+  # API
+  # =========================================================
   namespace :api do
     namespace :v1 do
 
@@ -17,22 +23,37 @@ Rails.application.routes.draw do
       # USERS (Auth0-safe — PREFERRED)
       # =========================================================
       resources :users, param: :auth0_id do
+        # -----------------------------------------------------
+        # COLLECTION ROUTES
+        # -----------------------------------------------------
         collection do
           get :me
           get :onboarding_status
           get :schools
         end
 
+        # -----------------------------------------------------
+        # MEMBER ROUTES
+        # -----------------------------------------------------
         member do
           put   :update_roles
           post  :add_school
           patch :update_profile
 
-          # Internal DB ID compatibility
+          # ✅ NEW — ONLINE PRESENCE / LAST SEEN
+          # POST /api/v1/users/:auth0_id/heartbeat
+          post :heartbeat
+
+          # ---------------------------------------------------
+          # INTERNAL DB ID COMPATIBILITY
+          # ---------------------------------------------------
           get  :roles
           post :add_role
           get  :onboarding_required
 
+          # ---------------------------------------------------
+          # ONBOARDING STATUS
+          # ---------------------------------------------------
           resource :onboarding_status,
                    controller: :onboarding_statuses,
                    only: %i[show update] do
@@ -44,7 +65,7 @@ Rails.application.routes.draw do
       end
 
       # =========================================================
-      # USERS - Backward Compatibility (DEPRECATED)
+      # USERS - BACKWARD COMPATIBILITY (DEPRECATED)
       # =========================================================
       get "users/:auth0_id",
           to: "users#show_by_path",
@@ -94,6 +115,9 @@ Rails.application.routes.draw do
         end
       end
 
+      # =========================================================
+      # LEARNER INVITATIONS
+      # =========================================================
       resources :learner_invitations do
         member do
           post :accept
@@ -112,6 +136,9 @@ Rails.application.routes.draw do
         end
       end
 
+      # =========================================================
+      # TEACHER INVITATIONS
+      # =========================================================
       resources :teacher_invitations do
         member do
           post :accept
@@ -131,7 +158,7 @@ Rails.application.routes.draw do
       end
 
       # =========================================================
-      # SCHOOLS & DEBT MANAGEMENT
+      # SCHOOLS
       # =========================================================
       resources :schools do
         member do
@@ -151,6 +178,9 @@ Rails.application.routes.draw do
           get :search
         end
 
+        # -----------------------------------------------------
+        # NESTED RESOURCES
+        # -----------------------------------------------------
         resources :students
 
         resources :grades,
@@ -162,6 +192,9 @@ Rails.application.routes.draw do
         resources :pr_codes,
                   only: %i[index show create destroy]
 
+        # -----------------------------------------------------
+        # SCHOOL TRANSACTIONS
+        # -----------------------------------------------------
         resources :transactions,
                   only: %i[index show create update destroy] do
           collection do
@@ -170,6 +203,9 @@ Rails.application.routes.draw do
           end
         end
 
+        # -----------------------------------------------------
+        # DEBT MANAGEMENT
+        # -----------------------------------------------------
         scope :debt_management,
               controller: :debt_management do
           get :debt_summary,
@@ -190,7 +226,7 @@ Rails.application.routes.draw do
       end
 
       # =========================================================
-      # GRADES & TEACHER ASSIGNMENTS
+      # GRADES
       # =========================================================
       resources :grades,
                 only: %i[show update destroy] do
@@ -220,6 +256,9 @@ Rails.application.routes.draw do
         end
       end
 
+      # =========================================================
+      # TEACHER GRADE ASSIGNMENTS
+      # =========================================================
       resources :teacher_grade_assignments do
         member do
           patch :activate
@@ -241,7 +280,7 @@ Rails.application.routes.draw do
       end
 
       # =========================================================
-      # ACADEMIC DATA
+      # LEARNERS
       # =========================================================
       resources :learners do
         collection do
@@ -262,6 +301,9 @@ Rails.application.routes.draw do
         end
       end
 
+      # =========================================================
+      # SUBJECTS
+      # =========================================================
       resources :subjects do
         collection do
           post :bulk_upload
@@ -274,6 +316,9 @@ Rails.application.routes.draw do
         end
       end
 
+      # =========================================================
+      # ASSESSMENTS
+      # =========================================================
       resources :assessments do
         collection do
           post :bulk_upload
@@ -299,6 +344,9 @@ Rails.application.routes.draw do
         end
       end
 
+      # =========================================================
+      # RESULTS
+      # =========================================================
       resources :results do
         collection do
           post :bulk_upload
@@ -314,7 +362,7 @@ Rails.application.routes.draw do
       end
 
       # =========================================================
-      # SYSTEM & UTILITIES
+      # TRANSACTIONS
       # =========================================================
       resources :transactions,
                 only: %i[index show create update destroy] do
@@ -323,6 +371,9 @@ Rails.application.routes.draw do
         end
       end
 
+      # =========================================================
+      # REQUEST ACCESSES
+      # =========================================================
       resources :request_accesses do
         collection do
           get  "school/:school_id",
@@ -341,7 +392,7 @@ Rails.application.routes.draw do
       end
 
       # =========================================================
-      # CONVERSATIONS & MESSAGES
+      # CONVERSATIONS
       # =========================================================
       resources :conversations,
                 only: %i[index show create destroy] do
@@ -352,9 +403,9 @@ Rails.application.routes.draw do
           put  :participants
         end
 
-        # =====================================================
+        # -----------------------------------------------------
         # MESSAGES
-        # =====================================================
+        # -----------------------------------------------------
         resources :messages,
                   only: %i[index create],
                   param: :message_id do
@@ -362,8 +413,6 @@ Rails.application.routes.draw do
             post :react
           end
 
-          # Added search route
-          # GET /api/v1/conversations/:conversation_id/messages/search
           collection do
             get :search
           end
@@ -416,7 +465,7 @@ Rails.application.routes.draw do
       end
 
       # =========================================================
-      # AUTH
+      # AUTHENTICATION
       # =========================================================
       scope :auth,
             controller: :authentication do
