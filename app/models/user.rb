@@ -389,11 +389,13 @@ class User
   # ================== LAST SEEN TRACKING ==================
 
   # Stamps the current time as the user's last activity.
-  # Called by UsersController#heartbeat on every app foreground event.
+  # Called by UsersController#heartbeat and the API request tracker.
   def touch_last_seen!
-    # update_attribute skips validations and callbacks
-    # Safe for high-frequency writes
-    update_attribute(:last_seen_at, Time.current)
+    set(last_seen_at: Time.current)
+  end
+
+  def online?
+    last_seen_at.present? && last_seen_at > 5.minutes.ago
   end
 
   # ==================== UTILITY METHODS ====================

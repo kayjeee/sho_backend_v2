@@ -3,6 +3,7 @@ class ApplicationController < ActionController::API
   include Secured
   # We'll let specific controllers define which actions need authorization
   # to avoid breaking public endpoints.
+  before_action :update_last_seen_at
 
   # Health check endpoint
   def health
@@ -47,5 +48,9 @@ class ApplicationController < ActionController::API
   def handle_exception(error, fallback_message)
     Rails.logger.error("❌ #{fallback_message}: #{error.message}")
     render json: { success: false, status: 'error', message: fallback_message, errors: [error.message] }, status: :internal_server_error
+  end
+
+  def update_last_seen_at
+    current_user&.touch_last_seen!
   end
 end
