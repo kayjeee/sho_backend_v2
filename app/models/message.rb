@@ -64,7 +64,7 @@ class Message
   belongs_to :school,
              class_name: "School",
              inverse_of: :messages,
-             optional: true
+             optional:   true
 
   belongs_to :conversation,
              class_name: "Conversation",
@@ -73,17 +73,17 @@ class Message
   belongs_to :sender,
              class_name: "User",
              inverse_of: :sent_messages,
-             optional: true
+             optional:   true
 
   belongs_to :receiver,
              class_name: "User",
              inverse_of: :received_messages,
-             optional: true
+             optional:   true
 
   belongs_to :parent_message,
-             class_name: "Message",
+             class_name:  "Message",
              foreign_key: :reply_to_id,
-             optional: true
+             optional:    true
 
   # =========================================================
   # VALIDATIONS
@@ -92,7 +92,7 @@ class Message
             presence: true,
             unless: -> { attachment_url.present? }
 
-  validates :sender_id, presence: true
+  validates :sender_id,    presence: true
   validates :conversation, presence: true
 
   validates :status,
@@ -100,7 +100,7 @@ class Message
 
   validates :attachment_type,
             inclusion: {
-              in: ATTACHMENT_TYPES,
+              in:      ATTACHMENT_TYPES,
               message: "%{value} is not a valid attachment type"
             },
             allow_blank: true
@@ -110,14 +110,20 @@ class Message
   # =========================================================
   before_validation :normalize_content
   before_validation :normalize_attachment_type
+  before_create     :populate_reply_preview
 
-  before_create :populate_reply_preview
-
+  # Mongoid 9.0.x has a bug in after_create_commit — the internal
+  # set_options_for_callbacks! method only accepts 1 argument but the
+  # callback registration passes 2, crashing at class load time.
+  #
+  # Workaround: use after_create for both broadcast and notification.
+  # The notification job is enqueued with perform_later which runs
+  # asynchronously, so it's effectively post-commit safe.
   after_create :broadcast_update!
-  after_create_commit :enqueue_notification
+  after_create :enqueue_notification
 
   # =========================================================
-  # THREADING LOGIC
+  # THREADING
   # =========================================================
   def populate_reply_preview
     return if reply_to_id.blank?
@@ -135,21 +141,22 @@ class Message
   # =========================================================
   # NORMALIZATION
   # =========================================================
+
+  # Normalizes blank/empty content to nil so the presence validator
+  # correctly skips when attachment_url is present.
+  # "" is blank in Ruby but NOT nil — presence: true fires on "".
   def normalize_content
-    self.content = content.to_s.strip
+    self.content = nil if content.blank?
   end
 
-  # =========================================================
-  # NORMALIZE ATTACHMENT TYPE
-  # =========================================================
   def normalize_attachment_type
     return if attachment_type.blank?
 
     base = attachment_type.to_s.split(";").first.strip
 
-    # "audio/webm" → "audio"
-    # "image/jpeg" → "image"
-    # "audio" → "audio"
+    # "audio/webm;codecs=opus" → "audio"
+    # "image/jpeg"             → "image"
+    # "audio"                  → "audio" (already clean)
     self.attachment_type =
       base.include?("/") ? base.split("/").first : base
   end
@@ -161,32 +168,21 @@ class Message
     emoji   = emoji.to_s
     user_id = user_id.to_s
 
-    raise ArgumentError, "emoji is required" if emoji.blank?
+    raise ArgumentError, "emoji is required"   if emoji.blank?
     raise ArgumentError, "user_id is required" if user_id.blank?
 
     removed = self.class.collection.find(
       _id: id,
-      "reactions.emoji" => emoji,
+      "reactions.emoji"    => emoji,
       "reactions.user_ids" => user_id
     ).find_one_and_update(
-      {
-        "$pull" => {
-          "reactions.$.user_ids" => user_id
-        }
-      },
+      { "$pull" => { "reactions.$.user_ids" => user_id } },
       return_document: :after
     )
 
     if removed
       self.class.collection.find(_id: id).find_one_and_update(
-        {
-          "$pull" => {
-            reactions: {
-              emoji: emoji,
-              user_ids: []
-            }
-          }
-        },
+        { "$pull" => { reactions: { emoji: emoji, user_ids: [] } } },
         return_document: :after
       )
     else
@@ -194,11 +190,7 @@ class Message
         _id: id,
         "reactions.emoji" => emoji
       ).find_one_and_update(
-        {
-          "$addToSet" => {
-            "reactions.$.user_ids" => user_id
-          }
-        },
+        { "$addToSet" => { "reactions.$.user_ids" => user_id } },
         return_document: :after
       )
 
@@ -206,10 +198,7 @@ class Message
         self.class.collection.find(_id: id).find_one_and_update(
           {
             "$addToSet" => {
-              reactions: {
-                emoji: emoji,
-                user_ids: [user_id]
-              }
+              reactions: { emoji: emoji, user_ids: [user_id] }
             }
           },
           return_document: :after
@@ -243,16 +232,14 @@ class Message
   def self.mark_as_delivered!(conversation, current_user)
     to_update = conversation.messages.where(
       :sender_id.ne => current_user.id.to_s,
-      status: "sent"
+      status:         "sent"
     )
 
     ids = to_update.pluck(:id)
     return 0 if ids.empty?
 
     to_update.update_all(status: "delivered")
-
     Message.in(id: ids).each(&:broadcast_update!)
-
     ids.size
   end
 
@@ -260,23 +247,18 @@ class Message
   # READ STATUS
   # =========================================================
   def self.mark_as_read!(conversation, current_user)
-    to_update = conversation.messages.where(
-      :sender_id.ne => current_user.id.to_s
-    ).any_of(
-      { read: false },
-      { :status.ne => "read" }
-    )
+    to_update = conversation.messages
+                            .where(:sender_id.ne => current_user.id.to_s)
+                            .any_of(
+                              { read: false },
+                              { :status.ne => "read" }
+                            )
 
     ids = to_update.pluck(:id)
     return 0 if ids.empty?
 
-    to_update.update_all(
-      read: true,
-      status: "read"
-    )
-
+    to_update.update_all(read: true, status: "read")
     Message.in(id: ids).each(&:broadcast_update!)
-
     ids.size
   end
 end

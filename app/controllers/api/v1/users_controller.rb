@@ -5,23 +5,28 @@ module Api
     class UsersController < ApplicationController
       wrap_parameters format: [:json]
 
-      # Added :heartbeat
+      # ── Audited against actual action methods in this file ──────────────────
+      # load_user_by_auth0! guards:  show, schools, onboarding_status,
+      #                              update_profile, heartbeat
+      # load_user_by_path! guards:  show_by_path, schools_by_path
+      #
+      # All phantom actions removed (update_roles, add_school,
+      # onboarding_status_by_path) — routed but never implemented here.
+      # ────────────────────────────────────────────────────────────────────────
+
       before_action :load_user_by_auth0!,
-                    only: [
-                      :show,
-                      :schools,
-                      :update_roles,
-                      :add_school,
-                      :onboarding_status,
-                      :update_profile,
-                      :heartbeat
+                    only: %i[
+                      show
+                      schools
+                      onboarding_status
+                      update_profile
+                      heartbeat
                     ]
 
       before_action :load_user_by_path!,
-                    only: [
-                      :show_by_path,
-                      :schools_by_path,
-                      :onboarding_status_by_path
+                    only: %i[
+                      show_by_path
+                      schools_by_path
                     ]
 
       # =========================================================
@@ -39,32 +44,23 @@ module Api
         if result.success?
           render_success(
             message: result.new_record ?
-              'User created successfully' :
-              'User already exists',
-
+              "User created successfully" :
+              "User already exists",
             data: {
-              user: result.user,
+              user:       result.user,
               new_record: result.new_record
             },
-
             status: result.new_record ? :created : :ok
           )
         else
-          render_error(
-            "Failed to create user",
-            result.errors
-          )
+          render_error("Failed to create user", result.errors)
         end
       rescue => e
         log_error "CREATE USER ERROR", {
-          error: e.message,
+          error:     e.message,
           backtrace: e.backtrace.first(5)
         }
-
-        render_error(
-          [e.message],
-          status: :unprocessable_entity
-        )
+        render_error([e.message], status: :unprocessable_entity)
       end
 
       # =========================================================
@@ -72,51 +68,39 @@ module Api
       # =========================================================
       def show
         render_success(
-          message: 'User retrieved successfully',
-          data: { user: @user }
+          message: "User retrieved successfully",
+          data:    { user: @user }
         )
       end
 
       # =========================================================
       # POST /api/v1/users/:auth0_id/heartbeat
       # =========================================================
-      #
-      # Called by frontend on:
-      # - App foreground
-      # - Messaging page load
-      # - Important user interactions
-      #
-      # Updates last_seen_at for online presence tracking.
-      #
+      # Returns head :ok (no body). The frontend must NOT call
+      # response.json() on this endpoint — use a raw fetch or
+      # check response.status only.
       def heartbeat
         @user.touch_last_seen!
-
         head :ok
       rescue => e
         log_error "HEARTBEAT ERROR", {
-          error: e.message,
+          error:    e.message,
           auth0_id: params[:auth0_id]
         }
-
-        head :ok
+        head :ok # always 200 — heartbeat must never surface errors
       end
 
       # =========================================================
       # DEPRECATED: GET /api/v1/users/:auth0_id
       # =========================================================
       def show_by_path
-        log_deprecated(
-          "/api/v1/users/:auth0_id",
-          params[:auth0_id]
-        )
+        log_deprecated("/api/v1/users/:auth0_id", params[:auth0_id])
 
         render_success(
-          message: 'User retrieved successfully',
+          message: "User retrieved successfully",
           data: {
-            user: @user,
-            _deprecated: deprecated_payload(
-              "/api/v1/users/show?auth0_id=xxx"
-            )
+            user:        @user,
+            _deprecated: deprecated_payload("/api/v1/users/show?auth0_id=xxx")
           }
         )
       end
@@ -130,26 +114,18 @@ module Api
           params[:auth0_id]
 
         return render_error(
-          "Authentication required",
-          [],
-          status: :unauthorized
+          "Authentication required", [], status: :unauthorized
         ) if auth0_id.blank?
 
-        user = User.where(
-          auth0_id: auth0_id
-        ).first
+        user = User.where(auth0_id: auth0_id).first
 
         if user
           render_success(
-            message: 'User retrieved successfully',
-            data: { user: user }
+            message: "User retrieved successfully",
+            data:    { user: user }
           )
         else
-          render_error(
-            "User not found",
-            [],
-            status: :not_found
-          )
+          render_error("User not found", [], status: :not_found)
         end
       end
 
@@ -161,14 +137,13 @@ module Api
       end
 
       # =========================================================
-      # GET /api/v1/users/:auth0_id/schools
+      # DEPRECATED: GET /api/v1/users/:auth0_id/schools
       # =========================================================
       def schools_by_path
         log_deprecated(
           "/api/v1/users/:auth0_id/schools",
           params[:auth0_id]
         )
-
         fetch_schools_for(
           @user,
           deprecated_url: "/api/v1/users/schools?auth0_id=xxx"
@@ -191,10 +166,8 @@ module Api
           end
 
         render_success(
-          message: 'Onboarding status retrieved successfully',
-          data: {
-            onboarding_status: data
-          }
+          message: "Onboarding status retrieved successfully",
+          data:    { onboarding_status: data }
         )
       end
 
@@ -207,9 +180,7 @@ module Api
         if @user.update(profile_params)
           render_success(
             message: "Profile updated successfully",
-            data: {
-              user: serialize_user(@user)
-            }
+            data:    { user: serialize_user(@user) }
           )
         else
           render_error(
@@ -224,21 +195,42 @@ module Api
       # =======================================================
       # USER LOADING
       # =======================================================
-      def load_user_by_auth0!
-        auth0_id = extract_auth0_id
 
-        if auth0_id.present?
-          @user = User.where(
-            auth0_id: auth0_id
-          ).first
-        elsif params[:id].present?
-          begin
-            @user = User.find(params[:id])
-          rescue Mongoid::Errors::DocumentNotFound,
-                 BSON::ObjectId::Invalid
-            @user = nil
+      # Resolves @user from:
+      #   1. auth0_id param matching User#auth0_id  (e.g. "google-oauth2|123")
+      #   2. auth0_id param that is actually a BSON ObjectId (e.g. "69c113...")
+      #      — happens when the frontend passes the DB id via the :auth0_id
+      #      route segment (deprecated but still in use on some pages)
+      #   3. params[:id] as a BSON ObjectId fallback
+      def load_user_by_auth0!
+        raw = extract_auth0_id
+
+        @user =
+          if raw.present?
+            # Primary: treat as an Auth0 ID string
+            found = User.where(auth0_id: raw).first
+
+            # Fallback: raw value looks like a MongoDB ObjectId — try a direct
+            # document lookup. This covers GET /api/v1/users/:mongo_id calls
+            # that still route through this action.
+            if found.nil? && bson_object_id?(raw)
+              begin
+                found = User.find(raw)
+              rescue Mongoid::Errors::DocumentNotFound,
+                     BSON::ObjectId::Invalid
+                found = nil
+              end
+            end
+
+            found
+          elsif params[:id].present?
+            begin
+              User.find(params[:id])
+            rescue Mongoid::Errors::DocumentNotFound,
+                   BSON::ObjectId::Invalid
+              nil
+            end
           end
-        end
 
         render_error(
           ["User not found or auth0_id missing"],
@@ -249,10 +241,10 @@ module Api
       def load_user_by_path!
         id_param = params[:auth0_id]
 
-        @user = User.where(
-          auth0_id: id_param
-        ).first
+        # Try auth0_id string first
+        @user = User.where(auth0_id: id_param).first
 
+        # Fallback to ObjectId if not found
         if @user.nil?
           begin
             @user = User.find(id_param)
@@ -262,10 +254,7 @@ module Api
           end
         end
 
-        render_error(
-          ["User not found"],
-          status: :not_found
-        ) unless @user
+        render_error(["User not found"], status: :not_found) unless @user
       end
 
       # =======================================================
@@ -277,13 +266,18 @@ module Api
       end
 
       def extract_auth0_id_from_token
+        # Extend when token-based auth0_id extraction is needed
         nil
       end
 
+      # Returns true if the string looks like a 24-char hex MongoDB ObjectId.
+      # Used to decide whether to attempt User.find(raw) as a fallback.
+      def bson_object_id?(str)
+        str.to_s.match?(/\A[0-9a-f]{24}\z/i)
+      end
+
       def normalize_roles(roles_param)
-        Array.wrap(roles_param)
-             .compact
-             .uniq
+        Array.wrap(roles_param).compact.uniq
       end
 
       # =======================================================
@@ -321,19 +315,19 @@ module Api
       # =======================================================
       def serialize_user(user)
         {
-          id: user.id.to_s,
-          auth0_id: user.auth0_id,
-          name: user.name,
-          email: user.email,
-          phone: user.phone,
+          id:           user.id.to_s,
+          auth0_id:     user.auth0_id,
+          name:         user.name,
+          email:        user.email,
+          phone:        user.phone,
           phone_number: user.phone_number,
-          avatar_url: user.try(:avatar_url),
-          bio: user.try(:bio),
-          timezone: user.try(:timezone),
-          locale: user.try(:locale),
-          roles: user.roles,
-          created_at: user.created_at,
-          updated_at: user.updated_at
+          avatar_url:   user.try(:avatar_url),
+          bio:          user.try(:bio),
+          timezone:     user.try(:timezone),
+          locale:       user.try(:locale),
+          roles:        user.roles,
+          created_at:   user.created_at,
+          updated_at:   user.updated_at
         }.compact
       end
 
@@ -355,16 +349,13 @@ module Api
       def log_deprecated(endpoint, auth0_id)
         log_warning(
           "DEPRECATED ENDPOINT",
-          {
-            endpoint: endpoint,
-            auth0_id: auth0_id
-          }
+          { endpoint: endpoint, auth0_id: auth0_id }
         )
       end
 
       def deprecated_payload(migration_url)
         {
-          message: "Deprecated. Use #{migration_url}",
+          message:         "Deprecated. Use #{migration_url}",
           migration_guide: "/api/docs#migration"
         }
       end
