@@ -9,7 +9,7 @@ module Api
                     only: %i[index create react search pinned]
 
       before_action :set_message,
-                    only: %i[react toggle_pin toggle_star]
+                    only: %i[react star toggle_pin toggle_star]
 
       # =========================================================
       # GET /api/v1/conversations/:conversation_id/messages
@@ -274,6 +274,10 @@ module Api
       # =========================================================
       # POST /api/v1/conversations/:conversation_id/messages/:message_id/toggle_star
       # =========================================================
+      def star
+        toggle_star
+      end
+
       def toggle_star
         @message.toggle_star!(@current_user.id)
         response_message =
@@ -286,6 +290,7 @@ module Api
         render json: {
           success: true,
           data: serialize_message(@message),
+          starred_by_count: Array(@message.starred_by).size,
           message: response_message
         }, status: :ok
       end

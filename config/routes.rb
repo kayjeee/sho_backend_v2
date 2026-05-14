@@ -413,6 +413,7 @@ Rails.application.routes.draw do
                   param: :message_id do
           member do
             post :react
+            post :star
             post :toggle_pin
             post :toggle_star
           end
