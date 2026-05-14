@@ -6,10 +6,10 @@ module Api
       before_action :authorize
 
       before_action :set_conversation,
-                    only: %i[index create react search]
+                    only: %i[index create react search pinned]
 
       before_action :set_message,
-                    only: [:react]
+                    only: %i[react toggle_pin toggle_star]
 
       # =========================================================
       # GET /api/v1/conversations/:conversation_id/messages
@@ -80,6 +80,33 @@ module Api
             data: messages.map { |message| serialize_message(message) }
           }, status: :ok
         end
+      end
+
+      # =========================================================
+      # GET /api/v1/conversations/:id/pinned
+      # =========================================================
+      def pinned
+        messages = @conversation.messages
+                                .where(is_pinned: true)
+                                .order(updated_at: :desc)
+
+        render json: {
+          success: true,
+          data: messages.map { |message| serialize_message(message) }
+        }, status: :ok
+      end
+
+      # =========================================================
+      # GET /api/v1/messages/starred
+      # =========================================================
+      def starred
+        messages = Message.where(starred_by: @current_user.id)
+                          .order(updated_at: :desc)
+
+        render json: {
+          success: true,
+          data: messages.map { |message| serialize_message(message) }
+        }, status: :ok
       end
 
       # =========================================================
@@ -225,13 +252,51 @@ module Api
         }, status: :ok
       end
 
+      # =========================================================
+      # POST /api/v1/conversations/:conversation_id/messages/:message_id/toggle_pin
+      # =========================================================
+      def toggle_pin
+        @message.toggle_pin!
+        response_message =
+          if @message.is_pinned
+            "Message pinned successfully"
+          else
+            "Message unpinned successfully"
+          end
+
+        render json: {
+          success: true,
+          data: serialize_message(@message),
+          message: response_message
+        }, status: :ok
+      end
+
+      # =========================================================
+      # POST /api/v1/conversations/:conversation_id/messages/:message_id/toggle_star
+      # =========================================================
+      def toggle_star
+        @message.toggle_star!(@current_user.id)
+        response_message =
+          if Array(@message.starred_by).include?(@current_user.id)
+            "Message starred successfully"
+          else
+            "Message unstarred successfully"
+          end
+
+        render json: {
+          success: true,
+          data: serialize_message(@message),
+          message: response_message
+        }, status: :ok
+      end
+
       private
 
       # =========================================================
       # CONVERSATION
       # =========================================================
       def set_conversation
-        conversation_id = params[:conversation_id].to_s.strip
+        conversation_id = (params[:conversation_id] || params[:id]).to_s.strip
 
         Rails.logger.info(
           "[MessagesController#set_conversation] " \
@@ -281,7 +346,15 @@ module Api
           "message_id=#{message_id}"
         )
 
-        @message = @conversation.messages.find(message_id)
+        @message =
+          if params[:conversation_id].present?
+            @conversation ||= find_conversation(params[:conversation_id])
+            @conversation.messages.find(message_id)
+          else
+            Message.find(message_id)
+          end
+
+        @conversation ||= @message.conversation
 
         current_user_id = @current_user.id.to_s
 
@@ -303,7 +376,9 @@ module Api
           }, status: :not_found
         end
 
-      rescue Mongoid::Errors::DocumentNotFound => e
+      rescue Mongoid::Errors::DocumentNotFound,
+             Mongoid::Errors::InvalidFind,
+             BSON::Error::InvalidObjectId => e
         Rails.logger.error(
           "[MessagesController#set_message] NOT FOUND #{e.message}"
         )
@@ -312,6 +387,13 @@ module Api
           success: false,
           error: "Message not found"
         }, status: :not_found
+      end
+
+      def find_conversation(conversation_id)
+        Conversation.any_of(
+          { user_id: @current_user.id },
+          { participant_ids: @current_user.id.to_s }
+        ).find(conversation_id)
       end
 
       # =========================================================

@@ -33,6 +33,8 @@ class MessageSerializer
       # =====================================================
       status:          @message.status,
       read:            @message.read,
+      is_pinned:       @message.is_pinned,
+      starred_by:      Array(@message.starred_by).map(&:to_s),
 
       # =====================================================
       # REACTIONS

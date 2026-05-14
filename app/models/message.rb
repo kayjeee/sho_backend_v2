@@ -19,6 +19,8 @@ class Message
 
   field :read,        type: Boolean, default: false
   field :reactions,   type: Array,   default: []
+  field :is_pinned,   type: Boolean, default: false
+  field :starred_by,  type: Array,   default: []
 
   field :status,      type: String, default: "sent"
 
@@ -56,6 +58,8 @@ class Message
   index({ sender_id: 1 })
   index({ receiver_id: 1 })
   index({ school_id: 1 })
+  index({ conversation_id: 1, is_pinned: 1 })
+  index({ starred_by: 1 })
   index({ content: "text" })
 
   # =========================================================
@@ -210,6 +214,35 @@ class Message
   end
 
   # =========================================================
+  # PINNING / STARRING
+  # =========================================================
+  def toggle_pin!
+    update!(is_pinned: !is_pinned)
+    broadcast_update!
+    self
+  end
+
+  def toggle_star!(user_id)
+    user_id = normalize_starred_user_id(user_id)
+
+    raise ArgumentError, "user_id is required" if user_id.blank?
+
+    if Array(starred_by).include?(user_id)
+      self.class.collection.find(_id: id).find_one_and_update(
+        { "$pull" => { starred_by: user_id } },
+        return_document: :after
+      )
+    else
+      self.class.collection.find(_id: id).find_one_and_update(
+        { "$addToSet" => { starred_by: user_id } },
+        return_document: :after
+      )
+    end
+
+    reload
+  end
+
+  # =========================================================
   # BROADCASTING
   # =========================================================
   def broadcast_update!
@@ -260,5 +293,15 @@ class Message
     to_update.update_all(read: true, status: "read")
     Message.in(id: ids).each(&:broadcast_update!)
     ids.size
+  end
+
+  private
+
+  def normalize_starred_user_id(user_id)
+    return user_id if user_id.is_a?(BSON::ObjectId)
+
+    BSON::ObjectId.from_string(user_id.to_s)
+  rescue BSON::Error::InvalidObjectId
+    nil
   end
 end

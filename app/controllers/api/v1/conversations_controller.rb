@@ -274,6 +274,8 @@ module Api
           timestamp: message.created_at,
           read:      message.try(:read) || false,
           status:    message.try(:status) || "sent",
+          is_pinned: message.try(:is_pinned) || false,
+          starred_by: Array(message.try(:starred_by)).map(&:to_s),
           reactions: message.try(:reactions) || []
         }
       end

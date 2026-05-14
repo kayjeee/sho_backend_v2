@@ -401,6 +401,8 @@ Rails.application.routes.draw do
           post :typing
           get  :participants
           put  :participants
+          get  :pinned,
+               to: "messages#pinned"
         end
 
         # -----------------------------------------------------
@@ -411,11 +413,25 @@ Rails.application.routes.draw do
                   param: :message_id do
           member do
             post :react
+            post :toggle_pin
+            post :toggle_star
           end
 
           collection do
             get :search
           end
+        end
+      end
+
+      resources :messages,
+                only: [] do
+        collection do
+          get :starred
+        end
+
+        member do
+          post :toggle_star
+          post :toggle_pin
         end
       end
 
