@@ -25,6 +25,7 @@ gem "active_model_serializers"
 
 # Background / Realtime (Action Cable)
 gem "redis", "~> 5.0"
+gem "trycourier"
 
 # File Processing
 gem "roo"

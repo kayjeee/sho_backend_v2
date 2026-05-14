@@ -2,8 +2,8 @@
 
 # app/jobs/send_message_notification_job.rb
 #
-# Calls NotificationService asynchronously so the after_create_commit
-# hook on Message never blocks the HTTP response cycle.
+# Sends Courier push notifications asynchronously so the Message callback
+# never blocks the HTTP response cycle.
 #
 # The job receives the message ID as a string (not the document itself)
 # to avoid serializing a full Mongoid object into the queue backend.
@@ -13,6 +13,8 @@
 #
 class SendMessageNotificationJob < ApplicationJob
   queue_as :notifications
+
+  OFFLINE_THRESHOLD = 30.seconds
 
   # Retry up to 3 times with exponential back-off before discarding.
   # This protects against transient Courier outages without flooding
@@ -39,6 +41,41 @@ class SendMessageNotificationJob < ApplicationJob
       return
     end
 
-    NotificationService.call(message)
+    recipients_for(message).each do |recipient|
+      next unless offline?(recipient)
+
+      NotificationService.send_push_notification(
+        recipient,
+        message_content(message)
+      )
+    end
+  end
+
+  private
+
+  def recipients_for(message)
+    conversation = message.conversation
+    return [] unless conversation
+
+    participant_ids = Array(conversation.participant_ids)
+      .map(&:to_s)
+      .reject { |id| id == message.sender_id.to_s }
+
+    User.in(id: participant_ids).to_a
+  end
+
+  def offline?(recipient)
+    recipient.last_seen_at.nil? ||
+      recipient.last_seen_at < OFFLINE_THRESHOLD.ago
+  end
+
+  def message_content(message)
+    if message.content.present?
+      message.content.truncate(100)
+    elsif message.attachment_url.present?
+      "Sent an attachment"
+    else
+      "Sent you a message"
+    end
   end
 end

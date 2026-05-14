@@ -3,7 +3,7 @@ class ApplicationController < ActionController::API
   include Secured
   # We'll let specific controllers define which actions need authorization
   # to avoid breaking public endpoints.
-  before_action :update_last_seen_at
+  after_action :update_last_seen_at
 
   # Health check endpoint
   def health

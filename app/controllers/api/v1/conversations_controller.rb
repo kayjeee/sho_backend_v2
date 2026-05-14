@@ -252,7 +252,7 @@ module Api
           full_name:    full_name,
           avatar:       safe_read(user, :avatar) || safe_read(user, :profile_image),
           role:         resolve_role(user),
-          online_status: user.last_seen_at && user.last_seen_at > 30.seconds.ago ? "online" : "offline"
+          online_status: user.last_seen_at && user.last_seen_at > 45.seconds.ago ? "online" : "offline"
         }
       end
 
