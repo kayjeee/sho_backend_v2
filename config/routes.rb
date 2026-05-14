@@ -32,6 +32,10 @@ Rails.application.routes.draw do
           get :schools
         end
 
+        # POST /api/v1/users/:auth0_id/heartbeat
+        post :heartbeat,
+             on: :member
+
         # -----------------------------------------------------
         # MEMBER ROUTES
         # -----------------------------------------------------
@@ -39,10 +43,6 @@ Rails.application.routes.draw do
           put   :update_roles
           post  :add_school
           patch :update_profile
-
-          # ✅ NEW — ONLINE PRESENCE / LAST SEEN
-          # POST /api/v1/users/:auth0_id/heartbeat
-          post :heartbeat
 
           # ---------------------------------------------------
           # INTERNAL DB ID COMPATIBILITY

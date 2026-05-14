@@ -44,7 +44,7 @@ class SendMessageNotificationJob < ApplicationJob
     recipients_for(message).each do |recipient|
       next unless offline?(recipient)
 
-      NotificationService.send_push_notification(
+      NotificationService.send_push(
         recipient,
         message_content(message)
       )

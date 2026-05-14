@@ -391,7 +391,7 @@ class User
   # Stamps the current time as the user's last activity.
   # Called by UsersController#heartbeat and the API request tracker.
   def touch_last_seen!
-    set(last_seen_at: Time.current)
+    touch(:last_seen_at)
   end
 
   def online?

@@ -20,8 +20,10 @@ module Api
                       schools
                       onboarding_status
                       update_profile
-                      heartbeat
                     ]
+
+      before_action :load_user_flexibly!,
+                    only: %i[heartbeat]
 
       before_action :load_user_by_path!,
                     only: %i[
@@ -85,7 +87,7 @@ module Api
       rescue => e
         log_error "HEARTBEAT ERROR", {
           error:    e.message,
-          auth0_id: params[:auth0_id]
+          user_id: heartbeat_user_id
         }
         head :ok # always 200 — heartbeat must never surface errors
       end
@@ -257,11 +259,34 @@ module Api
         render_error(["User not found"], status: :not_found) unless @user
       end
 
+      def load_user_flexibly!
+        raw = heartbeat_user_id
+
+        @user = User.or(
+          { auth0_id: raw },
+          { id: raw }
+        ).first
+
+        render_error(["User not found"], status: :not_found) unless @user
+      rescue Mongoid::Errors::InvalidQuery,
+             Mongoid::Errors::InvalidFind,
+             BSON::Error::InvalidObjectId,
+             BSON::ObjectId::Invalid
+        @user = User.where(auth0_id: raw).first
+        render_error(["User not found"], status: :not_found) unless @user
+      end
+
       # =======================================================
       # HELPERS
       # =======================================================
       def extract_auth0_id
         params[:auth0_id] ||
+          params.dig(:user, :auth0_id)
+      end
+
+      def heartbeat_user_id
+        params[:id] ||
+          params[:auth0_id] ||
           params.dig(:user, :auth0_id)
       end
 

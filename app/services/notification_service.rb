@@ -1,8 +1,20 @@
 # frozen_string_literal: true
 
 class NotificationService
+  OFFLINE_THRESHOLD = 30.seconds
+
+  def self.send_push(recipient, message)
+    new.send_push(recipient, message)
+  end
+
   def self.send_push_notification(user, message_content)
     new.send_push_notification(user, message_content)
+  end
+
+  def send_push(recipient, message)
+    return nil unless offline?(recipient)
+
+    send_push_notification(recipient, message)
   end
 
   def send_push_notification(user, message_content)
@@ -50,5 +62,10 @@ class NotificationService
 
   def courier_template_id
     ENV.fetch("COURIER_TEMPLATE_ID")
+  end
+
+  def offline?(recipient)
+    recipient.last_seen_at.nil? ||
+      recipient.last_seen_at < OFFLINE_THRESHOLD.ago
   end
 end
