@@ -82,7 +82,7 @@ module Api
       # response.json() on this endpoint — use a raw fetch or
       # check response.status only.
       def heartbeat
-        @user.touch_last_seen!
+        @user&.touch_last_seen!
         head :ok
       rescue => e
         log_error "HEARTBEAT ERROR", {
@@ -262,18 +262,22 @@ module Api
       def load_user_flexibly!
         raw = heartbeat_user_id
 
-        @user = User.or(
-          { auth0_id: raw },
-          { id: raw }
-        ).first
-
-        render_error(["User not found"], status: :not_found) unless @user
-      rescue Mongoid::Errors::InvalidQuery,
-             Mongoid::Errors::InvalidFind,
-             BSON::Error::InvalidObjectId,
-             BSON::ObjectId::Invalid
         @user = User.where(auth0_id: raw).first
-        render_error(["User not found"], status: :not_found) unless @user
+        @user ||= User.find(raw) if bson_object_id?(raw)
+
+        return if @user
+
+        log_warning(
+          "HEARTBEAT USER NOT FOUND",
+          { user_id: raw }
+        )
+      rescue Mongoid::Errors::DocumentNotFound,
+             BSON::Error::InvalidObjectId,
+             BSON::ObjectId::Invalid => e
+        log_warning(
+          "HEARTBEAT USER LOOKUP FAILED",
+          { user_id: raw, error: e.message }
+        )
       end
 
       # =======================================================
