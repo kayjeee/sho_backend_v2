@@ -73,41 +73,33 @@ module Api
       end
 
       # =========================================================
-      # POST /api/v1/users/:auth0_id/heartbeat
+      # POST /api/v1/users/:id/heartbeat
       # =========================================================
-      # Returns head :ok (no body). The frontend must NOT call
-      # response.json() on this endpoint — use a raw fetch or
-      # check response.status only.
+      # Returns head :ok (no body). Accepts MongoDB _id or auth0_id.
       def heartbeat
-        raw = heartbeat_user_id
-        @user =
-          begin
-            User.or(
-              { auth0_id: raw },
-              { id: raw }
-            ).first
-          rescue Mongoid::Errors::InvalidFind,
-                 Mongoid::Errors::InvalidQuery,
-                 BSON::Error::InvalidObjectId,
-                 BSON::ObjectId::Invalid
-            User.find_by(auth0_id: raw)
-          end
+        user_id = params[:id] || params[:auth0_id]
 
-        unless @user
-          log_warning(
-            "HEARTBEAT USER NOT FOUND",
-            { user_id: raw }
-          )
-          return head :ok
+        @user = User.find_by(id: user_id) || User.find_by(auth0_id: user_id)
+
+        if @user
+          @user.set(last_seen_at: Time.current)
+        else
+          log_warning("HEARTBEAT USER NOT FOUND", { user_id: user_id })
         end
 
-        @user.set(last_seen_at: Time.current)
+        head :ok
+      rescue Mongoid::Errors::InvalidFind,
+             Mongoid::Errors::InvalidQuery,
+             BSON::Error::InvalidObjectId,
+             BSON::ObjectId::Invalid
+        # Handle invalid ID formats gracefully
+        @user = User.find_by(auth0_id: user_id)
+        if @user
+          @user.set(last_seen_at: Time.current)
+        end
         head :ok
       rescue => e
-        log_error "HEARTBEAT ERROR", {
-          error:    e.message,
-          user_id: heartbeat_user_id
-        }
+        log_error "HEARTBEAT ERROR", { error: e.message, user_id: user_id }
         head :ok # always 200 — heartbeat must never surface errors
       end
 

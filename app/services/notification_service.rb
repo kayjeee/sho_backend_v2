@@ -1,11 +1,11 @@
 # frozen_string_literal: true
 
 class NotificationService
-  OFFLINE_THRESHOLD = 30.seconds
+  OFFLINE_THRESHOLD = 35.seconds
 
-  def initialize(api_key: ENV.fetch("COURIER_API_KEY", nil))
+  def initialize(api_key: ENV.fetch("COURIER_API_KEY"))
     @api_key = api_key
-    @client = Trycourier::Client.new(api_key: api_key) if api_key.present?
+    @client = Trycourier::Client.new(api_key: @api_key) if @api_key.present?
 
     return if @client
 
@@ -38,7 +38,10 @@ class NotificationService
 
   def send_message_push(recipient, sender, content)
     return nil unless courier_configured?
+    return nil unless offline?(recipient)
 
+    # Using Courier Ruby SDK v4.x syntax
+    # Note: method is send_ because send is reserved in Ruby
     response = @client.send_.message(
       message: {
         to: {
