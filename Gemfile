@@ -10,7 +10,7 @@ gem "importmap-rails"
 gem "turbo-rails"
 gem "stimulus-rails"
 gem "jbuilder"
-gem "courier-ruby"
+gem "courier"
 # API & CORS
 gem "rack-cors"
 
