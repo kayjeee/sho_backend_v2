@@ -73,34 +73,18 @@ module Api
       end
 
       # =========================================================
-      # POST /api/v1/users/:id/heartbeat
+      # PATCH/PUT /api/v1/users/:id/heartbeat
       # =========================================================
-      # Returns head :ok (no body). Accepts MongoDB _id or auth0_id.
       def heartbeat
-        user_id = params[:id] || params[:auth0_id]
+        user = find_user_by_id_or_auth0(params[:id])
 
-        @user = User.find_by(id: user_id) || User.find_by(auth0_id: user_id)
-
-        if @user
-          @user.set(last_seen_at: Time.current)
-        else
-          log_warning("HEARTBEAT USER NOT FOUND", { user_id: user_id })
+        unless user
+          return render json: { error: "User not found" }, status: :not_found
         end
 
-        head :ok
-      rescue Mongoid::Errors::InvalidFind,
-             Mongoid::Errors::InvalidQuery,
-             BSON::Error::InvalidObjectId,
-             BSON::ObjectId::Invalid
-        # Handle invalid ID formats gracefully
-        @user = User.find_by(auth0_id: user_id)
-        if @user
-          @user.set(last_seen_at: Time.current)
-        end
-        head :ok
-      rescue => e
-        log_error "HEARTBEAT ERROR", { error: e.message, user_id: user_id }
-        head :ok # always 200 — heartbeat must never surface errors
+        user.update!(last_seen_at: Time.current)
+
+        render json: { status: "ok", last_seen_at: user.last_seen_at }, status: :ok
       end
 
       # =========================================================
@@ -278,10 +262,18 @@ module Api
           params.dig(:user, :auth0_id)
       end
 
-      def heartbeat_user_id
-        params[:id] ||
-          params[:auth0_id] ||
-          params.dig(:user, :auth0_id)
+      # Finds a user by MongoDB ObjectId OR by auth0_id (e.g. "google-oauth2|...").
+      # Uses BSON::ObjectId.legal? to validate the ID format safely — avoids the
+      # `uninitialized constant BSON::ObjectId::Invalid` crash that occurs when
+      # rescuing from a non-existent exception constant.
+      def find_user_by_id_or_auth0(id_param)
+        if BSON::ObjectId.legal?(id_param)
+          User.find(id_param)
+        else
+          User.find_by(auth0_id: id_param)
+        end
+      rescue Mongoid::Errors::DocumentNotFound
+        nil
       end
 
       def extract_auth0_id_from_token

@@ -3,9 +3,9 @@
 class NotificationService
   OFFLINE_THRESHOLD = 35.seconds
 
-  def initialize(api_key: ENV.fetch("COURIER_API_KEY"))
+  def initialize(api_key: ENV.fetch("COURIER_API_KEY", nil))
     @api_key = api_key
-    @client = Trycourier::Client.new(api_key: @api_key) if @api_key.present?
+    @client = Courier::Client.new(api_key: @api_key) if @api_key.present?
 
     return if @client
 
@@ -66,12 +66,12 @@ class NotificationService
   rescue KeyError => e
     Rails.logger.error("[NotificationService] Config error: #{e.message}")
     nil
-  rescue Trycourier::Errors::APIConnectionError => e
+  rescue Courier::Errors::APIConnectionError => e
     Rails.logger.error(
       "[NotificationService] Courier connection error user=#{recipient&.id}: #{e.message}"
     )
     nil
-  rescue Trycourier::Errors::APIError => e
+  rescue Courier::Errors::APIError => e
     Rails.logger.error(
       "[NotificationService] Courier API error user=#{recipient&.id}: #{e.message}"
     )
