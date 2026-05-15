@@ -22,9 +22,6 @@ module Api
                       update_profile
                     ]
 
-      before_action :load_user_flexibly!,
-                    only: %i[heartbeat]
-
       before_action :load_user_by_path!,
                     only: %i[
                       show_by_path
@@ -82,6 +79,17 @@ module Api
       # response.json() on this endpoint — use a raw fetch or
       # check response.status only.
       def heartbeat
+        raw = heartbeat_user_id
+        @user = find_heartbeat_user(raw)
+
+        unless @user
+          log_warning(
+            "HEARTBEAT USER NOT FOUND",
+            { user_id: raw }
+          )
+          return head :ok
+        end
+
         @user&.touch_last_seen!
         head :ok
       rescue => e
@@ -259,27 +267,6 @@ module Api
         render_error(["User not found"], status: :not_found) unless @user
       end
 
-      def load_user_flexibly!
-        raw = heartbeat_user_id
-
-        @user = User.where(auth0_id: raw).first
-        @user ||= User.find(raw) if bson_object_id?(raw)
-
-        return if @user
-
-        log_warning(
-          "HEARTBEAT USER NOT FOUND",
-          { user_id: raw }
-        )
-      rescue Mongoid::Errors::DocumentNotFound,
-             BSON::Error::InvalidObjectId,
-             BSON::ObjectId::Invalid => e
-        log_warning(
-          "HEARTBEAT USER LOOKUP FAILED",
-          { user_id: raw, error: e.message }
-        )
-      end
-
       # =======================================================
       # HELPERS
       # =======================================================
@@ -292,6 +279,18 @@ module Api
         params[:id] ||
           params[:auth0_id] ||
           params.dig(:user, :auth0_id)
+      end
+
+      def find_heartbeat_user(raw)
+        return nil if raw.blank?
+
+        User.where(id: raw).first ||
+          User.find_by(auth0_id: raw)
+      rescue Mongoid::Errors::InvalidFind,
+             Mongoid::Errors::InvalidQuery,
+             BSON::Error::InvalidObjectId,
+             BSON::ObjectId::Invalid
+        User.find_by(auth0_id: raw)
       end
 
       def extract_auth0_id_from_token

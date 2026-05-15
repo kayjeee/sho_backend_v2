@@ -3,6 +3,14 @@
 class NotificationService
   OFFLINE_THRESHOLD = 30.seconds
 
+  def initialize(api_key: ENV.fetch("COURIER_API_KEY"))
+    @client = Trycourier::Client.new(api_key: api_key)
+  end
+
+  def self.send_message_push(recipient, sender, content)
+    new.send_message_push(recipient, sender, content)
+  end
+
   def self.send_push(recipient, message)
     new.send_push(recipient, message)
   end
@@ -18,23 +26,27 @@ class NotificationService
   end
 
   def send_push_notification(user, message_content)
-    client = Trycourier::Client.new(api_key: courier_api_key)
+    send_message_push(user, nil, message_content)
+  end
 
-    response = client.send_.message(
+  def send_message_push(recipient, sender, content)
+    response = @client.send_.message(
       message: {
         to: {
-          user_id: user.id.to_s
+          user_id: recipient.id.to_s
         },
         template: courier_template_id,
         data: {
-          message_content: message_content.to_s,
-          recipient_name: user.display_name
+          message_content: content.to_s,
+          content: content.to_s,
+          recipient_name: recipient.display_name,
+          sender_name: sender_name(sender)
         }
       }
     )
 
     Rails.logger.info(
-      "[NotificationService] Sent Courier push user=#{user.id} " \
+      "[NotificationService] Sent Courier push user=#{recipient.id} " \
       "courier_request_id=#{response.respond_to?(:request_id) ? response.request_id : response.inspect}"
     )
 
@@ -44,24 +56,28 @@ class NotificationService
     nil
   rescue Trycourier::Errors::APIConnectionError => e
     Rails.logger.error(
-      "[NotificationService] Courier connection error user=#{user.id}: #{e.message}"
+      "[NotificationService] Courier connection error user=#{recipient&.id}: #{e.message}"
     )
     nil
   rescue Trycourier::Errors::APIError => e
     Rails.logger.error(
-      "[NotificationService] Courier API error user=#{user.id}: #{e.message}"
+      "[NotificationService] Courier API error user=#{recipient&.id}: #{e.message}"
     )
     nil
   end
 
   private
 
-  def courier_api_key
-    ENV.fetch("COURIER_API_KEY")
-  end
-
   def courier_template_id
     ENV.fetch("COURIER_TEMPLATE_ID")
+  end
+
+  def sender_name(sender)
+    return "Someone" unless sender
+
+    sender.try(:display_name).presence ||
+      sender.try(:name).presence ||
+      "Someone"
   end
 
   def offline?(recipient)
