@@ -7,11 +7,10 @@ module Api
 
       # ── Audited against actual action methods in this file ──────────────────
       # load_user_by_auth0! guards:  show, schools, onboarding_status,
-      #                              update_profile, heartbeat
+      #                              update_profile
       # load_user_by_path! guards:  show_by_path, schools_by_path
       #
-      # All phantom actions removed (update_roles, add_school,
-      # onboarding_status_by_path) — routed but never implemented here.
+      # heartbeat handles its own user lookup via find_user_by_id_or_auth0.
       # ────────────────────────────────────────────────────────────────────────
 
       before_action :load_user_by_auth0!,
@@ -208,23 +207,21 @@ module Api
             found = User.where(auth0_id: raw).first
 
             # Fallback: raw value looks like a MongoDB ObjectId — try a direct
-            # document lookup. This covers GET /api/v1/users/:mongo_id calls
-            # that still route through this action.
+            # document lookup. Guarded by bson_object_id? so strings like
+            # "google-oauth2|..." never reach the BSON parser.
             if found.nil? && bson_object_id?(raw)
               begin
                 found = User.find(raw)
-              rescue Mongoid::Errors::DocumentNotFound,
-                     BSON::ObjectId::Invalid
+              rescue Mongoid::Errors::DocumentNotFound
                 found = nil
               end
             end
 
             found
-          elsif params[:id].present?
+          elsif params[:id].present? && bson_object_id?(params[:id])
             begin
               User.find(params[:id])
-            rescue Mongoid::Errors::DocumentNotFound,
-                   BSON::ObjectId::Invalid
+            rescue Mongoid::Errors::DocumentNotFound
               nil
             end
           end
@@ -241,12 +238,13 @@ module Api
         # Try auth0_id string first
         @user = User.where(auth0_id: id_param).first
 
-        # Fallback to ObjectId if not found
-        if @user.nil?
+        # Fallback to ObjectId only if the string is a valid BSON ObjectId.
+        # Guarded by bson_object_id? — never attempt User.find with an
+        # auth0_id string like "google-oauth2|..." (avoids BSON parse errors).
+        if @user.nil? && bson_object_id?(id_param)
           begin
             @user = User.find(id_param)
-          rescue Mongoid::Errors::DocumentNotFound,
-                 BSON::ObjectId::Invalid
+          rescue Mongoid::Errors::DocumentNotFound
             @user = nil
           end
         end
@@ -263,9 +261,8 @@ module Api
       end
 
       # Finds a user by MongoDB ObjectId OR by auth0_id (e.g. "google-oauth2|...").
-      # Uses BSON::ObjectId.legal? to validate the ID format safely — avoids the
-      # `uninitialized constant BSON::ObjectId::Invalid` crash that occurs when
-      # rescuing from a non-existent exception constant.
+      # Uses BSON::ObjectId.legal? to validate the ID format safely — avoids any
+      # BSON parse error without rescuing a non-existent exception constant.
       def find_user_by_id_or_auth0(id_param)
         if BSON::ObjectId.legal?(id_param)
           User.find(id_param)
@@ -281,8 +278,9 @@ module Api
         nil
       end
 
-      # Returns true if the string looks like a 24-char hex MongoDB ObjectId.
-      # Used to decide whether to attempt User.find(raw) as a fallback.
+      # Returns true if the string is a valid 24-char hex MongoDB ObjectId.
+      # Used as a guard before any User.find(raw_string) call so that strings
+      # like "google-oauth2|..." never reach the BSON parser.
       def bson_object_id?(str)
         str.to_s.match?(/\A[0-9a-f]{24}\z/i)
       end
