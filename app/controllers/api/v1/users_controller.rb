@@ -80,7 +80,18 @@ module Api
       # check response.status only.
       def heartbeat
         raw = heartbeat_user_id
-        @user = find_heartbeat_user(raw)
+        @user =
+          begin
+            User.or(
+              { auth0_id: raw },
+              { id: raw }
+            ).first
+          rescue Mongoid::Errors::InvalidFind,
+                 Mongoid::Errors::InvalidQuery,
+                 BSON::Error::InvalidObjectId,
+                 BSON::ObjectId::Invalid
+            User.find_by(auth0_id: raw)
+          end
 
         unless @user
           log_warning(
@@ -90,7 +101,7 @@ module Api
           return head :ok
         end
 
-        @user&.touch_last_seen!
+        @user.set(last_seen_at: Time.current)
         head :ok
       rescue => e
         log_error "HEARTBEAT ERROR", {
@@ -279,18 +290,6 @@ module Api
         params[:id] ||
           params[:auth0_id] ||
           params.dig(:user, :auth0_id)
-      end
-
-      def find_heartbeat_user(raw)
-        return nil if raw.blank?
-
-        User.where(id: raw).first ||
-          User.find_by(auth0_id: raw)
-      rescue Mongoid::Errors::InvalidFind,
-             Mongoid::Errors::InvalidQuery,
-             BSON::Error::InvalidObjectId,
-             BSON::ObjectId::Invalid
-        User.find_by(auth0_id: raw)
       end
 
       def extract_auth0_id_from_token

@@ -43,6 +43,7 @@ gem "kamal", require: false
 gem "tzinfo-data", platforms: [:jruby]
 
 group :development, :test do
+  gem "dotenv-rails"
   gem "debug", platforms: %i[mri windows], require: "debug/prelude"
   gem "brakeman", require: false
   gem "rubocop-rails-omakase", require: false

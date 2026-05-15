@@ -3,8 +3,15 @@
 class NotificationService
   OFFLINE_THRESHOLD = 30.seconds
 
-  def initialize(api_key: ENV.fetch("COURIER_API_KEY"))
-    @client = Trycourier::Client.new(api_key: api_key)
+  def initialize(api_key: ENV.fetch("COURIER_API_KEY", nil))
+    @api_key = api_key
+    @client = Trycourier::Client.new(api_key: api_key) if api_key.present?
+
+    return if @client
+
+    Rails.logger.warn(
+      "[NotificationService] COURIER_API_KEY is missing. Push notification skipped."
+    )
   end
 
   def self.send_message_push(recipient, sender, content)
@@ -30,10 +37,12 @@ class NotificationService
   end
 
   def send_message_push(recipient, sender, content)
+    return nil unless courier_configured?
+
     response = @client.send_.message(
       message: {
         to: {
-          user_id: recipient.id.to_s
+          user_id: recipient.auth0_id.to_s
         },
         template: courier_template_id,
         data: {
@@ -69,7 +78,25 @@ class NotificationService
   private
 
   def courier_template_id
-    ENV.fetch("COURIER_TEMPLATE_ID")
+    ENV.fetch("COURIER_TEMPLATE_ID", nil)
+  end
+
+  def courier_configured?
+    if @client.blank?
+      Rails.logger.warn(
+        "[NotificationService] Courier client is not configured. Missing COURIER_API_KEY."
+      )
+      return false
+    end
+
+    if courier_template_id.blank?
+      Rails.logger.warn(
+        "[NotificationService] COURIER_TEMPLATE_ID is missing. Push notification skipped."
+      )
+      return false
+    end
+
+    true
   end
 
   def sender_name(sender)
