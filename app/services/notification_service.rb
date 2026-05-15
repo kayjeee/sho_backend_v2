@@ -1,19 +1,27 @@
 # frozen_string_literal: true
 
+require "httparty"
+
 class NotificationService
+  include HTTParty
+
+  base_uri "https://api.courier.com"
+
   OFFLINE_THRESHOLD = 35.seconds
 
   def initialize(api_key: ENV.fetch("COURIER_API_KEY", nil))
     @api_key = api_key
-    # The Courier SDK v4 uses api_key: in its constructor
-    @client = Courier::Client.new(api_key: @api_key) if @api_key.present?
 
-    return if @client
-
-    Rails.logger.warn(
-      "[NotificationService] COURIER_API_KEY is missing. Push notification skipped."
-    )
+    if @api_key.blank?
+      Rails.logger.warn(
+        "[NotificationService] COURIER_API_KEY missing. Push disabled."
+      )
+    end
   end
+
+  # =========================================================
+  # CLASS METHODS
+  # =========================================================
 
   def self.send_message_push(recipient, sender, content)
     new.send_message_push(recipient, sender, content)
@@ -26,6 +34,10 @@ class NotificationService
   def self.send_push_notification(user, message_content)
     new.send_push_notification(user, message_content)
   end
+
+  # =========================================================
+  # PUBLIC METHODS
+  # =========================================================
 
   def send_push(recipient, message)
     return nil unless offline?(recipient)
@@ -41,67 +53,85 @@ class NotificationService
     return nil unless courier_configured?
     return nil unless offline?(recipient)
 
-    # Using Courier Ruby SDK v4.x syntax
-    # Note: method is send_ because send is reserved in Ruby
-    response = @client.send_.message(
-      message: {
-        to: {
-          user_id: recipient.auth0_id.to_s
-        },
-        template: courier_template_id,
-        data: {
-          message_content: content.to_s,
-          content: content.to_s,
-          recipient_name: recipient.display_name,
-          sender_name: sender_name(sender)
-        }
-      }
+    response = self.class.post(
+      "/send",
+      headers: courier_headers,
+      body: courier_payload(
+        recipient: recipient,
+        sender: sender,
+        content: content
+      ).to_json
     )
 
-    Rails.logger.info(
-      "[NotificationService] Sent Courier push user=#{recipient.id} " \
-      "courier_request_id=#{response.respond_to?(:request_id) ? response.request_id : response.inspect}"
-    )
+    log_response(response, recipient)
 
     response
-  rescue KeyError => e
-    Rails.logger.error("[NotificationService] Config error: #{e.message}")
-    nil
-  rescue Courier::Errors::APIConnectionError => e
+  rescue StandardError => e
     Rails.logger.error(
-      "[NotificationService] Courier connection error user=#{recipient&.id}: #{e.message}"
+      "[NotificationService] Push failed user=#{recipient&.id} " \
+      "error=#{e.class} message=#{e.message}"
     )
-    nil
-  rescue Courier::Errors::APIError => e
-    Rails.logger.error(
-      "[NotificationService] Courier API error user=#{recipient&.id}: #{e.message}"
-    )
+
     nil
   end
 
   private
+
+  # =========================================================
+  # COURIER CONFIG
+  # =========================================================
+
+  def courier_headers
+    {
+      "Authorization" => "Bearer #{@api_key}",
+      "Content-Type" => "application/json"
+    }
+  end
+
+  def courier_payload(recipient:, sender:, content:)
+    {
+      message: {
+        to: {
+          user_id: recipient.auth0_id.to_s
+        },
+
+        template: courier_template_id,
+
+        data: {
+          message_content: content.to_s,
+          content: content.to_s,
+          recipient_name: recipient.try(:display_name),
+          sender_name: sender_name(sender)
+        }
+      }
+    }
+  end
 
   def courier_template_id
     ENV.fetch("COURIER_TEMPLATE_ID", nil)
   end
 
   def courier_configured?
-    if @client.blank?
+    if @api_key.blank?
       Rails.logger.warn(
-        "[NotificationService] Courier client is not configured. Missing COURIER_API_KEY."
+        "[NotificationService] Missing COURIER_API_KEY"
       )
       return false
     end
 
     if courier_template_id.blank?
       Rails.logger.warn(
-        "[NotificationService] COURIER_TEMPLATE_ID is missing. Push notification skipped."
+        "[NotificationService] Missing COURIER_TEMPLATE_ID"
       )
       return false
     end
 
     true
   end
+
+  # =========================================================
+  # HELPERS
+  # =========================================================
 
   def sender_name(sender)
     return "Someone" unless sender
@@ -114,5 +144,19 @@ class NotificationService
   def offline?(recipient)
     recipient.last_seen_at.nil? ||
       recipient.last_seen_at < OFFLINE_THRESHOLD.ago
+  end
+
+  def log_response(response, recipient)
+    if response.success?
+      Rails.logger.info(
+        "[NotificationService] Push sent user=#{recipient.id} " \
+        "response=#{response.body}"
+      )
+    else
+      Rails.logger.error(
+        "[NotificationService] Courier error user=#{recipient.id} " \
+        "status=#{response.code} body=#{response.body}"
+      )
+    end
   end
 end
