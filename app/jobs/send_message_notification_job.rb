@@ -14,7 +14,7 @@
 class SendMessageNotificationJob < ApplicationJob
   queue_as :notifications
 
-  OFFLINE_THRESHOLD = 30.seconds
+  OFFLINE_THRESHOLD = 35.seconds
 
   # Retry up to 3 times with exponential back-off before discarding.
   # This protects against transient Courier outages without flooding
@@ -44,8 +44,9 @@ class SendMessageNotificationJob < ApplicationJob
     recipients_for(message).each do |recipient|
       next unless offline?(recipient)
 
-      NotificationService.send_push(
+      NotificationService.new.send_message_push(
         recipient,
+        sender_for(message),
         message_content(message)
       )
     end
@@ -67,6 +68,11 @@ class SendMessageNotificationJob < ApplicationJob
   def offline?(recipient)
     recipient.last_seen_at.nil? ||
       recipient.last_seen_at < OFFLINE_THRESHOLD.ago
+  end
+
+  def sender_for(message)
+    message.sender ||
+      User.find_by(id: message.sender_id)
   end
 
   def message_content(message)
