@@ -10,12 +10,14 @@ gem "importmap-rails"
 gem "turbo-rails"
 gem "stimulus-rails"
 gem "jbuilder"
-
+gem "courier-ruby"
 # API & CORS
 gem "rack-cors"
 
+
 # Database
 gem "mongoid"
+
 
 # Authentication & Security
 gem "jwt"
