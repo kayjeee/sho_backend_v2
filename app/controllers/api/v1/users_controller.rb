@@ -7,10 +7,11 @@ module Api
 
       # ── Audited against actual action methods in this file ──────────────────
       # load_user_by_auth0! guards:  show, schools, onboarding_status,
-      #                              update_profile
+      #                              update_profile, heartbeat
       # load_user_by_path! guards:  show_by_path, schools_by_path
       #
-      # heartbeat handles its own user lookup via find_user_by_id_or_auth0.
+      # All phantom actions removed (update_roles, add_school,
+      # onboarding_status_by_path) — routed but never implemented here.
       # ────────────────────────────────────────────────────────────────────────
 
       before_action :load_user_by_auth0!,
@@ -75,15 +76,21 @@ module Api
       # PATCH/PUT /api/v1/users/:id/heartbeat
       # =========================================================
       def heartbeat
-        user = find_user_by_id_or_auth0(params[:id])
+        @user = User.find_by(auth0_id: params[:id]) ||
+                (User.find(params[:id]) if BSON::ObjectId.legal?(params[:id]))
 
-        unless user
+        unless @user
           return render json: { error: "User not found" }, status: :not_found
         end
 
-        user.update!(last_seen_at: Time.current)
+        @user.touch(:last_seen_at)
 
-        render json: { status: "ok", last_seen_at: user.last_seen_at }, status: :ok
+        render json: {
+          status: "ok",
+          last_seen_at: @user.last_seen_at
+        }, status: :ok
+      rescue Mongoid::Errors::DocumentNotFound
+        render json: { error: "User not found" }, status: :not_found
       end
 
       # =========================================================
@@ -207,21 +214,23 @@ module Api
             found = User.where(auth0_id: raw).first
 
             # Fallback: raw value looks like a MongoDB ObjectId — try a direct
-            # document lookup. Guarded by bson_object_id? so strings like
-            # "google-oauth2|..." never reach the BSON parser.
+            # document lookup. This covers GET /api/v1/users/:mongo_id calls
+            # that still route through this action.
             if found.nil? && bson_object_id?(raw)
               begin
                 found = User.find(raw)
-              rescue Mongoid::Errors::DocumentNotFound
+              rescue Mongoid::Errors::DocumentNotFound,
+                     BSON::ObjectId::Invalid
                 found = nil
               end
             end
 
             found
-          elsif params[:id].present? && bson_object_id?(params[:id])
+          elsif params[:id].present?
             begin
               User.find(params[:id])
-            rescue Mongoid::Errors::DocumentNotFound
+            rescue Mongoid::Errors::DocumentNotFound,
+                   BSON::ObjectId::Invalid
               nil
             end
           end
@@ -238,13 +247,12 @@ module Api
         # Try auth0_id string first
         @user = User.where(auth0_id: id_param).first
 
-        # Fallback to ObjectId only if the string is a valid BSON ObjectId.
-        # Guarded by bson_object_id? — never attempt User.find with an
-        # auth0_id string like "google-oauth2|..." (avoids BSON parse errors).
-        if @user.nil? && bson_object_id?(id_param)
+        # Fallback to ObjectId if not found
+        if @user.nil?
           begin
             @user = User.find(id_param)
-          rescue Mongoid::Errors::DocumentNotFound
+          rescue Mongoid::Errors::DocumentNotFound,
+                 BSON::ObjectId::Invalid
             @user = nil
           end
         end
@@ -260,27 +268,14 @@ module Api
           params.dig(:user, :auth0_id)
       end
 
-      # Finds a user by MongoDB ObjectId OR by auth0_id (e.g. "google-oauth2|...").
-      # Uses BSON::ObjectId.legal? to validate the ID format safely — avoids any
-      # BSON parse error without rescuing a non-existent exception constant.
-      def find_user_by_id_or_auth0(id_param)
-        if BSON::ObjectId.legal?(id_param)
-          User.find(id_param)
-        else
-          User.find_by(auth0_id: id_param)
-        end
-      rescue Mongoid::Errors::DocumentNotFound
-        nil
-      end
 
       def extract_auth0_id_from_token
         # Extend when token-based auth0_id extraction is needed
         nil
       end
 
-      # Returns true if the string is a valid 24-char hex MongoDB ObjectId.
-      # Used as a guard before any User.find(raw_string) call so that strings
-      # like "google-oauth2|..." never reach the BSON parser.
+      # Returns true if the string looks like a 24-char hex MongoDB ObjectId.
+      # Used to decide whether to attempt User.find(raw) as a fallback.
       def bson_object_id?(str)
         str.to_s.match?(/\A[0-9a-f]{24}\z/i)
       end

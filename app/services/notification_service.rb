@@ -5,6 +5,7 @@ class NotificationService
 
   def initialize(api_key: ENV.fetch("COURIER_API_KEY", nil))
     @api_key = api_key
+    # The Courier SDK v4 uses api_key: in its constructor
     @client = Courier::Client.new(api_key: @api_key) if @api_key.present?
 
     return if @client
