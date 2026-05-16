@@ -3,8 +3,8 @@ class PayfastService
   class << self
     def generate_payment_url(transaction)
       # PayFast API credentials
-      merchant_id = Rails.application.credentials.payfast[:merchant_id] || ENV['PAYFAST_MERCHANT_ID']
-      merchant_key = Rails.application.credentials.payfast[:merchant_key] || ENV['PAYFAST_MERCHANT_KEY']
+      merchant_id = ENV['PAYFAST_MERCHANT_ID'] || Rails.application.credentials.dig(:payfast, :merchant_id)
+      merchant_key = ENV['PAYFAST_MERCHANT_KEY'] || Rails.application.credentials.dig(:payfast, :merchant_key)
       
       # Base URL (sandbox for development)
       base_url = Rails.env.production? ? 
@@ -53,7 +53,7 @@ class PayfastService
       pf_param_string = sorted_data.map { |key, value| "#{key}=#{CGI.escape(value.to_s).gsub('+', '%20')}" }.join('&')
       
       # Add passphrase if present
-      passphrase = Rails.application.credentials.payfast[:passphrase] || ENV['PAYFAST_PASSPHRASE']
+      passphrase = ENV['PAYFAST_PASSPHRASE'] || Rails.application.credentials.dig(:payfast, :passphrase)
       pf_param_string += "&passphrase=#{CGI.escape(passphrase)}" if passphrase.present?
       
       # Generate MD5 hash

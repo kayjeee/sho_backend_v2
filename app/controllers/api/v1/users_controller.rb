@@ -73,42 +73,24 @@ module Api
       end
 
       # =========================================================
-      # POST /api/v1/users/:auth0_id/heartbeat
+      # PATCH/PUT /api/v1/users/:id/heartbeat
       # =========================================================
-      # Returns head :ok (no body). The frontend must NOT call
-      # response.json() on this endpoint — use a raw fetch or
-      # check response.status only.
       def heartbeat
-        raw = heartbeat_user_id
-        @user =
-          begin
-            User.or(
-              { auth0_id: raw },
-              { id: raw }
-            ).first
-          rescue Mongoid::Errors::InvalidFind,
-                 Mongoid::Errors::InvalidQuery,
-                 BSON::Error::InvalidObjectId,
-                 BSON::ObjectId::Invalid
-            User.find_by(auth0_id: raw)
-          end
+        @user = User.find_by(auth0_id: params[:id]) ||
+                (User.find(params[:id]) if BSON::ObjectId.legal?(params[:id]))
 
         unless @user
-          log_warning(
-            "HEARTBEAT USER NOT FOUND",
-            { user_id: raw }
-          )
-          return head :ok
+          return render json: { error: "User not found" }, status: :not_found
         end
 
-        @user.set(last_seen_at: Time.current)
-        head :ok
-      rescue => e
-        log_error "HEARTBEAT ERROR", {
-          error:    e.message,
-          user_id: heartbeat_user_id
-        }
-        head :ok # always 200 — heartbeat must never surface errors
+        @user.touch(:last_seen_at)
+
+        render json: {
+          status: "ok",
+          last_seen_at: @user.last_seen_at
+        }, status: :ok
+      rescue Mongoid::Errors::DocumentNotFound
+        render json: { error: "User not found" }, status: :not_found
       end
 
       # =========================================================
@@ -286,11 +268,6 @@ module Api
           params.dig(:user, :auth0_id)
       end
 
-      def heartbeat_user_id
-        params[:id] ||
-          params[:auth0_id] ||
-          params.dig(:user, :auth0_id)
-      end
 
       def extract_auth0_id_from_token
         # Extend when token-based auth0_id extraction is needed
