@@ -17,7 +17,7 @@ module Api
 
         # Pre-fetch all participants to avoid N+1 queries during serialization
         all_participant_ids = conversations.pluck(:participant_ids).flatten.uniq
-        @prefetched_users = User.in(id: all_participant_ids).index_by { |u| u.id.to_s }
+        @prefetched_users = User.in(id: bson_ids(all_participant_ids)).index_by { |u| u.id.to_s }
 
         render json: {
           success: true,
@@ -47,7 +47,7 @@ module Api
         end
 
         # ── Guard 2: all requested participants must actually exist ──────────
-        target_users = User.where(:id.in => p_ids)
+        target_users = User.where(:id.in => bson_ids(p_ids))
         if target_users.count != p_ids.uniq.size
           missing = p_ids.uniq - target_users.map { |u| u.id.to_s }
           return render json: {
@@ -143,7 +143,7 @@ module Api
       def participants
         if request.get?
           p_ids        = (@conversation.participant_ids || []).map(&:to_s)
-          users        = User.in(id: p_ids)
+          users        = User.in(id: bson_ids(p_ids))
           participants = users.map { |u| serialize_participant(u) }
           return render json: { success: true, data: participants }, status: :ok
         end
@@ -173,6 +173,14 @@ module Api
       end
 
       private
+
+      def bson_ids(ids)
+        Array(ids).map do |id|
+          BSON::ObjectId.from_string(id.to_s)
+        rescue BSON::ObjectId::Invalid
+          nil
+        end.compact
+      end
 
       def set_conversation
         @conversation = Conversation.any_of(
@@ -209,7 +217,7 @@ module Api
             .compact
             .map { |u| serialize_participant(u) }
         else
-          users        = User.in(id: participant_ids)
+          users        = User.in(id: bson_ids(participant_ids))
           participants = users.map { |u| serialize_participant(u) }
         end
 
