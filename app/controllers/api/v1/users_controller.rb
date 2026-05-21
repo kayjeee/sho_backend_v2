@@ -5,13 +5,11 @@ module Api
     class UsersController < ApplicationController
       wrap_parameters format: [:json]
 
-      # ── Audited against actual action methods in this file ──────────────────
-      # load_user_by_auth0! guards:  show, schools, onboarding_status,
-      #                              update_profile, heartbeat
-      # load_user_by_path! guards:  show_by_path, schools_by_path
-      #
-      # All phantom actions removed (update_roles, add_school,
-      # onboarding_status_by_path) — routed but never implemented here.
+      # ── before_action guard map ──────────────────────────────────────────────
+      # load_user_by_auth0!  →  show, schools, onboarding_status,
+      #                         update_profile
+      # load_user_by_path!   →  show_by_path, schools_by_path
+      # heartbeat loads its own user (supports both auth0_id and ObjectId)
       # ────────────────────────────────────────────────────────────────────────
 
       before_action :load_user_by_auth0!,
@@ -42,9 +40,7 @@ module Api
 
         if result.success?
           render_success(
-            message: result.new_record ?
-              "User created successfully" :
-              "User already exists",
+            message: result.new_record ? "User created successfully" : "User already exists",
             data: {
               user:       result.user,
               new_record: result.new_record
@@ -76,8 +72,9 @@ module Api
       # PATCH/PUT /api/v1/users/:id/heartbeat
       # =========================================================
       def heartbeat
-        @user = User.find_by(auth0_id: params[:id]) ||
-                (User.find(params[:id]) if BSON::ObjectId.legal?(params[:id]))
+        @user =
+          User.find_by(auth0_id: params[:id]) ||
+          (User.find(params[:id]) if BSON::ObjectId.legal?(params[:id]))
 
         unless @user
           return render json: { error: "User not found" }, status: :not_found
@@ -86,7 +83,7 @@ module Api
         @user.touch(:last_seen_at)
 
         render json: {
-          status: "ok",
+          status:       "ok",
           last_seen_at: @user.last_seen_at
         }, status: :ok
       rescue Mongoid::Errors::DocumentNotFound
@@ -147,6 +144,7 @@ module Api
           "/api/v1/users/:auth0_id/schools",
           params[:auth0_id]
         )
+
         fetch_schools_for(
           @user,
           deprecated_url: "/api/v1/users/schools?auth0_id=xxx"
@@ -161,7 +159,7 @@ module Api
 
         data =
           if status
-            payload = status.to_api_hash
+            payload           = status.to_api_hash
             payload[:completed] = status.all_steps_completed?
             payload
           else
@@ -201,21 +199,15 @@ module Api
 
       # Resolves @user from:
       #   1. auth0_id param matching User#auth0_id  (e.g. "google-oauth2|123")
-      #   2. auth0_id param that is actually a BSON ObjectId (e.g. "69c113...")
-      #      — happens when the frontend passes the DB id via the :auth0_id
-      #      route segment (deprecated but still in use on some pages)
+      #   2. auth0_id param that is a BSON ObjectId  (deprecated frontend calls)
       #   3. params[:id] as a BSON ObjectId fallback
       def load_user_by_auth0!
         raw = extract_auth0_id
 
         @user =
           if raw.present?
-            # Primary: treat as an Auth0 ID string
             found = User.where(auth0_id: raw).first
 
-            # Fallback: raw value looks like a MongoDB ObjectId — try a direct
-            # document lookup. This covers GET /api/v1/users/:mongo_id calls
-            # that still route through this action.
             if found.nil? && bson_object_id?(raw)
               begin
                 found = User.find(raw)
@@ -244,11 +236,9 @@ module Api
       def load_user_by_path!
         id_param = params[:auth0_id]
 
-        # Try auth0_id string first
         @user = User.where(auth0_id: id_param).first
 
-        # Fallback to ObjectId if not found
-        if @user.nil?
+        if @user.nil? && bson_object_id?(id_param)
           begin
             @user = User.find(id_param)
           rescue Mongoid::Errors::DocumentNotFound,
@@ -261,21 +251,62 @@ module Api
       end
 
       # =======================================================
+      # SCHOOLS
+      # =======================================================
+
+      # Shared implementation used by both #schools and #schools_by_path.
+      #
+      # Looks up every School whose _id appears in user.school_ids,
+      # serializes each one, and renders a success response.
+      # Pass deprecated_url: to append the _deprecated migration hint.
+      def fetch_schools_for(user, deprecated_url: nil)
+        raw_ids = Array(user.try(:school_ids)).map do |id|
+          BSON::ObjectId.from_string(id.to_s)
+        rescue BSON::Error::InvalidObjectId
+          nil
+        end.compact
+
+        schools = raw_ids.any? ? School.in(id: raw_ids) : School.none
+
+        data = {
+          schools: schools.map { |s| serialize_school(s) }
+        }
+
+        data[:_deprecated] = deprecated_payload(deprecated_url) if deprecated_url.present?
+
+        render_success(
+          message: "Schools retrieved successfully",
+          data:    data
+        )
+      end
+
+      def serialize_school(school)
+        {
+          id:         school.id.to_s,
+          name:       school.try(:name),
+          email:      school.try(:email),
+          phone:      school.try(:phone),
+          address:    school.try(:address),
+          created_at: school.created_at,
+          updated_at: school.updated_at
+        }.compact
+      end
+
+      # =======================================================
       # HELPERS
       # =======================================================
+
       def extract_auth0_id
         params[:auth0_id] ||
           params.dig(:user, :auth0_id)
       end
 
-
       def extract_auth0_id_from_token
-        # Extend when token-based auth0_id extraction is needed
+        # Extend when JWT-based auth0_id extraction is needed
         nil
       end
 
-      # Returns true if the string looks like a 24-char hex MongoDB ObjectId.
-      # Used to decide whether to attempt User.find(raw) as a fallback.
+      # Returns true when the string is a valid 24-char hex MongoDB ObjectId.
       def bson_object_id?(str)
         str.to_s.match?(/\A[0-9a-f]{24}\z/i)
       end
@@ -287,6 +318,7 @@ module Api
       # =======================================================
       # STRONG PARAMETERS
       # =======================================================
+
       def user_params
         params.require(:user).permit(
           :auth0_id,
@@ -317,19 +349,20 @@ module Api
       # =======================================================
       # SERIALIZATION
       # =======================================================
+
       def serialize_user(user)
         {
           id:           user.id.to_s,
           auth0_id:     user.auth0_id,
           name:         user.name,
           email:        user.email,
-          phone:        user.phone,
-          phone_number: user.phone_number,
+          phone:        user.try(:phone),
+          phone_number: user.try(:phone_number),
           avatar_url:   user.try(:avatar_url),
           bio:          user.try(:bio),
           timezone:     user.try(:timezone),
           locale:       user.try(:locale),
-          roles:        user.roles,
+          roles:        user.try(:roles),
           created_at:   user.created_at,
           updated_at:   user.updated_at
         }.compact
@@ -338,12 +371,13 @@ module Api
       # =======================================================
       # LOGGING
       # =======================================================
+
       def log_debug(action, data = {})
         Rails.logger.debug "[Users] #{action}: #{data.inspect}"
       end
 
       def log_warning(action, data = {})
-        Rails.logger.warn "⚠️ [Users] #{action}: #{data.inspect}"
+        Rails.logger.warn "⚠️  [Users] #{action}: #{data.inspect}"
       end
 
       def log_error(action, data = {})
