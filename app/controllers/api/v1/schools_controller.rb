@@ -204,8 +204,23 @@ module Api
       # =========================
       def directory
         admins = fetch_users_by_role('admin')
-        teachers = Teacher.where(school_id: @school.id).map do |t|
-          t.to_api_hash.merge(user_id: t.user_id&.to_s)
+
+        all_teachers = Teacher.where(school_id: @school.id)
+        teacher_user_ids = all_teachers.pluck(:user_id).compact
+        teacher_auth0_ids = all_teachers.pluck(:auth0_id).compact
+
+        users_by_id = User.in(id: teacher_user_ids).index_by { |u| u.id.to_s }
+        users_by_auth0 = User.in(auth0_id: teacher_auth0_ids).index_by { |u| u.auth0_id.to_s }
+
+        teachers = all_teachers.map do |t|
+          hash = t.to_api_hash
+          linked_user = users_by_id[t.user_id.to_s] || users_by_auth0[t.auth0_id.to_s]
+
+          hash.merge(
+            user_id:     linked_user&.id&.to_s,
+            user_name:   linked_user&.name,
+            messageable: linked_user.present?
+          )
         end
         parents = fetch_users_by_role('parent')
 

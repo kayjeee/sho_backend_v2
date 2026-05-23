@@ -23,7 +23,7 @@ class SendMessageNotificationJob < ApplicationJob
 
     recipients_for(message).each do |recipient|
       next unless offline?(recipient)
-      NotificationService.send_message_push(recipient, sender_for(message), message_content(message))
+      NotificationService.new.send_message_push(recipient, sender_for(message), message_content(message))
     end
   rescue StandardError => e
     Rails.logger.error("[SendMessageNotificationJob] Delivery failed for message #{message_id}: #{e.message}")

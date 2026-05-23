@@ -46,15 +46,34 @@ module Api
           }, status: :bad_request
         end
 
-        # ── Guard 2: all requested participants must actually exist ──────────
-        target_users = User.where(:id.in => bson_ids(p_ids))
-        if target_users.count != p_ids.uniq.size
-          missing = p_ids.uniq - target_users.map { |u| u.id.to_s }
+        # ── Guard 2: resolve participant IDs ── accept both User IDs and Teacher IDs
+        resolved_p_ids = p_ids.uniq.map do |pid|
+          # Direct User ID match check
+          user = User.find_by(id: pid) rescue nil
+          next user.id.to_s if user
+
+          # Fallback: Parse as a Teacher record identification token
+          teacher = Teacher.find_by(id: pid) rescue nil
+          if teacher
+            linked = User.find_by(id: teacher.user_id) ||
+                     User.find_by(auth0_id: teacher.auth0_id)
+            next linked.id.to_s if linked
+          end
+          nil
+        end.compact
+
+        if resolved_p_ids.size != p_ids.uniq.size
+          missing = p_ids.uniq - resolved_p_ids
           return render json: {
             success: false,
             error:   "Participant(s) not found: #{missing.join(', ')}"
           }, status: :unprocessable_entity
         end
+
+        p_ids = resolved_p_ids
+
+        # Subsequent actions map against the normalized p_ids vector
+        target_users = User.where(:id.in => bson_ids(p_ids))
 
         # ── Guard 3: self-messaging detection ────────────────────────────────
         other_ids    = p_ids.map(&:to_s).reject { |id| id == @current_user.id.to_s }
