@@ -398,6 +398,10 @@ Rails.application.routes.draw do
       # =========================================================
       resources :conversations,
                 only: %i[index show create destroy] do
+        collection do
+          post :group_initiation
+        end
+
         member do
           put  :read
           post :typing
