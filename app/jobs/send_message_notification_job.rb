@@ -16,40 +16,17 @@ class SendMessageNotificationJob < ApplicationJob
 
   OFFLINE_THRESHOLD = 35.seconds
 
-  # Retry up to 3 times with exponential back-off before discarding.
-  # This protects against transient Courier outages without flooding
-  # the queue on a permanent failure (e.g. bad template ID).
-  retry_on Trycourier::Errors::APIConnectionError,
-           wait:     :polynomially_longer,
-           attempts: 3
-
-  discard_on Trycourier::Errors::APIError do |job, error|
-    Rails.logger.error(
-      "[SendMessageNotificationJob] Discarding job #{job.job_id} " \
-      "after unrecoverable Courier API error: #{error.message}"
-    )
-  end
-
   def perform(message_id)
     message = Message.find_by(id: message_id)
 
-    unless message
-      Rails.logger.warn(
-        "[SendMessageNotificationJob] Message #{message_id} not found — " \
-        "it may have been deleted before the job ran. Skipping."
-      )
-      return
-    end
+    return unless message
 
     recipients_for(message).each do |recipient|
       next unless offline?(recipient)
-
-      NotificationService.new.send_message_push(
-        recipient,
-        sender_for(message),
-        message_content(message)
-      )
+      NotificationService.new.send_message_push(recipient, sender_for(message), message_content(message))
     end
+  rescue StandardError => e
+    Rails.logger.error("[SendMessageNotificationJob] Delivery failed for message #{message_id}: #{e.message}")
   end
 
   private

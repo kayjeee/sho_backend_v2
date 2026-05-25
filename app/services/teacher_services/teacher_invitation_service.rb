@@ -27,13 +27,14 @@ module TeacherServices
         teacher.update!(
           user_id: user.id,
           auth0_id: user.auth0_id,
+          name: user.name.presence || user.display_name.presence || invitation.try(:teacher_name) || "Unknown Teacher",
           status: 'active'
         )
       else
         # Fallback to create if not found
         teacher = Teacher.find_or_create_by!(auth0_id: user.auth0_id, school_id: invitation.school_id) do |t|
           t.user_id = user.id
-          t.name = invitation.respond_to?(:teacher_name) ? invitation.teacher_name : user.name
+          t.name = user.name.presence || user.display_name.presence || invitation.try(:teacher_name) || "Unknown Teacher"
           t.email = user.email || "#{invitation.recipient_phone_number}@placeholder.com"
           t.status = 'active'
           t.recipient_phone_number = invitation.recipient_phone_number
