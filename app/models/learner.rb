@@ -381,7 +381,7 @@ class Learner
       BSON::ObjectId.from_string(id_string.to_s.strip)
     end
 
-  rescue BSON::ObjectId::Invalid => e
+  rescue BSON::Error::InvalidObjectId => e
     Rails.logger.error(
       "❌ Learner#parse_bson_id: Invalid BSON ID '#{id_string}'. Error: #{e.message}"
     )

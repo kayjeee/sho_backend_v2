@@ -214,7 +214,7 @@ class User
       school_bson_id = BSON::ObjectId.from_string(
         school_id_string.to_s.strip
       )
-    rescue BSON::ObjectId::Invalid
+    rescue BSON::Error::InvalidObjectId
       Rails.logger.error "❌ Invalid BSON::ObjectId: #{school_id_string}"
       errors.add(:schools, 'Invalid school ID format.')
       return false
@@ -251,7 +251,7 @@ class User
       school_bson_id = BSON::ObjectId.from_string(
         school_id_string.to_s.strip
       )
-    rescue BSON::ObjectId::Invalid
+    rescue BSON::Error::InvalidObjectId
       Rails.logger.error "❌ Invalid BSON::ObjectId: #{school_id_string}"
       errors.add(:schools, 'Invalid school ID format.')
       return false

@@ -282,7 +282,7 @@ def set_grade
   @grade = Grade.find(grade_id)
 rescue Mongoid::Errors::DocumentNotFound
   render_error('Grade not found', [], status: :not_found)
-rescue BSON::ObjectId::Invalid
+rescue BSON::Error::InvalidObjectId
   render_error('Invalid Grade ID format', [], status: :bad_request)
 end
 

@@ -331,17 +331,27 @@ module Api
 
       def convert_theme_to_string(theme_data)
         return "" if theme_data.blank?
-        theme_hash = if theme_data.is_a?(Hash)
-          {
-            "mode" => theme_data[:mode] || theme_data["mode"] || "",
-            "value" => theme_data[:value] || theme_data["value"] || ""
-          }
-        elsif theme_data.is_a?(String)
-          { "mode" => theme_data, "value" => "" }
-        else
-          {}
+
+        if theme_data.is_a?(String)
+          begin
+            JSON.parse(theme_data)
+            return theme_data
+          rescue JSON::ParserError
+            return JSON.generate({ "mode" => theme_data, "value" => "" })
+          end
         end
-        theme_hash.inspect
+
+        theme_hash = {
+          "mode" => theme_data[:mode] || theme_data["mode"] || "",
+          "value" => theme_data[:value] || theme_data["value"] || "",
+          "primary_color" => theme_data[:primary_color] || theme_data["primary_color"],
+          "secondary_color" => theme_data[:secondary_color] || theme_data["secondary_color"],
+          "border_radius" => theme_data[:border_radius] || theme_data["border_radius"],
+          "border_weight" => theme_data[:border_weight] || theme_data["border_weight"],
+          "border_color" => theme_data[:border_color] || theme_data["border_color"]
+        }.compact
+
+        JSON.generate(theme_hash)
       rescue => e
         Rails.logger.warn "Failed to convert theme: #{e.message}"
         ""
@@ -363,7 +373,15 @@ module Api
           :latitude, :longitude, :facebook, :linkedin, :tiktok,
           :website, :logo, :status, :line1, :line2, :postalCode,
           :user_id, :user_email, :school_created_by,
-          theme: [:mode, :value],
+          theme: [
+            :mode,
+            :value,
+            :primary_color,
+            :secondary_color,
+            :border_radius,
+            :border_weight,
+            :border_color
+          ],
           adminUsers: [:id, :name, :email, :role, :addedAt],
           invites: [:id, :email, :role, :status, :invitedAt]
         )

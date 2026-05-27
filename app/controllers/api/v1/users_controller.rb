@@ -212,7 +212,7 @@ module Api
               begin
                 found = User.find(raw)
               rescue Mongoid::Errors::DocumentNotFound,
-                     BSON::ObjectId::Invalid
+                     BSON::Error::InvalidObjectId
                 found = nil
               end
             end
@@ -222,7 +222,7 @@ module Api
             begin
               User.find(params[:id])
             rescue Mongoid::Errors::DocumentNotFound,
-                   BSON::ObjectId::Invalid
+                   BSON::Error::InvalidObjectId
               nil
             end
           end
@@ -242,7 +242,7 @@ module Api
           begin
             @user = User.find(id_param)
           rescue Mongoid::Errors::DocumentNotFound,
-                 BSON::ObjectId::Invalid
+                 BSON::Error::InvalidObjectId
             @user = nil
           end
         end
@@ -287,6 +287,7 @@ module Api
           email:      school.try(:email),
           phone:      school.try(:phone),
           address:    school.try(:address),
+          resolved_theme: school.resolved_theme,
           created_at: school.created_at,
           updated_at: school.updated_at
         }.compact

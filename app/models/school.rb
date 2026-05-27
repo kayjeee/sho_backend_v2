@@ -68,6 +68,35 @@ class School
     grades.order(created_at: :desc)
   end
 
+  def resolved_theme
+    @resolved_theme ||= begin
+      parsed =
+        if theme.is_a?(Hash)
+          theme
+        else
+          JSON.parse(theme.presence || '{}')
+        end
+
+      parsed = {} unless parsed.is_a?(Hash)
+
+      {
+        primary_color: parsed['primary_color'].presence || '#4F46E5',
+        secondary_color: parsed['secondary_color'].presence || '#10B981',
+        border_radius: parsed['border_radius'].presence || '0.5rem',
+        border_weight: parsed['border_weight'].presence || '1px',
+        border_color: parsed['border_color'].presence || '#E5E7EB'
+      }
+    rescue JSON::ParserError, TypeError
+      {
+        primary_color: '#4F46E5',
+        secondary_color: '#10B981',
+        border_radius: '0.5rem',
+        border_weight: '1px',
+        border_color: '#E5E7EB'
+      }
+    end
+  end
+
   # Serialization for API
   def to_api_hash(include_stats: false)
     hash = {
@@ -83,6 +112,7 @@ class School
       postalCode: postalCode,
       logo: logo,
       theme: theme,
+      resolved_theme: resolved_theme,
       status: status,
       user_id: user_id,
       user_email: user_email,
