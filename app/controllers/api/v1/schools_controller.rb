@@ -1,8 +1,8 @@
 module Api
   module V1
     class SchoolsController < ApplicationController
-      before_action :authorize, only: [:create, :update, :destroy, :directory]
-      before_action :set_school, only: [:show, :update, :destroy, :admins, :teachers, :parents, :show_teacher, :directory]
+      before_action :authorize, only: [:create, :update, :destroy, :directory, :dashboard_shell]
+      before_action :set_school, only: [:show, :update, :destroy, :admins, :teachers, :parents, :show_teacher, :directory, :dashboard_shell]
 
       # =========================
       # GET /api/v1/schools
@@ -231,6 +231,15 @@ module Api
         })
       rescue => e
         handle_exception(e, "Failed to fetch school directory")
+      end
+
+      # =========================
+      # GET /api/v1/schools/:id/dashboard_shell
+      # =========================
+      def dashboard_shell
+        render_success(data: DashboardShellSerializer.new(@school, current_user).as_json)
+      rescue => e
+        handle_exception(e, "Failed to fetch dashboard shell")
       end
 
       # =========================

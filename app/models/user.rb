@@ -416,6 +416,22 @@ class User
     roles.include?(role.to_s)
   end
 
+  def resolved_active_roles_for_school(school)
+    active_roles =
+      Array(roles)
+      .map { |role| role.to_s.downcase.strip }
+      .reject(&:blank?)
+
+    admin_metadata = school&.admin_user_for_email(email)
+    admin_role = admin_metadata&.fetch('role', nil) || admin_metadata&.fetch(:role, nil)
+
+    if admin_role.to_s.casecmp('Administrator').zero?
+      active_roles << 'administrator'
+    end
+
+    active_roles.uniq
+  end
+
   def add_role(role)
     return if has_role?(role)
 

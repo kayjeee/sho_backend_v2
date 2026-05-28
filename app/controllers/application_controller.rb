@@ -24,6 +24,17 @@ class ApplicationController < ActionController::API
     }, status: :ok
   end
 
+  rescue_from BSON::Error::InvalidObjectId do |exception|
+    Rails.logger.warn("Invalid BSON ObjectId parameter: #{exception.message}")
+
+    render json: {
+      success: false,
+      status: 'error',
+      message: 'Invalid ID parameter',
+      errors: ['One or more request identifiers are malformed']
+    }, status: :bad_request
+  end
+
   # Rescue from standard errors to avoid 500 crashes in production
   rescue_from StandardError do |exception|
     Rails.logger.error("🔥 API Error: #{exception.message}\n#{exception.backtrace.take(5).join("\n")}")

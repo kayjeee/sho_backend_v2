@@ -168,6 +168,7 @@ Rails.application.routes.draw do
           get :teachers
           get :parents
           get :directory
+          get :dashboard_shell
 
           get "teachers/:teacher_id",
               to: "schools#show_teacher"

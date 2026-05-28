@@ -70,31 +70,36 @@ class School
 
   def resolved_theme
     @resolved_theme ||= begin
-      parsed =
-        if theme.is_a?(Hash)
-          theme
-        else
-          JSON.parse(theme.presence || '{}')
-        end
-
-      parsed = {} unless parsed.is_a?(Hash)
+      parsed = parse_theme_payload
 
       {
-        primary_color: parsed['primary_color'].presence || '#4F46E5',
-        secondary_color: parsed['secondary_color'].presence || '#10B981',
-        border_radius: parsed['border_radius'].presence || '0.5rem',
-        border_weight: parsed['border_weight'].presence || '1px',
-        border_color: parsed['border_color'].presence || '#E5E7EB'
+        mode: parsed['mode'].presence || 'green',
+        primary_color: parsed['value'].presence || parsed['primary_color'].presence || '#059669',
+        border_radius: parsed['border_radius'].presence || '0.5rem'
       }
-    rescue JSON::ParserError, TypeError
+    rescue JSON::ParserError, TypeError => e
+      Rails.logger.warn "Failed to resolve school theme for #{id}: #{e.message}"
+
       {
-        primary_color: '#4F46E5',
-        secondary_color: '#10B981',
-        border_radius: '0.5rem',
-        border_weight: '1px',
-        border_color: '#E5E7EB'
+        mode: 'green',
+        primary_color: '#059669',
+        border_radius: '0.5rem'
       }
     end
+  end
+
+  def admin_user_for_email(email)
+    normalized_email = email.to_s.downcase.strip
+    return nil if normalized_email.blank?
+
+    Array(adminUsers).find do |admin|
+      admin_email = admin['email'] || admin[:email]
+      admin_email.to_s.downcase.strip == normalized_email
+    end
+  end
+
+  def dashboard_location
+    [line1, line2, city].compact.reject(&:blank?).join(', ').presence
   end
 
   # Serialization for API
@@ -135,5 +140,22 @@ class School
 
   def generate_slug
     self.slug = schoolName.parameterize if schoolName.present?
+  end
+
+  def parse_theme_payload
+    parsed =
+      if theme.is_a?(Hash)
+        theme
+      else
+        raw_theme = theme.to_s.strip
+        return {} if raw_theme.blank?
+
+        JSON.parse(raw_theme)
+      end
+
+    parsed.is_a?(Hash) ? parsed.transform_keys(&:to_s) : {}
+  rescue JSON::ParserError
+    parsed = JSON.parse(raw_theme.gsub('=>', ':'))
+    parsed.is_a?(Hash) ? parsed.transform_keys(&:to_s) : {}
   end
 end
