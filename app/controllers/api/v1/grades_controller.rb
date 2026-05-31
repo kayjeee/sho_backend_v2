@@ -5,8 +5,10 @@ module Api
       before_action :set_school, only: [:index, :create]
       before_action :set_grade, only: [:show, :update, :destroy, :learners, :teachers, :stats, :invite_learner, :invite_teacher]
 
-      # GET /schools/:school_id/grades
+      # GET /api/v1/schools/:school_id/grades
       def index
+        # Fetch grades associated with the verified @school
+        # We restore the pagination service for production resilience as per review feedback
         service_result = GradeServices::ListGradesService.new(
           school: @school,
           page: params[:page],
@@ -15,6 +17,7 @@ module Api
 
         if service_result.success
           render_success(
+            message: "Grades retrieved successfully",
             data: {
               grades: service_result.grades.map(&:to_api_hash),
               pagination: service_result.pagination
@@ -89,7 +92,6 @@ module Api
       end
 
       # GET /grades/:id/learners
-  # GET /grades/:id/learners
       def learners
         Rails.logger.info "🔍🔍🔍 STARTING LEARNERS ENDPOINT 🔍🔍🔍"
         Rails.logger.info "🔍 Grade ID from params: #{params[:id]}"
@@ -254,37 +256,35 @@ module Api
       private
 
       def set_school
-        # Support finding by ID, Slug, or Name fallback
-        id_param = params[:school_id] || params[:school_slug] || params[:id]
-
-        @school = School.find(id_param) rescue nil
-        @school ||= School.find_by(slug: id_param)
-
-        # Name-based fallback (replace hyphens with spaces and regex match)
-        if @school.nil? && id_param.present?
-          search_name = id_param.to_s.gsub('-', ' ')
-          @school = School.where(schoolName: /#{Regexp.escape(search_name)}/i).first
+        if BSON::ObjectId.legal?(params[:school_id])
+          @school = School.find(params[:school_id])
+        else
+          # If frontend passes the slug string 'far-north-secondary-school' directly:
+          # Look it up via text regex or a dedicated slug field if available
+          formatted_query = params[:school_id].to_s.gsub('-', ' ')
+          @school = School.where(schoolName: /^#{Regexp.escape(formatted_query)}$/i).first ||
+                    School.find_by(slug: params[:school_id])
         end
 
-        unless @school
-          render_error('School not found', [], status: :not_found)
-        end
+        raise Mongoid::Errors::DocumentNotFound.new(School, { _id: params[:school_id] }) unless @school
+      rescue BSON::Error::InvalidObjectId, Mongoid::Errors::DocumentNotFound
+        render json: { error: "School location context not found" }, status: :not_found
       end
 
-def set_grade
-  grade_id = params[:id] || params[:grade_id]
+      def set_grade
+        grade_id = params[:id] || params[:grade_id]
 
-  if grade_id.blank?
-    Rails.logger.warn "⚠️ set_grade: grade_id is nil or blank. params: #{params.inspect}"
-    return render_error('Grade ID is required', [], status: :bad_request)
-  end
+        if grade_id.blank?
+          Rails.logger.warn "⚠️ set_grade: grade_id is nil or blank. params: #{params.inspect}"
+          return render_error('Grade ID is required', [], status: :bad_request)
+        end
 
-  @grade = Grade.find(grade_id)
-rescue Mongoid::Errors::DocumentNotFound
-  render_error('Grade not found', [], status: :not_found)
-rescue BSON::ObjectId::Invalid
-  render_error('Invalid Grade ID format', [], status: :bad_request)
-end
+        @grade = Grade.find(grade_id)
+      rescue Mongoid::Errors::DocumentNotFound
+        render_error('Grade not found', [], status: :not_found)
+      rescue BSON::Error::InvalidObjectId
+        render_error('Invalid Grade ID format', [], status: :bad_request)
+      end
 
       def grade_params
         params.require(:grade).permit(
@@ -296,24 +296,23 @@ end
       end
 
       def learner_invitation_params
-  params.require(:invitation).permit(
-    :recipient_phone_number,
-    :phone_number,
-    :parent_name,
-    :learner_number,
-    :invited_via,
-    :country_code,
-    :country_name,
-    :expires_at,
-    learner_numbers: [],
-    learner_ids: []
-  )
-end
+        params.require(:invitation).permit(
+          :recipient_phone_number,
+          :phone_number,
+          :parent_name,
+          :learner_number,
+          :invited_via,
+          :country_code,
+          :country_name,
+          :expires_at,
+          learner_numbers: [],
+          learner_ids: []
+        )
+      end
 
       def teacher_invitation_params
         params.require(:invitation).permit(:recipient_phone_number, :teacher_name, :invited_via, :expires_at, assigned_grades: [], invitation_data: {})
       end
-
     end
   end
 end

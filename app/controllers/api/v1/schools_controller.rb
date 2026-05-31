@@ -1,8 +1,8 @@
 module Api
   module V1
     class SchoolsController < ApplicationController
-      before_action :authorize, only: [:create, :update, :destroy, :directory]
-      before_action :set_school, only: [:show, :update, :destroy, :admins, :teachers, :parents, :show_teacher, :directory]
+      before_action :authorize, only: [:create, :update, :destroy, :directory, :dashboard_shell]
+      before_action :set_school, only: [:show, :update, :destroy, :admins, :teachers, :parents, :show_teacher, :directory, :dashboard_shell]
 
       # =========================
       # GET /api/v1/schools
@@ -204,7 +204,24 @@ module Api
       # =========================
       def directory
         admins = fetch_users_by_role('admin')
-        teachers = Teacher.where(school_id: @school.id).map(&:to_api_hash)
+
+        all_teachers = Teacher.where(school_id: @school.id)
+        teacher_user_ids = all_teachers.pluck(:user_id).compact
+        teacher_auth0_ids = all_teachers.pluck(:auth0_id).compact
+
+        users_by_id = User.in(id: teacher_user_ids).index_by { |u| u.id.to_s }
+        users_by_auth0 = User.in(auth0_id: teacher_auth0_ids).index_by { |u| u.auth0_id.to_s }
+
+        teachers = all_teachers.map do |t|
+          hash = t.to_api_hash
+          linked_user = users_by_id[t.user_id.to_s] || users_by_auth0[t.auth0_id.to_s]
+
+          hash.merge(
+            user_id:     linked_user&.id&.to_s,
+            user_name:   linked_user&.name,
+            messageable: linked_user.present?
+          )
+        end
         parents = fetch_users_by_role('parent')
 
         render_success(data: {
@@ -214,6 +231,15 @@ module Api
         })
       rescue => e
         handle_exception(e, "Failed to fetch school directory")
+      end
+
+      # =========================
+      # GET /api/v1/schools/:id/dashboard_shell
+      # =========================
+      def dashboard_shell
+        render_success(data: DashboardShellSerializer.new(@school, current_user).as_json)
+      rescue => e
+        handle_exception(e, "Failed to fetch dashboard shell")
       end
 
       # =========================
@@ -314,17 +340,27 @@ module Api
 
       def convert_theme_to_string(theme_data)
         return "" if theme_data.blank?
-        theme_hash = if theme_data.is_a?(Hash)
-          {
-            "mode" => theme_data[:mode] || theme_data["mode"] || "",
-            "value" => theme_data[:value] || theme_data["value"] || ""
-          }
-        elsif theme_data.is_a?(String)
-          { "mode" => theme_data, "value" => "" }
-        else
-          {}
+
+        if theme_data.is_a?(String)
+          begin
+            JSON.parse(theme_data)
+            return theme_data
+          rescue JSON::ParserError
+            return JSON.generate({ "mode" => theme_data, "value" => "" })
+          end
         end
-        theme_hash.inspect
+
+        theme_hash = {
+          "mode" => theme_data[:mode] || theme_data["mode"] || "",
+          "value" => theme_data[:value] || theme_data["value"] || "",
+          "primary_color" => theme_data[:primary_color] || theme_data["primary_color"],
+          "secondary_color" => theme_data[:secondary_color] || theme_data["secondary_color"],
+          "border_radius" => theme_data[:border_radius] || theme_data["border_radius"],
+          "border_weight" => theme_data[:border_weight] || theme_data["border_weight"],
+          "border_color" => theme_data[:border_color] || theme_data["border_color"]
+        }.compact
+
+        JSON.generate(theme_hash)
       rescue => e
         Rails.logger.warn "Failed to convert theme: #{e.message}"
         ""
@@ -346,7 +382,15 @@ module Api
           :latitude, :longitude, :facebook, :linkedin, :tiktok,
           :website, :logo, :status, :line1, :line2, :postalCode,
           :user_id, :user_email, :school_created_by,
-          theme: [:mode, :value],
+          theme: [
+            :mode,
+            :value,
+            :primary_color,
+            :secondary_color,
+            :border_radius,
+            :border_weight,
+            :border_color
+          ],
           adminUsers: [:id, :name, :email, :role, :addedAt],
           invites: [:id, :email, :role, :status, :invitedAt]
         )

@@ -116,7 +116,7 @@ module Api
         return render json: { error: "Email is required" }, status: :bad_request if email.blank?
 
         schools = School.where(id: RequestAccess.where(status: "Approved", logged_in_user_email: email).pluck(:school_id))
-        render json: { message: "Approved schools retrieved", data: schools }, status: :ok
+        render json: { message: "Approved schools retrieved", data: schools.map(&:to_api_hash) }, status: :ok
       end
 
       # Fetch requests by school and optional status
@@ -142,7 +142,7 @@ module Api
 
         begin
           @request_access = RequestAccess.find(BSON::ObjectId(request_access_id))
-        rescue BSON::ObjectId::Invalid
+        rescue BSON::Error::InvalidObjectId
           return render json: { error: "Invalid request access ID format" }, status: :unprocessable_entity
         end
 

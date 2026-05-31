@@ -168,6 +168,7 @@ Rails.application.routes.draw do
           get :teachers
           get :parents
           get :directory
+          get :dashboard_shell
 
           get "teachers/:teacher_id",
               to: "schools#show_teacher"
@@ -398,6 +399,10 @@ Rails.application.routes.draw do
       # =========================================================
       resources :conversations,
                 only: %i[index show create destroy] do
+        collection do
+          post :group_initiation
+        end
+
         member do
           put  :read
           post :typing

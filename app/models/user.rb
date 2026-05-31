@@ -214,7 +214,7 @@ class User
       school_bson_id = BSON::ObjectId.from_string(
         school_id_string.to_s.strip
       )
-    rescue BSON::ObjectId::Invalid
+    rescue BSON::Error::InvalidObjectId
       Rails.logger.error "❌ Invalid BSON::ObjectId: #{school_id_string}"
       errors.add(:schools, 'Invalid school ID format.')
       return false
@@ -251,7 +251,7 @@ class User
       school_bson_id = BSON::ObjectId.from_string(
         school_id_string.to_s.strip
       )
-    rescue BSON::ObjectId::Invalid
+    rescue BSON::Error::InvalidObjectId
       Rails.logger.error "❌ Invalid BSON::ObjectId: #{school_id_string}"
       errors.add(:schools, 'Invalid school ID format.')
       return false
@@ -414,6 +414,22 @@ class User
 
   def has_role?(role)
     roles.include?(role.to_s)
+  end
+
+  def resolved_active_roles_for_school(school)
+    active_roles =
+      Array(roles)
+      .map { |role| role.to_s.downcase.strip }
+      .reject(&:blank?)
+
+    admin_metadata = school&.admin_user_for_email(email)
+    admin_role = admin_metadata&.fetch('role', nil) || admin_metadata&.fetch(:role, nil)
+
+    if admin_role.to_s.casecmp('Administrator').zero?
+      active_roles << 'administrator'
+    end
+
+    active_roles.uniq
   end
 
   def add_role(role)

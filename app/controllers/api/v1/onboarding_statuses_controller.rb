@@ -135,7 +135,7 @@ module Api
           end
 
         render(json: { success: false, message: "User not found" }, status: :not_found) unless @target_user
-      rescue Mongoid::Errors::DocumentNotFound, BSON::ObjectId::Invalid
+      rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId
         render json: { success: false, message: "User not found" }, status: :not_found
       end
 
