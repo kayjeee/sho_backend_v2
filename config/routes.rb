@@ -56,8 +56,16 @@ Rails.application.routes.draw do
         end
 
         # Nested resources for school-specific operations
+        get :global_search, on: :member
         resources :students, only: [:index, :show, :create, :update, :destroy]
-        resources :grades, only: [:index, :create]
+        resources :grades, only: [:index, :create] do
+          resources :classes, controller: 'classes' do
+            member do
+              post :assign_teacher
+              post :move_learner
+            end
+          end
+        end
         resources :learners, only: [:index]
         resources :transactions, only: [:index, :create] do
           collection do

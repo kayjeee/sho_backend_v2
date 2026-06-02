@@ -1,7 +1,7 @@
 module Api
   module V1
     class SchoolsController < ApplicationController
-      before_action :set_school, only: [:show, :update, :destroy, :admins, :teachers, :parents]
+      before_action :set_school, only: [:show, :update, :destroy, :admins, :teachers, :parents, :global_search]
 
       # =========================
       # GET /api/v1/schools
@@ -9,6 +9,45 @@ module Api
       def index
         schools = School.all
         render json: { success: true, schools: schools }, status: :ok
+      end
+
+      # =========================
+      # GET /api/v1/schools/:id/global_search?q=query
+      # =========================
+      def global_search
+        query = params[:q]
+        return render json: { success: false, message: "Query parameter 'q' is missing." }, status: :bad_request if query.blank?
+
+        regex = /^#{Regexp.escape(query)}/i
+        results = []
+
+        # Search Learners
+        learners = Learner.where(school_id: @school.id).any_of(
+          { first_name: regex },
+          { last_name: regex }
+        ).limit(10)
+
+        learners.each do |learner|
+          results << { type: 'Learner', label: "#{learner.first_name} #{learner.last_name}", value: learner.id.to_s }
+        end
+
+        # Search Grades
+        grades = Grade.where(school_id: @school.id, name: regex).limit(10)
+        grades.each do |grade|
+          results << { type: 'Grade', label: grade.name, value: grade.id.to_s }
+        end
+
+        # Search Classes
+        # Classes are nested under grades, but we can search them via grade_id index
+        grade_ids = @school.grades.pluck(:id)
+        classes = SchoolClass.where(:grade_id.in => grade_ids, name: regex).limit(10)
+        classes.each do |school_class|
+          results << { type: 'Class', label: school_class.name, value: school_class.id.to_s }
+        end
+
+        render json: { success: true, results: results }, status: :ok
+      rescue => e
+        render json: { success: false, message: "Search failed: #{e.message}" }, status: :internal_server_error
       end
 
       # =========================
@@ -190,10 +229,8 @@ module Api
 
       def set_school
         @school = School.find(params[:id])
-      rescue Mongoid::Errors::DocumentNotFound
+      rescue BSON::Error::InvalidObjectId, Mongoid::Errors::DocumentNotFound
         render json: { success: false, message: "School not found" }, status: :not_found
-      rescue BSON::ObjectId::Invalid => e
-        render json: { success: false, message: "Invalid school ID: #{e.message}" }, status: :bad_request
       end
 
       def fetch_users_by_role(role)

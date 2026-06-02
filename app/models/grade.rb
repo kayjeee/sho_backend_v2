@@ -37,6 +37,7 @@ class Grade
   has_many :learners, class_name: 'Learner', inverse_of: :grade
   has_many :learner_invitations, class_name: 'LearnerInvitation', inverse_of: :grade
   has_many :teacher_grade_assignments, class_name: 'TeacherGradeAssignment', inverse_of: :grade
+  has_many :school_classes, class_name: 'SchoolClass', inverse_of: :grade, dependent: :destroy
 
   # ======================== INDEXES ========================
   index({ school_id: 1, name: 1 }, unique: true)
@@ -127,6 +128,11 @@ class Grade
     return 'Not Set' unless academic_year_start && academic_year_end
 
     "#{academic_year_start.year}-#{academic_year_end.year}"
+  end
+
+  # Provide aggregate statistics shortcuts
+  def total_learners
+    school_classes.sum { |c| c.learner_ids.count }
   end
 
   # Invitation management
