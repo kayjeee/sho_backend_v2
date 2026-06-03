@@ -5,6 +5,9 @@ Rails.application.routes.draw do
       resources :grades, only: [:index]
     end
 
+    # Explicit alias for frontend compatibility
+    get 'admin/grades', to: 'admin/grades#index'
+
     namespace :v1 do
       # AdminUser custom route
       get 'admin_users/schools_for_admin', to: 'admin_users#schools_for_admin'
