@@ -96,6 +96,16 @@ Transactionally move a learner from one class to another within the same grade h
 
 ---
 
+## Deployment Fixes (Render)
+
+The following deployment fixes have been applied for Render:
+- **render.yaml**: Renamed and configured with `MONGODB_URI` and `SECRET_KEY_BASE`.
+- **ActiveRecord Disabled**: ActiveRecord and its components (like ActionText) have been disabled to prevent connection errors in a Mongoid-only environment.
+- **Warning Suppression**: Mongoid "Overwriting existing field" warnings are suppressed in production.
+- **Environment Variables**: The application now prioritizes environment variables for configuration, adhering to a "pure .env" setup.
+
+---
+
 ## Integration Tips
 
 1. **BSON Guardrails**: The API handles invalid ObjectIds gracefully. If a 404 is returned, check if the ID strings passed in the URL or payload are valid MongoDB ObjectIds.

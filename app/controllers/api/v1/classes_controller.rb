@@ -52,7 +52,10 @@ module Api
           @class.class_teacher_id = teacher_id
         when 'subject_teacher'
           if subject_id.present?
-            @class.subject_teacher_ids[subject_id] = teacher_id
+            # Explicitly mark hash as changed or reassign to trigger Mongoid dirty tracking
+            new_subject_teachers = @class.subject_teacher_ids.dup
+            new_subject_teachers[subject_id] = teacher_id
+            @class.subject_teacher_ids = new_subject_teachers
           else
             return render json: { success: false, message: 'subject_id is required for subject_teacher role' }, status: :bad_request
           end
