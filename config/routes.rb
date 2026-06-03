@@ -1,6 +1,10 @@
 # config/routes.rb
 Rails.application.routes.draw do
   namespace :api do
+    namespace :admin do
+      resources :grades, only: [:index]
+    end
+
     namespace :v1 do
       # AdminUser custom route
       get 'admin_users/schools_for_admin', to: 'admin_users#schools_for_admin'
