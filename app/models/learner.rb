@@ -20,6 +20,8 @@ class Learner
   field :gradeId, type: String
   alias_attribute :grade_id, :gradeId  # ← ADD THIS LINE
 
+  field :school_class_id, type: String
+
   # ======================== NEW MOBILE FIELDS ========================
   field :date_of_birth,   type: Date
   field :parent_info,     type: Hash, default: {}
@@ -41,6 +43,7 @@ class Learner
   belongs_to :school,     class_name: 'School', optional: true
   belongs_to :created_by, class_name: 'User',   optional: true
   belongs_to :grade,      class_name: 'Grade',  optional: true
+  belongs_to :school_class, class_name: 'SchoolClass', optional: true
 
   # ======================== INDEXES ========================
   index({ school_id: 1, accession_number: 1 }, unique: true, sparse: true)

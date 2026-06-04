@@ -214,13 +214,18 @@ module Api
       end
 
       def class_json(school_class, detailed: false)
+        utilization_percentage = if school_class.capacity.to_i > 0
+                                   (school_class.learner_ids.count.to_f / school_class.capacity * 100).round(1)
+                                 else
+                                   0
+                                 end
         json = {
           id: school_class.id.to_s,
           name: school_class.name,
           capacity: school_class.capacity,
           current_learners: school_class.learner_ids.count,
           utilization: "#{school_class.learner_ids.count}/#{school_class.capacity}",
-          utilization_percentage: (school_class.learner_ids.count.to_f / school_class.capacity * 100).round(1)
+          utilization_percentage: utilization_percentage
         }
 
         if detailed
