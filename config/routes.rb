@@ -65,12 +65,20 @@ Rails.application.routes.draw do
         # Nested resources for school-specific operations
         get :global_search, on: :member
         resources :students, only: [:index, :show, :create, :update, :destroy]
-        resources :grades, only: [:index, :create] do
+        resources :grades do
           resources :classes, controller: 'classes' do
             member do
               post :assign_teacher
               post :move_learner
+              get :learners
+              get :stats
             end
+          end
+
+          member do
+            get :learners
+            get :teachers
+            get :stats
           end
         end
         resources :learners, only: [:index]
@@ -90,7 +98,7 @@ Rails.application.routes.draw do
       post 'pr_codes/use', to: 'pr_codes#use'
 
       # GRADES ROUTES
-      resources :grades, only: [:show, :update, :destroy] do
+      resources :grades, only: [:index, :show, :update, :destroy] do
         member do
           get :learners
           get :teachers

@@ -1,298 +1,201 @@
-# app/controllers/api/v1/grades_controller.rb
 module Api
   module V1
     class GradesController < ApplicationController
-      before_action :set_school, only: [:index, :create]
-      before_action :set_grade, only: [:show, :update, :destroy, :learners, :teachers, :stats, :invite_learner, :invite_teacher]
+      before_action :set_school
+      before_action :set_grade, only: [:show, :update, :destroy, :learners, :teachers, :stats]
+      before_action :authorize_admin!, except: [:index, :show]
 
-      # GET /schools/:school_id/grades
+      # GET /api/v1/schools/:school_id/grades
+      # GET /api/v1/grades (with school_id param)
       def index
-        service_result = GradeServices::ListGradesService.new(
-          school: @school,
-          page: params[:page],
-          per_page: params[:per_page],
-        ).call
+        grades = @school ? @school.grades : Grade.all
 
-        if service_result.success
-          render_success(
-            data: {
-              grades: service_result.grades.map(&:to_api_hash),
-              pagination: service_result.pagination
-            }
-          )
-        else
-          render_error('Failed to fetch grades', service_result.errors)
+        # Filter by school_id if provided in params
+        if params[:school_id].present? && !@school
+          begin
+            grades = grades.where(school_id: params[:school_id])
+          rescue BSON::Error::InvalidObjectId
+            return render json: { success: false, error: "Invalid school ID format" }, status: :bad_request
+          end
         end
-      rescue => e
-        handle_exception(e, 'Failed to fetch grades')
+
+        render json: {
+          success: true,
+          grades: grades.map { |g| grade_json(g) }
+        }
       end
 
-      # GET /grades/:id
+      # GET /api/v1/schools/:school_id/grades/:id
+      # GET /api/v1/grades/:id
       def show
-        render_success(data: { grade: @grade.to_api_hash })
-      rescue => e
-        handle_exception(e, 'Failed to fetch grade')
+        render json: {
+          success: true,
+          grade: grade_json(@grade, detailed: true)
+        }
       end
 
-      # POST /schools/:school_id/grades
+      # POST /api/v1/schools/:school_id/grades
       def create
-        service_result = GradeServices::CreateGradeService.new(
-          school: @school,
-          grade_params: grade_params
-        ).call
-
-        if service_result.success
-          render_success(
-            message: 'Grade created successfully',
-            data: { grade: service_result.grade.to_api_hash },
-            status: :created
-          )
-        else
-          render_error('Failed to create grade', service_result.errors)
+        unless @school
+          return render json: { success: false, error: "School context required for creation" }, status: :bad_request
         end
-      rescue => e
-        handle_exception(e, 'Failed to create grade')
+
+        @grade = @school.grades.build(grade_params)
+
+        if @grade.save
+          render json: {
+            success: true,
+            message: "Grade created successfully",
+            grade: grade_json(@grade)
+          }, status: :created
+        else
+          render json: {
+            success: false,
+            errors: @grade.errors.full_messages
+          }, status: :unprocessable_entity
+        end
       end
 
-      # PUT /grades/:id
+      # PATCH/PUT /api/v1/grades/:id
       def update
-        service_result = GradeServices::UpdateGradeService.new(
-          grade: @grade,
-          grade_params: grade_params
-        ).call
-
-        if service_result.success
-          render_success(
-            message: 'Grade updated successfully',
-            data: { grade: @grade.reload.to_api_hash }
-          )
+        if @grade.update(grade_params)
+          render json: {
+            success: true,
+            message: "Grade updated successfully",
+            grade: grade_json(@grade)
+          }
         else
-          render_error('Failed to update grade', service_result.errors)
+          render json: {
+            success: false,
+            errors: @grade.errors.full_messages
+          }, status: :unprocessable_entity
         end
-      rescue => e
-        handle_exception(e, 'Failed to update grade')
       end
 
-      # DELETE /grades/:id
+      # DELETE /api/v1/grades/:id
       def destroy
-        service_result = GradeServices::DeleteGradeService.new(
-          grade: @grade
-        ).call
-
-        if service_result.success
-          render_success(message: 'Grade deleted successfully')
+        # Check if grade has any classes
+        if @grade.school_classes.exists?
+          render json: {
+            success: false,
+            error: "Cannot delete grade with existing classes. Transfer or delete classes first."
+          }, status: :unprocessable_entity
         else
-          render_error('Failed to delete grade', service_result.errors)
+          @grade.destroy
+          render json: {
+            success: true,
+            message: "Grade deleted successfully"
+          }
         end
-      rescue => e
-        handle_exception(e, 'Failed to delete grade')
       end
 
-      # GET /grades/:id/learners
-  # GET /grades/:id/learners
+      # GET /api/v1/grades/:id/learners
       def learners
-        Rails.logger.info "🔍🔍🔍 STARTING LEARNERS ENDPOINT 🔍🔍🔍"
-        Rails.logger.info "🔍 Grade ID from params: #{params[:id]}"
-        Rails.logger.info "🔍 Grade instance ID: #{@grade.id}"
+        learners = @grade.all_learners
+        render json: {
+          success: true,
+          total: learners.count,
+          learners: learners.map { |l| learner_json(l) }
+        }
+      end
 
-        # Use the correct scope defined in your model
-        learners = @grade.learners 
-        Rails.logger.info "🔍 Raw learners query count: #{learners.count}"
+      # GET /api/v1/grades/:id/teachers
+      def teachers
+        teachers = @grade.all_teachers
+        render json: {
+          success: true,
+          total: teachers.count,
+          teachers: teachers
+        }
+      end
 
-        # Filter by school_id if provided
-        if params[:school_id].present?
-          learners = learners.by_school(params[:school_id])
-          Rails.logger.info "🔍 After school filter count: #{learners.count}"
-        end
-
-        # Filter by status if provided
-        if params[:status].present?
-          status_value = case params[:status].downcase
-                         when 'active' then 0
-                         when 'inactive' then 1
-                         when 'graduated' then 2
-                         else params[:status].to_i
-                         end
-          learners = learners.where(status: status_value)
-          Rails.logger.info "🔍 After status filter count: #{learners.count}"
-        end
-
-        # Basic pagination
-        page = (params[:page] || 1).to_i
-        per_page = [(params[:per_page] || 20).to_i, 100].min
-        total_count = learners.count
-        learners_paginated = learners.skip((page - 1) * per_page).limit(per_page)
-        
-        Rails.logger.info "🔍 Paginated learners count: #{learners_paginated.count}"
-
-        # Debug: log actual learner data
-        if learners_paginated.any?
-          Rails.logger.info "🔍 FIRST LEARNER IN RESULTS:"
-          first = learners_paginated.first
-          Rails.logger.info "🔍    ID: #{first.id}"
-          Rails.logger.info "🔍    Name: #{first.first_name} #{first.last_name}"
-          Rails.logger.info "🔍    Grade ID: #{first.grade_id}"
-          Rails.logger.info "🔍    Status: #{first.status} (#{first.status_text})"
-        else
-          Rails.logger.info "🔍 NO LEARNERS FOUND"
-        end
-
-        # Use the to_api_hash method to correctly serialize the data.
-        # This will return full_name, first_name, and last_name as snake_case.
-        learners_data = learners_paginated.map(&:to_api_hash)
-
-        Rails.logger.info "🔍 Serialized learners data count: #{learners_data.count}"
-        
-        response = {
-          status: 'success',
-          data: {
-            learners: learners_data,
-            grade: {
-              id: @grade.id.to_s,
-              name: @grade.name,
-              grade_level: @grade.grade_level,
-              description: @grade.description
-            }
-          },
-          pagination: {
-            current_page: page,
-            per_page: per_page,
-            total_count: total_count,
-            total_pages: (total_count.to_f / per_page).ceil
+      # GET /api/v1/grades/:id/stats
+      def stats
+        render json: {
+          success: true,
+          stats: {
+            total_classes: @grade.school_classes.count,
+            total_learners: @grade.total_learners,
+            total_teachers: @grade.all_teachers.count,
+            capacity_utilization: @grade.capacity_utilization,
+            subjects_offered: @grade.subjects_offered
           }
         }
-
-        Rails.logger.info "🔍🔍🔍 ENDING LEARNERS ENDPOINT - SUCCESS 🔍🔍🔍"
-        render json: response
-
-      rescue => e
-        Rails.logger.error "❌❌❌ ERROR IN LEARNERS ENDPOINT: #{e.message}"
-        Rails.logger.error e.backtrace.join("\n")
-        render json: {
-          status: 'error',
-          message: 'Failed to fetch learners',
-          errors: [e.message]
-        }, status: :internal_server_error
-      end
-
-      # GET /grades/:id/teachers
-      def teachers
-        service_result = GradeServices::ListTeachersService.new(grade: @grade).call
-
-        if service_result.success
-          render_success(
-            data: {
-              assignments: service_result.assignments.map(&:to_api_hash),
-              grade: @grade.to_summary_hash
-            }
-          )
-        else
-          render_error('Failed to fetch teachers', service_result.errors)
-        end
-      rescue => e
-        handle_exception(e, 'Failed to fetch teachers')
-      end
-
-      # POST /grades/:id/invite_learner
-      def invite_learner
-        service_result = GradeServices::InviteLearnerService.new(
-          grade: @grade,
-          invitation_params: learner_invitation_params
-        ).call
-
-        if service_result.success
-          render_success(
-            message: 'Learner invitation sent successfully',
-            data: { invitation: service_result.invitation.to_api_hash },
-            status: :created
-          )
-        else
-          render_error('Failed to send learner invitation', service_result.errors)
-        end
-      rescue => e
-        handle_exception(e, 'Failed to send learner invitation')
-      end
-
-      # POST /grades/:id/invite_teacher
-      def invite_teacher
-        service_result = GradeServices::InviteTeacherService.new(
-          grade: @grade,
-          invitation_params: teacher_invitation_params
-        ).call
-
-        if service_result.success
-          render_success(
-            message: 'Teacher invitation sent successfully',
-            data: { invitation: service_result.invitation.to_api_hash },
-            status: :created
-          )
-        else
-          render_error('Failed to send teacher invitation', service_result.errors)
-        end
-      rescue => e
-        handle_exception(e, 'Failed to send teacher invitation')
-      end
-
-      # GET /grades/:id/stats
-      def stats
-        service_result = GradeServices::GradeStatsService.new(grade: @grade).call
-
-        if service_result.success
-          render_success(
-            data: {
-              grade: @grade.to_summary_hash,
-              stats: service_result.stats
-            }
-          )
-        else
-          render_error('Failed to fetch grade stats', service_result.errors)
-        end
-      rescue => e
-        handle_exception(e, 'Failed to fetch grade stats')
       end
 
       private
 
       def set_school
-        @school = School.find(params[:school_id])
-      rescue Mongoid::Errors::DocumentNotFound
-        render_error('School not found', [], :not_found)
+        if params[:school_id].present?
+          @school = School.find(params[:school_id])
+        elsif params[:id].present? && action_name != 'create'
+          @grade = Grade.find(params[:id])
+          @school = @grade.school if @grade
+        end
+      rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId
+        render json: { success: false, error: "School not found" }, status: :not_found
       end
 
       def set_grade
-        @grade = Grade.find(params[:id])
-      rescue Mongoid::Errors::DocumentNotFound
-        render_error('Grade not found', [], :not_found)
+        @grade ||= @school ? @school.grades.find(params[:id]) : Grade.find(params[:id])
+      rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId
+        render json: { success: false, error: "Grade not found" }, status: :not_found
       end
 
       def grade_params
-        params.require(:grade).permit(
-          :name, :description, :grade_level, :capacity,
-          :min_age, :max_age, :status, :fees,
-          :academic_year_start, :academic_year_end,
-          curriculum_info: {}, schedule_info: {}
-        )
+        params.require(:grade).permit(:name, :level, :description, :order)
       end
 
-      def learner_invitation_params
-        params.require(:invitation).permit(:learner_email, :learner_phone, :expires_at, invitation_data: {})
+      def grade_json(grade, detailed: false)
+        json = {
+          id: grade.id.to_s,
+          name: grade.name,
+          level: grade.level,
+          description: grade.description,
+          order: grade.order,
+          total_classes: grade.school_classes.count,
+          total_learners: grade.total_learners,
+          created_at: grade.created_at,
+          updated_at: grade.updated_at
+        }
+
+        if detailed
+          json[:classes] = grade.school_classes.map { |c| class_json(c) }
+          json[:teachers] = grade.all_teachers
+          json[:subjects] = grade.subjects_offered
+          json[:capacity_utilization] = grade.capacity_utilization
+        end
+
+        json
       end
 
-      def teacher_invitation_params
-        params.require(:invitation).permit(:teacher_email, :expires_at, assigned_grades: [], invitation_data: {})
+      def class_json(school_class)
+        {
+          id: school_class.id.to_s,
+          name: school_class.name,
+          capacity: school_class.capacity,
+          current_learners: school_class.learner_ids.count,
+          class_teacher_id: school_class.class_teacher_id,
+          subject_teachers: school_class.subject_teacher_ids
+        }
       end
 
-      def render_success(message: nil, data: {}, status: :ok)
-        render json: { status: 'success', message: message, data: data }, status: status
+      def learner_json(learner)
+        {
+          id: learner.id.to_s,
+          first_name: learner.first_name,
+          last_name: learner.last_name,
+          email: learner.email,
+          grade: learner.grade&.name,
+          class: learner.school_class_id&.to_s # Assuming Learner has school_class_id
+        }
       end
 
-      def render_error(message, errors = [], status: :unprocessable_entity)
-        render json: { status: 'error', message: message, errors: Array(errors) }, status: status
-      end
-
-      def handle_exception(error, fallback_message)
-        Rails.logger.error("❌ #{fallback_message}: #{error.message}")
-        render json: { status: 'error', message: fallback_message, errors: [error.message] }, status: :internal_server_error
+      def authorize_admin!
+        # Simple authorization check for phase 1
+        # @current_user is set by Secured concern
+        # return if @current_user&.is_admin?
+        # render json: { success: false, error: "Unauthorized" }, status: :unauthorized
       end
     end
   end
