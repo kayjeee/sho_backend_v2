@@ -2,28 +2,23 @@ class SchoolClass
   include Mongoid::Document
   include Mongoid::Timestamps
 
-  # ======================== FIELDS ========================
-  field :name,               type: String
-  field :capacity,           type: Integer, default: 40
-  field :class_teacher_id,   type: String # Points to Auth0 ID or Teacher reference
-  field :subject_teacher_ids, type: Hash,    default: {} # Map: { "subject_id" => "teacher_id" }
-  field :learner_ids,        type: Array,   default: [] # Array of Learner ObjectIds
+  field :name, type: String
+  field :capacity, type: Integer, default: 40
+  field :class_teacher_id, type: String
+  field :subject_teacher_ids, type: Hash, default: {}
+  field :learner_ids, type: Array, default: []
 
-  # ===================== ASSOCIATIONS =====================
-  belongs_to :grade, class_name: 'Grade', inverse_of: :school_classes
+  belongs_to :grade, class_name: 'Grade'
   has_many :learners, dependent: :nullify
 
-  # ======================== INDEXES ========================
+  validates :name, presence: true
+  validates :capacity, presence: true, numericality: { greater_than: 0, only_integer: true }
+  validate :capacity_not_exceeded, :learner_belongs_to_grade
+
   index({ grade_id: 1 })
   index({ name: 1 })
 
-  # ===================== VALIDATIONS ======================
-  validates :name, presence: true
-  validates :capacity, presence: true, numericality: { greater_than: 0, only_integer: true }
-  validate :capacity_not_exceeded
-
-  # ========================= METHODS =========================
-
+  # Instance Methods
   def current_learners_count
     learner_ids.count
   end
@@ -40,11 +35,13 @@ class SchoolClass
     return false if full?
     return false if learner_ids.include?(learner_id)
 
-    add_to_set(learner_ids: learner_id)
+    learner_ids << learner_id
+    save
   end
 
   def remove_learner(learner_id)
-    pull(learner_ids: learner_id)
+    learner_ids.delete(learner_id)
+    save
   end
 
   def assign_class_teacher(teacher_id)
@@ -70,6 +67,12 @@ class SchoolClass
     subject_teacher_ids[subject_id]
   end
 
+  def class_teacher
+    # Fetch teacher details from User service or Auth0
+    # Return teacher object or ID
+    class_teacher_id
+  end
+
   def subject_teachers_summary
     subject_teacher_ids.map do |subject_id, teacher_id|
       { subject_id: subject_id, teacher_id: teacher_id }
@@ -79,8 +82,14 @@ class SchoolClass
   private
 
   def capacity_not_exceeded
+    # Use learner_ids_changed? or just check count if it's during save
     if learner_ids.count > capacity
       errors.add(:capacity, "cannot be less than current number of learners (#{learner_ids.count})")
     end
+  end
+
+  def learner_belongs_to_grade
+    # Ensure all learners belong to the same grade
+    # Implement if needed
   end
 end

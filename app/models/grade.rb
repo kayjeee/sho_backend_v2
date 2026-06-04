@@ -2,51 +2,17 @@ class Grade
   include Mongoid::Document
   include Mongoid::Timestamps
 
-  # ======================== FIELDS ========================
-  field :name,                  type: String
-  field :description,           type: String
-  field :grade_level,           type: String # Legacy field compatibility
-  field :level,                 type: Integer # New field from user prompt
-  field :order,                 type: Integer, default: 0
-  field :capacity,              type: Integer, default: 30
-  field :min_age,               type: Integer
-  field :max_age,               type: Integer
-  field :status,                type: Integer, default: 0
-  field :academic_year_start,   type: Date
-  field :academic_year_end,     type: Date
-  field :fees,                  type: Float, default: 0.0
-  field :curriculum_info,       type: Hash, default: {}
-  field :schedule_info,         type: Hash, default: {}
+  field :name, type: String
+  field :level, type: Integer
+  field :description, type: String
+  field :order, type: Integer, default: 0
 
-  # ===================== CONSTANTS ========================
-  STATUSES = {
-    'active' => 0,
-    'inactive' => 1,
-    'archived' => 2,
-    'planning' => 3
-  }.freeze
+  belongs_to :school
+  has_many :school_classes, class_name: 'SchoolClass', dependent: :destroy
+  has_many :learners, dependent: :nullify
 
-  # ===================== VALIDATIONS ======================
-  validates :name,        presence: true, uniqueness: { scope: :school_id }
-  validates :level,       presence: true, numericality: { only_integer: true, greater_than: 0 }
-  validates :capacity,    presence: true, numericality: { greater_than: 0 }
-  validates :status,      inclusion: { in: STATUSES.values }
-  validates :school_id,   presence: true
-
-  # ===================== ASSOCIATIONS =====================
-  belongs_to :school, class_name: 'School', inverse_of: :grades
-
-  has_many :learners, class_name: 'Learner', inverse_of: :grade, dependent: :nullify
-  has_many :learner_invitations, class_name: 'LearnerInvitation', inverse_of: :grade
-  has_many :teacher_grade_assignments, class_name: 'TeacherGradeAssignment', inverse_of: :grade
-  has_many :school_classes, class_name: 'SchoolClass', inverse_of: :grade, dependent: :destroy
-
-  # ======================== INDEXES ========================
-  index({ school_id: 1, name: 1 }, unique: true)
-  index({ status: 1 })
-  index({ level: 1 })
-
-  # ========================= METHODS =========================
+  validates :name, presence: true
+  validates :level, presence: true, numericality: { only_integer: true, greater_than: 0 }
 
   # Aggregate Methods
   def total_learners
@@ -80,12 +46,12 @@ class Grade
 
   def capacity_utilization
     total = total_learners
-    total_capacity = school_classes.sum(&:capacity)
-    total_capacity.positive? ? (total.to_f / total_capacity * 100).round(1) : 0
+    capacity = school_classes.sum(&:capacity)
+    capacity.positive? ? (total.to_f / capacity * 100).round(1) : 0
   end
 
   def subjects_offered
-    school_classes.flat_map { |c| c.subject_teacher_ids.keys }.uniq
+    school_classes.flat_map(&:subject_teacher_ids).map(&:first).uniq
   end
 
   # Class Management Helpers
@@ -107,34 +73,5 @@ class Grade
         utilization: "#{c.learner_ids.count}/#{c.capacity}"
       }
     end
-  end
-
-  # Serialization helpers
-  def to_api_hash
-    {
-      id: id.to_s,
-      name: name,
-      level: level,
-      description: description,
-      order: order,
-      capacity: capacity,
-      total_learners: total_learners,
-      status: status,
-      status_text: STATUSES.key(status),
-      stats: {
-        total_classes: school_classes.count,
-        total_learners: total_learners,
-        capacity_utilization: capacity_utilization
-      }
-    }
-  end
-
-  def to_summary_hash
-    {
-      id: id.to_s,
-      name: name,
-      level: level,
-      status: status
-    }
   end
 end

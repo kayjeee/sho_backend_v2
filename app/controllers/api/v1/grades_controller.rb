@@ -12,11 +12,7 @@ module Api
 
         # Filter by school_id if provided in params
         if params[:school_id].present? && !@school
-          begin
-            grades = grades.where(school_id: params[:school_id])
-          rescue BSON::Error::InvalidObjectId
-            return render json: { success: false, error: "Invalid school ID format" }, status: :bad_request
-          end
+          grades = grades.where(school_id: params[:school_id])
         end
 
         render json: {
@@ -36,10 +32,6 @@ module Api
 
       # POST /api/v1/schools/:school_id/grades
       def create
-        unless @school
-          return render json: { success: false, error: "School context required for creation" }, status: :bad_request
-        end
-
         @grade = @school.grades.build(grade_params)
 
         if @grade.save
@@ -126,11 +118,22 @@ module Api
       private
 
       def set_school
-        if params[:school_id].present?
-          @school = School.find(params[:school_id])
+        school_id = params[:school_id]
+        if school_id.present?
+          if BSON::ObjectId.legal?(school_id)
+            @school = School.find(school_id)
+          else
+            lookup_name = school_id.to_s.gsub('-', ' ')
+            @school = School.where(schoolName: /^#{Regexp.escape(lookup_name)}$/i).first
+          end
         elsif params[:id].present? && action_name != 'create'
-          @grade = Grade.find(params[:id])
-          @school = @grade.school if @grade
+          # Try to find grade first to get school context
+          begin
+            @grade = Grade.find(params[:id])
+            @school = @grade.school if @grade
+          rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId
+            # Handled by set_grade or later
+          end
         end
       rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId
         render json: { success: false, error: "School not found" }, status: :not_found
@@ -187,15 +190,12 @@ module Api
           last_name: learner.last_name,
           email: learner.email,
           grade: learner.grade&.name,
-          class: learner.school_class_id&.to_s # Assuming Learner has school_class_id
+          class: learner.try(:school_class)&.try(:name)
         }
       end
 
       def authorize_admin!
-        # Simple authorization check for phase 1
-        # @current_user is set by Secured concern
-        # return if @current_user&.is_admin?
-        # render json: { success: false, error: "Unauthorized" }, status: :unauthorized
+        # head :unauthorized unless current_user&.has_role?(:admin, @school)
       end
     end
   end

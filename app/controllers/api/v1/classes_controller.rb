@@ -113,6 +113,7 @@ module Api
         learner_id = params[:learner_id]
         target_class_id = params[:target_class_id]
 
+        # Find target class
         begin
           target_class = @grade.school_classes.find(target_class_id)
         rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId
@@ -131,22 +132,15 @@ module Api
                         status: :unprocessable_entity
         end
 
-        # Move operation
-        bson_id = BSON::ObjectId.from_string(learner_id.to_s)
-
-        # Atomic pull and push
-        @school_class.pull(learner_ids: bson_id)
-        target_class.add_to_set(learner_ids: bson_id)
+        # Atomic move operation
+        @school_class.pull(learner_ids: BSON::ObjectId.from_string(learner_id.to_s))
+        target_class.add_to_set(learner_ids: BSON::ObjectId.from_string(learner_id.to_s))
 
         # Update learner's grade and class references
-        begin
-          Learner.find(learner_id).update(
-            grade_id: @grade.id,
-            school_class_id: target_class.id
-          )
-        rescue Mongoid::Errors::DocumentNotFound
-          return render json: { success: false, error: "Learner record not found" }, status: :not_found
-        end
+        Learner.find(learner_id).update(
+          grade_id: @grade.id,
+          school_class_id: target_class.id
+        )
 
         render json: {
           success: true,
@@ -187,7 +181,17 @@ module Api
       private
 
       def set_school
-        @school = School.find(params[:school_id])
+        school_id = params[:school_id]
+        if BSON::ObjectId.legal?(school_id)
+          @school = School.find(school_id)
+        else
+          lookup_name = school_id.to_s.gsub('-', ' ')
+          @school = School.where(schoolName: /^#{Regexp.escape(lookup_name)}$/i).first
+        end
+
+        unless @school
+          render json: { success: false, error: "School not found" }, status: :not_found
+        end
       rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId
         render json: { success: false, error: "School not found" }, status: :not_found
       end
@@ -240,7 +244,7 @@ module Api
       end
 
       def authorize_admin!
-        # Simple authorization check for phase 1
+        # Implement your admin authorization
       end
     end
   end

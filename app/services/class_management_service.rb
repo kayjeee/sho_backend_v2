@@ -19,8 +19,7 @@ class ClassManagementService
   end
 
   def reassign_all_teachers(new_teacher_assignments)
-    # Using Mongoid's equivalent of transactions if available, or simple iterative updates
-    # For Phase 1, we'll perform these as a batch update on the document
+    # Using Mongoid atomic operations or sequential assignments
     begin
       new_teacher_assignments.each do |assignment|
         case assignment[:role]
@@ -55,17 +54,15 @@ class ClassManagementService
   private
 
   def move_individual_learner(learner_id, target_class)
-    bson_id = BSON::ObjectId.from_string(learner_id.to_s)
-
     # Remove from current class
-    @school_class.pull(learner_ids: bson_id)
+    @school_class.learner_ids.delete(learner_id)
+    @school_class.save
 
     # Add to target class
-    target_class.add_to_set(learner_ids: bson_id)
+    target_class.learner_ids << learner_id
+    target_class.save
 
     # Update learner record
-    # Phase 1 assumes Learner model has grade_id and school_class_id
-    learner = Learner.find(learner_id)
-    learner.update(grade_id: @grade.id, school_class_id: target_class.id)
+    Learner.find(learner_id).update(grade_id: @grade.id, school_class_id: target_class.id)
   end
 end
