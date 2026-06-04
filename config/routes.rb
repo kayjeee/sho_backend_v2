@@ -5,7 +5,7 @@ Rails.application.routes.draw do
       resources :grades, only: [:index]
     end
 
-    # Explicit alias for frontend compatibility (Ensure it matches /api/admin/grades)
+    # Explicit alias for frontend compatibility (Matches http://localhost:4000/api/admin/grades)
     get 'admin/grades', to: 'admin/grades#index'
 
     namespace :v1 do

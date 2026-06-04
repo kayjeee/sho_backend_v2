@@ -186,7 +186,8 @@ module Api
           @school = School.find(school_id)
         else
           lookup_name = school_id.to_s.gsub('-', ' ')
-          @school = School.where(schoolName: /^#{Regexp.escape(lookup_name)}$/i).first
+          @school = School.where(schoolName: /^#{Regexp.escape(lookup_name)}$/i).first ||
+                    School.where(schoolEmail: /^#{Regexp.escape(school_id.to_s)}$/i).first
         end
 
         unless @school

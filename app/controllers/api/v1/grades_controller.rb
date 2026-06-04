@@ -124,7 +124,8 @@ module Api
             @school = School.find(school_id)
           else
             lookup_name = school_id.to_s.gsub('-', ' ')
-            @school = School.where(schoolName: /^#{Regexp.escape(lookup_name)}$/i).first
+            @school = School.where(schoolName: /^#{Regexp.escape(lookup_name)}$/i).first ||
+                      School.where(schoolEmail: /^#{Regexp.escape(school_id.to_s)}$/i).first
           end
         elsif params[:id].present? && action_name != 'create'
           # Try to find grade first to get school context
@@ -152,8 +153,9 @@ module Api
       def grade_json(grade, detailed: false)
         json = {
           id: grade.id.to_s,
+          school_id: grade.school_id.to_s,
           name: grade.name,
-          level: grade.level,
+          level: grade.level || 0,
           description: grade.description,
           order: grade.order,
           total_classes: grade.school_classes.count,

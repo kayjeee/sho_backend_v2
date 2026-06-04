@@ -74,4 +74,21 @@ class Grade
       }
     end
   end
+
+  def to_api_hash
+    {
+      id: id.to_s,
+      school_id: school_id.to_s,
+      name: name,
+      level: level || 0,
+      description: description,
+      order: order,
+      total_learners: total_learners,
+      stats: {
+        total_classes: school_classes.count,
+        total_learners: total_learners,
+        capacity_utilization: capacity_utilization
+      }
+    }
+  end
 end
