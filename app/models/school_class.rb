@@ -7,16 +7,15 @@ class SchoolClass
   field :class_teacher_id, type: String
   field :subject_teacher_ids, type: Hash, default: {}
   field :learner_ids, type: Array, default: []
-  field :grade_id, type: BSON::ObjectId
 
-  belongs_to :grade, class_name: 'Grade'
-  has_many :learners, dependent: :nullify
+  belongs_to :grade, class_name: 'Grade', inverse_of: :school_classes
+  has_many :learners, class_name: 'Learner', inverse_of: :school_class, dependent: :nullify
 
   validates :name, presence: true, uniqueness: { scope: :grade_id }
   validates :capacity, presence: true, numericality: { greater_than: 0, only_integer: true }
-  validate :capacity_not_exceeded, :learner_belongs_to_grade
+  validate :capacity_not_exceeded
 
-  index({ grade_id: 1 })
+  index({ grade_id: 1, name: 1 }, { unique: true })
   index({ name: 1 })
 
   # Instance Methods

@@ -43,7 +43,7 @@ class Learner
   belongs_to :school,     class_name: 'School', optional: true
   belongs_to :created_by, class_name: 'User',   optional: true
   belongs_to :grade,      class_name: 'Grade',  optional: true
-  belongs_to :school_class, class_name: 'SchoolClass', optional: true
+  belongs_to :school_class, class_name: 'SchoolClass', inverse_of: :learners, optional: true
 
   # ======================== INDEXES ========================
   index({ school_id: 1, accession_number: 1 }, unique: true, sparse: true)

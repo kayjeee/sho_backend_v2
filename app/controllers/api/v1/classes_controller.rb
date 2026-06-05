@@ -191,22 +191,24 @@ module Api
         end
 
         unless @school
-          render json: { success: false, error: "School not found" }, status: :not_found
+          render json: { success: false, error: "School not found" }, status: :not_found and return
         end
       rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId
-        render json: { success: false, error: "School not found" }, status: :not_found
+        render json: { success: false, error: "School not found" }, status: :not_found and return
       end
 
       def set_grade
+        return unless @school
         @grade = @school.grades.find(params[:grade_id])
       rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId
-        render json: { success: false, error: "Grade not found" }, status: :not_found
+        render json: { success: false, error: "Grade not found" }, status: :not_found and return
       end
 
       def set_class
+        return unless @grade
         @school_class = @grade.school_classes.find(params[:id])
       rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId
-        render json: { success: false, error: "Class not found" }, status: :not_found
+        render json: { success: false, error: "Class not found" }, status: :not_found and return
       end
 
       def class_params
