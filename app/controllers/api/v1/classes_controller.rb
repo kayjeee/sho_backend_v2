@@ -212,7 +212,9 @@ module Api
       end
 
       def class_params
-        params.require(:class).permit(:name, :capacity, :class_teacher_id)
+        params.require(:class).permit(:name, :capacity, :class_teacher_id).tap do |p|
+          p[:class_teacher_id] = nil if p[:class_teacher_id].blank?
+        end
       end
 
       def class_json(school_class, detailed: false)

@@ -8,7 +8,7 @@ class SchoolClass
   field :subject_teacher_ids, type: Hash, default: {}
   field :learner_ids, type: Array, default: []
 
-  belongs_to :grade, class_name: 'Grade', inverse_of: :school_classes
+  belongs_to :grade, class_name: 'Grade', inverse_of: :school_classes, validate: false
   has_many :learners, class_name: 'Learner', inverse_of: :school_class, dependent: :nullify
 
   validates :name, presence: true, uniqueness: { scope: :grade_id }

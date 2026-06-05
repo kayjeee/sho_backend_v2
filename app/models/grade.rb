@@ -12,7 +12,7 @@ class Grade
   has_many :learners, dependent: :nullify
 
   validates :name, presence: true
-  validates :level, presence: true, numericality: { only_integer: true, greater_than: 0 }
+  validates :level, numericality: { only_integer: true, greater_than: 0 }, allow_nil: true
 
   # Aggregate Methods
   def total_learners
