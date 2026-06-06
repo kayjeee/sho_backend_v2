@@ -2,10 +2,11 @@
 Rails.application.routes.draw do
   # Root level school routes for requests missing /api/v1 prefix
   get 'schools/:school_id/grades', to: 'api/v1/grades#index'
+  get 'grades/:id', to: 'api/v1/grades#show'
 
   namespace :api do
     namespace :admin do
-      resources :grades, only: [:index]
+      resources :grades, only: [:index, :show]
     end
 
     # Explicit alias for frontend compatibility
