@@ -1,14 +1,20 @@
 # config/routes.rb
 Rails.application.routes.draw do
+  # Root level school routes for requests missing /api/v1 prefix
+  get 'schools/:school_id/grades', to: 'api/v1/grades#index'
+
   namespace :api do
     namespace :admin do
       resources :grades, only: [:index]
     end
 
-    # Explicit alias for frontend compatibility (Matches http://localhost:4000/api/admin/grades)
+    # Explicit alias for frontend compatibility
     get 'admin/grades', to: 'admin/grades#index'
 
     namespace :v1 do
+      # Handle double-prefixed requests from some frontend configurations
+      get 'api/admin/grades', to: '/api/admin/grades#index'
+
       # AdminUser custom route
       get 'admin_users/schools_for_admin', to: 'admin_users#schools_for_admin'
 
