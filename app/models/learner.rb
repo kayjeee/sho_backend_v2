@@ -21,6 +21,7 @@ class Learner
   alias_attribute :grade_id, :gradeId  # ← ADD THIS LINE
 
   field :school_class_id, type: String
+  field :parent_ids,      type: Array, default: []
 
   # ======================== NEW MOBILE FIELDS ========================
   field :date_of_birth,   type: Date
@@ -83,6 +84,10 @@ class Learner
 
   def status_text
     STATUSES.key(status)&.capitalize || 'Unknown'
+  end
+
+  def parents
+    User.where(:id.in => parent_ids, roles: "parent")
   end
 
   # Concatenate full name

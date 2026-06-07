@@ -110,6 +110,7 @@ Rails.application.routes.draw do
           get :learners
           get :teachers
           get :stats
+          get :hierarchy
           post :invite_learner
           post :invite_teacher
         end

@@ -115,7 +115,45 @@ module Api
         }
       end
 
+      # GET /api/v1/grades/:id/hierarchy
+      def hierarchy
+        render json: {
+          success: true,
+          grade: serialize_grade_with_hierarchy(@grade)
+        }
+      end
+
       private
+
+      def serialize_grade_with_hierarchy(grade)
+        {
+          id: grade.id.to_s,
+          name: grade.name,
+          classes: grade.school_classes.map { |cls|
+            assigned_learners = Learner.where(school_class_id: cls.id)
+            {
+              id: cls.id.to_s,
+              name: cls.name,
+              learners: assigned_learners.map { |l|
+                {
+                  id: l.id.to_s,
+                  name: "#{l.first_name} #{l.last_name}".presence || "Unnamed Learner",
+                  admission_number: l.try(:accession_number) || "LNR-#{l.id.to_s.last(4).upcase}",
+                  # Nest parent data array cleanly right here:
+                  parents: l.parents.map { |p|
+                    {
+                      id: p.id.to_s,
+                      name: p.try(:name) || p.email.split('@').first.capitalize,
+                      email: p.email,
+                      phone: p.try(:phone_number) || p.try(:phone) || "No Contact"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      end
 
       def set_school
         school_id = params[:school_id]
