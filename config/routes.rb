@@ -8,6 +8,7 @@ Rails.application.routes.draw do
     namespace :admin do
       resources :grades, only: [:index, :show]
       resources :learners, only: [:index]
+      resources :classes, only: [:index]
     end
 
     # Explicit alias for frontend compatibility
@@ -107,6 +108,7 @@ Rails.application.routes.draw do
 
       # GRADES ROUTES
       resources :grades, only: [:index, :show, :update, :destroy] do
+        resources :classes, only: [:index], controller: 'classes'
         member do
           get :learners
           get :teachers
