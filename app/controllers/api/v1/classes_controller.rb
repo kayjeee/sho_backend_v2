@@ -182,24 +182,12 @@ module Api
 
       def set_school
         school_id = params[:school_id]
-        if school_id.present?
-          if BSON::ObjectId.legal?(school_id)
-            @school = School.find(school_id)
-          else
-            lookup_name = school_id.to_s.gsub('-', ' ')
-            @school = School.where(schoolName: /^#{Regexp.escape(lookup_name)}$/i).first ||
-                      School.where(schoolEmail: /^#{Regexp.escape(school_id.to_s)}$/i).first
-          end
-        end
-
-        # If still no school, try to derive from grade_id
-        if @school.nil? && params[:grade_id].present?
-          begin
-            @grade = Grade.find(params[:grade_id])
-            @school = @grade.school if @grade
-          rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId
-            # Handled in set_grade
-          end
+        if BSON::ObjectId.legal?(school_id)
+          @school = School.find(school_id)
+        else
+          lookup_name = school_id.to_s.gsub('-', ' ')
+          @school = School.where(schoolName: /^#{Regexp.escape(lookup_name)}$/i).first ||
+                    School.where(schoolEmail: /^#{Regexp.escape(school_id.to_s)}$/i).first
         end
 
         unless @school
@@ -210,7 +198,8 @@ module Api
       end
 
       def set_grade
-        @grade ||= Grade.find(params[:grade_id])
+        return unless @school
+        @grade = @school.grades.find(params[:grade_id])
       rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId
         render json: { success: false, error: "Grade not found" }, status: :not_found and return
       end
