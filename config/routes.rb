@@ -4,9 +4,10 @@ Rails.application.routes.draw do
   get 'schools/:school_id/grades', to: 'api/v1/grades#index'
   get 'grades/:id', to: 'api/v1/grades#show'
 
-  namespace :api do
+  namespace :api, defaults: { format: :json } do
     namespace :admin do
       resources :grades, only: [:index, :show]
+      resources :learners, only: [:index]
     end
 
     # Explicit alias for frontend compatibility
