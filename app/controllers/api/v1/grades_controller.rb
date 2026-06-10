@@ -1,6 +1,6 @@
 module Api
   module V1
-    class GradesController < ApplicationController
+    class GradesController < Api::V1::BaseController
       before_action :set_school
       before_action :set_grade, only: [:show, :update, :destroy, :learners, :teachers, :stats]
       before_action :authorize_admin!, except: [:index, :show]
@@ -156,23 +156,19 @@ module Api
       end
 
       def set_school
-        school_id = params[:school_id]
-        if school_id.present?
-          if BSON::ObjectId.legal?(school_id)
-            @school = School.find(school_id)
-          else
-            lookup_name = school_id.to_s.gsub('-', ' ')
-            @school = School.where(schoolName: /^#{Regexp.escape(lookup_name)}$/i).first ||
-                      School.where(schoolEmail: /^#{Regexp.escape(school_id.to_s)}$/i).first
-          end
-        elsif params[:id].present? && action_name != 'create'
-          # Try to find grade first to get school context
+        @school = find_school_by_id_or_slug(params[:school_id])
+
+        if @school.nil? && params[:id].present? && action_name != 'create'
           begin
             @grade = Grade.find(params[:id])
             @school = @grade.school if @grade
           rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId
-            # Handled by set_grade or later
+            # Handled by set_grade
           end
+        end
+
+        unless @school
+          render json: { success: false, error: "School not found" }, status: :not_found
         end
       rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId
         render json: { success: false, error: "School not found" }, status: :not_found

@@ -2,6 +2,7 @@ module Api
   module Admin
     class BaseController < ActionController::API
       include Secured
+      include SchoolResolver
 
       rescue_from StandardError, with: :handle_unexpected_api_crash
       rescue_from BSON::Error::InvalidObjectId, with: :handle_invalid_object_id

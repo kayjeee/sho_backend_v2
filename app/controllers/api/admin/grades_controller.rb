@@ -1,6 +1,6 @@
 module Api
   module Admin
-    class GradesController < ApplicationController
+    class GradesController < Api::Admin::BaseController
       before_action :set_school
       before_action :set_grade, only: [:show]
 
@@ -50,17 +50,7 @@ module Api
 
       def set_school
         school_id = params[:schoolId] || params[:school_id]
-
-        if school_id.present?
-          if BSON::ObjectId.legal?(school_id)
-            @school = School.find(school_id)
-          else
-            # Fallback to lookup by slug/schoolName
-            lookup_name = school_id.to_s.gsub('-', ' ')
-            @school = School.where(schoolName: /^#{Regexp.escape(lookup_name)}$/i).first ||
-                      School.where(schoolEmail: /^#{Regexp.escape(school_id.to_s)}$/i).first
-          end
-        end
+        @school = find_school_by_id_or_slug(school_id)
 
         # Fallback resolution from gradeId if schoolId missing
         if @school.nil? && params[:gradeId].present?

@@ -1,6 +1,6 @@
 module Api
   module V1
-    class ClassesController < ApplicationController
+    class ClassesController < Api::V1::BaseController
       before_action :set_school
       before_action :set_grade
       before_action :set_class, only: [:show, :update, :destroy, :assign_teacher, :move_learner, :learners, :stats]
@@ -181,13 +181,16 @@ module Api
       private
 
       def set_school
-        school_id = params[:school_id]
-        if BSON::ObjectId.legal?(school_id)
-          @school = School.find(school_id)
-        else
-          lookup_name = school_id.to_s.gsub('-', ' ')
-          @school = School.where(schoolName: /^#{Regexp.escape(lookup_name)}$/i).first ||
-                    School.where(schoolEmail: /^#{Regexp.escape(school_id.to_s)}$/i).first
+        @school = find_school_by_id_or_slug(params[:school_id])
+
+        # Derive from grade_id if school missing
+        if @school.nil? && params[:grade_id].present?
+          begin
+            @grade = Grade.find(params[:grade_id])
+            @school = @grade.school if @grade
+          rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId
+            # Handled in set_grade
+          end
         end
 
         unless @school
