@@ -6,19 +6,48 @@ module Api
       before_action :authorize_admin!, except: [:index, :show]
 
       # GET /api/v1/schools/:school_id/grades
-      # GET /api/v1/grades (with school_id param)
+      # GET /api/v1/grades
       def index
-        grades = @school ? @school.grades : Grade.all
+        # 1. Grab the school parameter safely from any route style variation
+        school_param = params[:school_id] || params[:schoolId]
 
-        # Filter by school_id if provided in params
-        if params[:school_id].present? && !@school
-          grades = grades.where(school_id: params[:school_id])
+        if school_param.blank?
+          return render json: {
+            success: false,
+            error: "School context identifier is required."
+          }, status: :bad_request
         end
+
+        # 2. Resolve the identifier whether it's a valid hex BSON ObjectId or a text slug
+        school_id = if BSON::ObjectId.legal?(school_param)
+                      BSON::ObjectId.from_string(school_param)
+                    else
+                      # Fallback lookup if the frontend passes a slug name string (e.g. "far-north-secondary-school")
+                      clean_name = school_param.gsub('-', ' ')
+                      School.find_by(schoolName: /^#{Regexp.escape(clean_name)}$/i)&.id
+                    end
+
+        if school_id.nil?
+          return render json: {
+            success: false,
+            error: "Target school location could not be found."
+          }, status: :not_found
+        end
+
+        # 3. Retrieve the matching grade records
+        @grades = Grade.where(school_id: school_id)
 
         render json: {
           success: true,
-          grades: grades.map { |g| grade_json(g) }
-        }
+          total: @grades.count,
+          grades: @grades.map { |grade|
+            {
+              id: grade.id.to_s,
+              name: grade.name,
+              school_id: school_id.to_s
+            }
+          }
+        }, status: :ok
       end
 
       # GET /api/v1/schools/:school_id/grades/:id
@@ -156,7 +185,8 @@ module Api
       end
 
       def set_school
-        @school = find_school_by_id_or_slug(params[:school_id])
+        school_param = params[:school_id] || params[:schoolId]
+        @school = find_school_by_id_or_slug(school_param)
 
         if @school.nil? && params[:id].present? && action_name != 'create'
           begin
