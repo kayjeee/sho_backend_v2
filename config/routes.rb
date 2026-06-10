@@ -107,7 +107,7 @@ Rails.application.routes.draw do
 
       # GRADES ROUTES
       resources :grades, only: [:index, :show, :update, :destroy] do
-        resources :classes, only: [:index], controller: 'classes'
+        resources :classes, only: [:index, :create], controller: 'classes'
         resources :learners, only: [:index], controller: 'grades/learners'
         member do
           get :learners
