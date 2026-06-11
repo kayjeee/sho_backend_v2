@@ -20,7 +20,18 @@ class Grade
   end
 
   def all_learners
-    Learner.where(:id.in => school_classes.flat_map(&:learner_ids))
+    # 1. Learners directly associated with this grade via gradeId
+    # 2. Learners associated via classes
+    ids = school_classes.flat_map(&:learner_ids).map(&:to_s)
+
+    # Support both String and BSON for the direct association lookup
+    Learner.or(
+      { gradeId: id.to_s },
+      { gradeId: id },
+      { grade_id: id.to_s },
+      { grade_id: id },
+      { :_id.in => ids }
+    )
   end
 
   def all_teachers
