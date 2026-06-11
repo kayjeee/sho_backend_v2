@@ -13,6 +13,12 @@ Rails.application.routes.draw do
     # Explicit alias for frontend compatibility
     get 'admin/grades', to: 'admin/grades#index'
 
+    # Fallback scope to capture Auth0/NextJS lifecycle pings
+    scope :auth do
+      match 'login', to: 'auth#login', via: [:get, :post]
+      match 'me', to: 'auth#me', via: [:get]
+    end
+
     namespace :v1 do
       # Handle double-prefixed requests from some frontend configurations
       get 'api/admin/grades', to: '/api/admin/grades#index'
