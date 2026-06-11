@@ -1,7 +1,22 @@
 # config/routes.rb
 Rails.application.routes.draw do
-  namespace :api do
+  # Root level school routes for requests missing /api/v1 prefix
+  get 'schools/:school_id/grades', to: 'api/v1/grades#index'
+  get 'grades/:id', to: 'api/v1/grades#show'
+
+  namespace :api, defaults: { format: :json } do
+    namespace :admin do
+      resources :grades, only: [:index, :show]
+      resources :learners, only: [:index]
+    end
+
+    # Explicit alias for frontend compatibility
+    get 'admin/grades', to: 'admin/grades#index'
+
     namespace :v1 do
+      # Handle double-prefixed requests from some frontend configurations
+      get 'api/admin/grades', to: '/api/admin/grades#index'
+
       # AdminUser custom route
       get 'admin_users/schools_for_admin', to: 'admin_users#schools_for_admin'
 
@@ -56,8 +71,24 @@ Rails.application.routes.draw do
         end
 
         # Nested resources for school-specific operations
+        get :global_search, on: :member
         resources :students, only: [:index, :show, :create, :update, :destroy]
-        resources :grades, only: [:index, :create]
+        resources :grades do
+          resources :classes, controller: 'classes' do
+            member do
+              post :assign_teacher
+              post :move_learner
+              get :learners
+              get :stats
+            end
+          end
+
+          member do
+            get :learners
+            get :teachers
+            get :stats
+          end
+        end
         resources :learners, only: [:index]
         resources :transactions, only: [:index, :create] do
           collection do
@@ -75,11 +106,14 @@ Rails.application.routes.draw do
       post 'pr_codes/use', to: 'pr_codes#use'
 
       # GRADES ROUTES
-      resources :grades, only: [:show, :update, :destroy] do
+      resources :grades, only: [:index, :show, :update, :destroy] do
+        resources :classes, only: [:index, :create], controller: 'classes'
+        resources :learners, only: [:index], controller: 'grades/learners'
         member do
           get :learners
           get :teachers
           get :stats
+          get :hierarchy
           post :invite_learner
           post :invite_teacher
         end

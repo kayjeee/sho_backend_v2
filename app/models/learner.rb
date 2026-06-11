@@ -3,22 +3,29 @@ class Learner
   include Mongoid::Document
   include Mongoid::Timestamps
 
-  # ======================== LEGACY FIELDS ========================
-   field :firstName,        as: :first_name, type: String
-  field :lastName,         as: :last_name, type: String
-  field :accession_number, type: String
-  field :gender,           type: Integer, default: 0
-  field :status,           type: Integer, default: 0
+  # ======================== SNAPSHOT FIELDS ========================
+  field :firstName,       as: :first_name, type: String
+  field :lastName,        as: :last_name, type: String
+  field :gender,          type: String
+  field :accessionNumber, as: :accession_number, type: String
+  field :schoolName,      as: :school_name_denormalized, type: String
+  field :schoolEmail,     type: String
+  field :userEmail,       type: String
+  field :province,        type: String
+  field :auth0Id,         type: String
+  field :userAuth0Id,     type: String
+  field :gradeId,         as: :grade_id, type: String
+  field :school_id,       type: String
+  field :status,          type: String, default: "active"
+
   field :phone,            type: String
-  field :tel_emergency,    type: String
-  field :tel_home,         type: String
+  field :telEmergency,     as: :tel_emergency, type: String
+  field :telHome,          as: :tel_home, type: String
   field :whatsapp,         type: String
   field :telegram,         type: String
 
-  # ======================== GRADE FIELD WITH ALIAS ========================
-  # Database field is 'gradeId' (camelCase) but we want to use 'grade_id' (snake_case) in code
-  field :gradeId, type: String
-  alias_attribute :grade_id, :gradeId  # ← ADD THIS LINE
+  field :school_class_id, type: String
+  field :parent_ids,      type: Array, default: []
 
   # ======================== NEW MOBILE FIELDS ========================
   field :date_of_birth,   type: Date
@@ -31,16 +38,18 @@ class Learner
   validates :first_name, :last_name, presence: true
   validates :accession_number, uniqueness: { scope: :school_id }, allow_blank: true
 
-  GENDERS  = { 'male' => 0, 'female' => 1, 'other' => 2 }.freeze
-  STATUSES = { 'active' => 0, 'inactive' => 1, 'graduated' => 2 }.freeze
+  GENDERS  = %w[M F Other male female other].freeze
+  STATUSES = %w[active inactive graduated].freeze
 
-  validates :gender, inclusion: { in: GENDERS.values }
-  validates :status, inclusion: { in: STATUSES.values }
+  validates :gender, inclusion: { in: GENDERS }, allow_nil: true
+  validates :status, inclusion: { in: STATUSES }, allow_nil: true
 
   # ===================== ASSOCIATIONS =====================
-  belongs_to :school,     class_name: 'School', optional: true
+  # Use explicit foreign keys to match the snapshot data
+  belongs_to :school,     class_name: 'School', foreign_key: :school_id, optional: true
   belongs_to :created_by, class_name: 'User',   optional: true
-  belongs_to :grade,      class_name: 'Grade',  optional: true
+  belongs_to :grade,      class_name: 'Grade',  foreign_key: :gradeId,   optional: true
+  belongs_to :school_class, class_name: 'SchoolClass', inverse_of: :learners, optional: true
 
   # ======================== INDEXES ========================
   index({ school_id: 1, accession_number: 1 }, unique: true, sparse: true)
@@ -65,21 +74,25 @@ class Learner
   # ======================== METHODS =========================
 
   # Gender helpers
-  def male?         = gender == GENDERS['male']
-  def female?       = gender == GENDERS['female']
-  def other_gender? = gender == GENDERS['other']
+  def male?         = %w[M male].include?(gender)
+  def female?       = %w[F female].include?(gender)
+  def other_gender? = %w[Other other].include?(gender)
 
   def gender_text
-    GENDERS.key(gender)&.capitalize || 'Unknown'
+    gender&.capitalize || 'Unknown'
   end
 
   # Status helpers
-  def active?    = status == STATUSES['active']
-  def inactive?  = status == STATUSES['inactive']
-  def graduated? = status == STATUSES['graduated']
+  def active?    = status == "active"
+  def inactive?  = status == "inactive"
+  def graduated? = status == "graduated"
 
   def status_text
-    STATUSES.key(status)&.capitalize || 'Unknown'
+    status&.capitalize || 'Unknown'
+  end
+
+  def parents
+    User.where(:id.in => parent_ids, roles: "parent")
   end
 
   # Concatenate full name
@@ -93,21 +106,16 @@ class Learner
 
     return false if school_id_string.blank?
 
+    self.school_id = school_id_string
+
     school_bson_id = parse_bson_id(school_id_string)
-    return false unless school_bson_id
-
-    school_to_add = School.find_by(_id: school_bson_id)
-
-    unless school_to_add
-      Rails.logger.warn "⚠️ Learner#add_school: School with ID '#{school_id_string}' not found."
-      errors.add(:school, 'School not found.')
-      return false
+    if school_bson_id
+      school_to_add = School.find_by(_id: school_bson_id)
+      self.school = school_to_add if school_to_add
     end
 
-    self.school = school_to_add
-
     if save
-      Rails.logger.info "✅ Learner#add_school: Associated school '#{school_name}' with learner #{full_name}."
+      Rails.logger.info "✅ Learner#add_school: Associated school ID '#{school_id}' with learner #{full_name}."
       true
     else
       Rails.logger.error "❌ Learner#add_school: Failed to save learner. Errors: #{errors.full_messages.join(', ')}"
@@ -117,7 +125,7 @@ class Learner
 
   # Helper for school name for API or UI
   def school_name
-    school&.schoolName || school&.name
+    school&.schoolName || school&.name || school_name_denormalized
   end
 
   # Helper for grade name for API or UI
@@ -147,10 +155,13 @@ class Learner
       gender_text: gender_text,
       status: status,
       status_text: status_text,
-      school_id: school_id&.to_s,
+      school_id: school_id.to_s,
       school_name: school_name,
-      grade_id: grade_id&.to_s,  # This will work with the alias
+      grade_id: grade_id.to_s,
       grade_name: grade_name,
+      auth0Id: auth0Id,
+      userAuth0Id: userAuth0Id,
+      userEmail: userEmail,
       contact: {
         phone: phone,
         whatsapp: whatsapp,

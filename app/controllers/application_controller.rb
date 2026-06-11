@@ -22,12 +22,18 @@ class ApplicationController < ActionController::API
   end
 
   # Rescue from standard errors to avoid 500 crashes in production
-  rescue_from StandardError do |exception|
-    Rails.logger.error("🔥 API Error: #{exception.message}\n#{exception.backtrace.take(5).join("\n")}")
+  rescue_from StandardError, with: :handle_unexpected_api_crash
+
+  private
+
+  def handle_unexpected_api_crash(exception)
+    Rails.logger.error "🔥 CRASH IN API ENGINES: #{exception.message}"
+    Rails.logger.error exception.backtrace.join("\n")
 
     render json: {
       success: false,
-      error: exception.message,
+      error: "Internal Server Error",
+      message: exception.message,
       backtrace: Rails.env.development? ? exception.backtrace : nil
     }, status: :internal_server_error
   end

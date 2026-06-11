@@ -14,7 +14,7 @@ gem 'rack-cors'
 # Database
 gem "mongoid"
 # Add to Gemfile
-gem 'pg'
+# gem 'pg'
 # Authentication & Security
 gem 'jwt'
 gem 'rack-cors'

@@ -34,8 +34,8 @@ module GradeServices
 
       # Aggregate to count active learners per grade in a single MongoDB query
       counts = Learner.collection.aggregate([
-        { '$match' => { 'grade_id' => { '$in' => grade_ids }, 'status' => 0 } }, # Active learners only
-        { '$group' => { '_id' => '$grade_id', 'count' => { '$sum' => 1 } } }
+        { '$match' => { 'gradeId' => { '$in' => grade_ids.map(&:to_s) }, 'status' => 0 } }, # Active learners only
+        { '$group' => { '_id' => '$gradeId', 'count' => { '$sum' => 1 } } }
       ]).to_a
 
       counts_map = counts.each_with_object({}) { |doc, h| h[doc['_id']] = doc['count'] }
