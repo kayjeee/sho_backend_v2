@@ -1,30 +1,53 @@
 module Api
   module V1
     module Grades
-      class LearnersController < ApplicationController
-        # GET /api/v1/grades/:grade_id/learners
+      class LearnersController < Api::V1::BaseController
         def index
           grade_id = params[:grade_id]
+          school_id = params[:school_id] || params[:schoolId]
 
-          # Fetch users that possess the 'parent' role
-          # Scoped to parents in the system
-          @learners = User.where(:roles.in => ["parent"])
+          if grade_id.blank?
+            return render json: { success: false, error: "Grade identifier is required." }, status: :bad_request
+          end
 
-          # Optional: If parents have a specific grade_id stored in metadata or sub-documents
-          # @learners = @learners.where("onboarding_status.client_metadata.grade_id" => grade_id)
+          # 1. Build dynamic query object matching schema types
+          # Handles both raw string storage and BSON ObjectId attributes
+          query = {}
+          if BSON::ObjectId.legal?(grade_id)
+            query[:gradeId] = grade_id.to_s
+          else
+            query[:gradeId] = grade_id
+          end
 
+          if school_id.present?
+            query[:school_id] = BSON::ObjectId.legal?(school_id) ? school_id.to_s : school_id
+          end
+
+          # 2. Extract genuine Learner documents from the collection
+          @learners = Learner.where(query)
+
+          # Fallback query pattern if your schema uses underscores instead of camelCase keys:
+          if @learners.count == 0
+            alt_query = {}
+            alt_query[:grade_id] = BSON::ObjectId.legal?(grade_id) ? BSON::ObjectId.from_string(grade_id) : grade_id
+            alt_query[:school_id] = BSON::ObjectId.legal?(school_id) ? BSON::ObjectId.from_string(school_id) : school_id if school_id.present?
+            @learners = Learner.where(alt_query)
+          end
+
+          # 3. Serialize output fields safely for frontend grid components
           render json: {
             success: true,
             total: @learners.count,
-            learners: @learners.map { |user|
+            learners: @learners.map { |learner|
               {
-                id: user.id.to_s,
-                name: user.name || user.email.split('@').first.capitalize,
-                email: user.email,
-                phone: user.try(:phone) || user.try(:phone_number) || "No Contact",
-                status: user.try(:status) || "active",
-                roles: user.roles,
-                grade_id: grade_id
+                id: learner.id.to_s,
+                firstName: learner.try(:firstName) || learner.try(:first_name),
+                lastName: learner.try(:lastName) || learner.try(:last_name),
+                gender: learner.gender,
+                accessionNumber: learner.try(:accessionNumber) || learner.try(:accession_number),
+                gradeId: learner.try(:gradeId) || learner.try(:grade_id)&.to_s,
+                school_id: learner.school_id.to_s,
+                parent_id: learner.try(:parent_id)&.to_s || nil # Reserved placeholder for future linkages
               }
             }
           }, status: :ok
