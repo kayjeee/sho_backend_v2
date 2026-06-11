@@ -3,84 +3,51 @@ module Api
     module Grades
       class LearnersController < Api::V1::BaseController
         def index
-          grade_id_param = params[:grade_id]
-          school_id_param = params[:school_id] || params[:schoolId]
+          grade_id = params[:grade_id]
+          school_id = params[:school_id] || params[:schoolId]
 
-          if grade_id_param.blank?
-            return render json: { success: true, total: 0, learners: [] }
+          if grade_id.blank?
+            return render json: { success: false, error: "Grade identifier is required." }, status: :bad_request
           end
 
-          # Prepare possible values for the IDs (support both String and BSON)
-          def get_possible_ids(id_str)
-            return [] if id_str.blank?
-            ids = [id_str.to_s]
-            ids << BSON::ObjectId.from_string(id_str) if BSON::ObjectId.legal?(id_str)
-            ids.uniq
+          # 1. Build dynamic query object matching schema types
+          # Handles both raw string storage and BSON ObjectId attributes
+          query = {}
+          if BSON::ObjectId.legal?(grade_id)
+            query[:gradeId] = grade_id.to_s
+          else
+            query[:gradeId] = grade_id
           end
 
-          grade_ids = get_possible_ids(grade_id_param)
-          school_ids = get_possible_ids(school_id_param)
-
-          # Strategy 1: Direct lookup on Learner collection (Legacy & Convenience)
-          # We search across gradeId and grade_id fields, and support both String and BSON types.
-          direct_criteria = {
-            "$or" => [
-              { gradeId: { "$in" => grade_ids } },
-              { grade_id: { "$in" => grade_ids } }
-            ]
-          }
-
-          if school_ids.any?
-            direct_criteria[:school_id] = { "$in" => school_ids }
+          if school_id.present?
+            query[:school_id] = BSON::ObjectId.legal?(school_id) ? school_id.to_s : school_id
           end
 
-          learners = Learner.where(direct_criteria).to_a
+          # 2. Extract genuine Learner documents from the collection
+          @learners = Learner.where(query)
 
-          # Strategy 2: Hierarchy lookup (Grade -> Classes -> Learner IDs)
-          # This follows the new multi-tier architecture
-          classes_criteria = { grade_id: { "$in" => grade_ids } }
-          classes = SchoolClass.where(classes_criteria)
-
-          learner_ids_from_classes = classes.flat_map(&:learner_ids).compact.uniq
-
-          if learner_ids_from_classes.any?
-            # Support learner IDs being either String or BSON in the learner_ids array
-            search_ids = learner_ids_from_classes.map(&:to_s)
-            learner_ids_from_classes.each do |id|
-              search_ids << BSON::ObjectId.from_string(id.to_s) if BSON::ObjectId.legal?(id.to_s)
-            end
-            search_ids.uniq!
-
-            class_learners = Learner.where(:_id.in => search_ids).to_a
-            learners = (learners + class_learners).uniq { |l| l.id.to_s }
+          # Fallback query pattern if your schema uses underscores instead of camelCase keys:
+          if @learners.count == 0
+            alt_query = {}
+            alt_query[:grade_id] = BSON::ObjectId.legal?(grade_id) ? BSON::ObjectId.from_string(grade_id) : grade_id
+            alt_query[:school_id] = BSON::ObjectId.legal?(school_id) ? BSON::ObjectId.from_string(school_id) : school_id if school_id.present?
+            @learners = Learner.where(alt_query)
           end
 
-          # Strategy 3: School-wide lookup if no grade matches found yet
-          # Some data might not have gradeId or grade_id set correctly
-          if learners.empty? && school_ids.any?
-            # Find any learner in the school
-            learners = Learner.where(school_id: { "$in" => school_ids }).to_a
-          end
-
-          # Serialize output using model's to_api_hash if available, or custom snapshot-friendly hash
+          # 3. Serialize output fields safely for frontend grid components
           render json: {
             success: true,
-            total: learners.count,
-            learners: learners.map { |l|
+            total: @learners.count,
+            learners: @learners.map { |learner|
               {
-                id: l.id.to_s,
-                firstName: l.try(:firstName) || l.try(:first_name),
-                lastName: l.try(:lastName) || l.try(:last_name),
-                gender: l.gender,
-                accessionNumber: l.try(:accessionNumber) || l.try(:accession_number),
-                schoolName: l.try(:schoolName) || l.try(:school_name),
-                schoolEmail: l.try(:schoolEmail),
-                userEmail: l.try(:userEmail),
-                province: l.try(:province),
-                auth0Id: l.try(:auth0Id) || l.try(:auth0_id),
-                gradeId: l.try(:gradeId) || l.try(:grade_id)&.to_s,
-                school_id: l.try(:school_id)&.to_s,
-                status: l.try(:status) || "active"
+                id: learner.id.to_s,
+                firstName: learner.firstName,
+                lastName: learner.lastName,
+                gender: learner.gender,
+                accessionNumber: learner.accessionNumber,
+                gradeId: learner.try(:gradeId) || learner.try(:grade_id)&.to_s,
+                school_id: learner.school_id.to_s,
+                parent_id: learner.try(:parent_id)&.to_s || nil # Reserved placeholder for future linkages
               }
             }
           }, status: :ok
