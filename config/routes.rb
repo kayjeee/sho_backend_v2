@@ -13,6 +13,12 @@ Rails.application.routes.draw do
     # Explicit alias for frontend compatibility
     get 'admin/grades', to: 'admin/grades#index'
 
+    # Fallback scope to capture Auth0/NextJS lifecycle pings
+    scope :auth do
+      match 'login', to: 'auth#login', via: [:get, :post]
+      match 'me', to: 'auth#me', via: [:get]
+    end
+
     namespace :v1 do
       # Handle double-prefixed requests from some frontend configurations
       get 'api/admin/grades', to: '/api/admin/grades#index'
@@ -21,7 +27,7 @@ Rails.application.routes.draw do
       get 'admin_users/schools_for_admin', to: 'admin_users#schools_for_admin'
 
       # User Routes with onboarding status nested resources
-      resources :users, only: [:index, :show, :create, :update, :destroy] do
+      resources :users, param: :auth0_id, only: [:index, :show, :create, :update, :destroy] do
         member do
           get :roles
           post :add_role
@@ -39,6 +45,7 @@ Rails.application.routes.draw do
 
         collection do
           get :me
+          get :schools
         end
       end
 
