@@ -126,16 +126,23 @@ module Api
       private
 
       def set_target_user
-        user_id = params[:user_id] || params[:id]
+        # Account for routing schema update where parent ID is params[:user_auth0_id]
+        target_id = params[:user_auth0_id] || params[:auth0_id] || params[:user_id] || params[:id]
+
         @target_user =
-          if user_id.match?(/^[a-f\d]{24}$/i)
-            User.find(user_id)
+          if target_id.to_s.include?('|') || !target_id.to_s.match?(/^[a-f\d]{24}$/i)
+            # Safe lookup by auth0_id for strings containing pipes or non-hex patterns
+            User.find_by(auth0_id: target_id)
           else
-            User.find_by(auth0_id: user_id)
+            # Standard BSON ID lookup
+            User.find(target_id)
           end
 
         render(json: { success: false, message: "User not found" }, status: :not_found) unless @target_user
-      rescue Mongoid::Errors::DocumentNotFound, BSON::ObjectId::Invalid
+      rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId, Mongoid::Errors::InvalidFind
+        render json: { success: false, message: "User not found" }, status: :not_found
+      rescue StandardError => e
+        Rails.logger.error "🔥 Unexpected error in set_target_user: #{e.message}"
         render json: { success: false, message: "User not found" }, status: :not_found
       end
 
