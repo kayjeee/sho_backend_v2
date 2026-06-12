@@ -81,11 +81,12 @@ end
   end
 
   def set_user
-    Rails.logger.debug "🔍 Looking up user by auth0_id: #{params[:id]}"
-    @user = User.find_by(auth0_id: params[:id])
+    lookup_id = params[:auth0_id] || params[:id]
+    Rails.logger.debug "🔍 Looking up user by auth0_id: #{lookup_id}"
+    @user = User.find_by(auth0_id: lookup_id)
     
     unless @user
-      Rails.logger.warn "❌ User not found with auth0_id: #{params[:id]}"
+      Rails.logger.warn "❌ User not found with auth0_id: #{lookup_id}"
       render json: { success: false, error: "User not found" }, status: :not_found
     end
   end
