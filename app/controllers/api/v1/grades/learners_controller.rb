@@ -10,26 +10,27 @@ module Api
             return render json: { success: false, error: "Grade identifier is required." }, status: :bad_request
           end
 
-          # 1. Resolve Grade context to leverage Mongoid associations and hierarchy logic
           begin
             @grade = Grade.find(grade_id)
-          rescue Mongoid::Errors::DocumentNotFound
+          rescue Mongoid::Errors::DocumentNotFound, Mongoid::Errors::InvalidFind
             return render json: { success: false, error: "Grade not found." }, status: :not_found
           end
 
-          # 2. Use the resilient all_learners method (handles BSON/String mismatches and SchoolClass hierarchy)
-          # Fallback to association if method is missing
-          @learners = @grade.respond_to?(:all_learners) ? @grade.all_learners : @grade.learners
+          # The production database collection strictly stores relation values as 'gradeId' (camelCase string)
+          query = { "gradeId" => @grade.id.to_s }
 
-          # Apply school filter if provided
+          # Query school_id as a string if provided
           if school_id.present?
-            @learners = @learners.where(school_id: school_id)
+            query["school_id"] = school_id.to_s
           end
 
-          # 3. Serialization with safety guards for varying schema formats
+          # Fetch using the Mongo Ruby driver and safely convert/instantiate back to Mongoid model instances
+          raw_docs = Learner.collection.find(query)
+          @learners = raw_docs.map { |doc| Learner.instantiate(doc) }
+
           render json: {
             success: true,
-            total: @learners.count,
+            total: @learners.size,
             learners: @learners.map { |learner|
               {
                 id: learner.id.to_s,
@@ -39,7 +40,8 @@ module Api
                 accessionNumber: learner.try(:accessionNumber) || learner.try(:accession_number),
                 gradeId: @grade.id.to_s,
                 school_id: learner.school_id.to_s,
-                parent_id: learner.try(:parent_id)&.to_s || nil
+                parent_id: learner.try(:parent_id)&.to_s || nil,
+                status: learner.try(:status) || "active"
               }
             }
           }, status: :ok
