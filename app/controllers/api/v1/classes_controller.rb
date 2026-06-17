@@ -110,18 +110,38 @@ module Api
 
       # POST /api/v1/schools/:school_id/grades/:grade_id/classes/:id/move_learner
       def move_learner
-        learner_id = params[:learner_id]
-        target_class_id = params[:target_class_id]
+        learner_id = params[:learner_id] || params[:learnerId]
+        target_class_id = params[:target_class_id] || params[:targetClassId]
+
+        if learner_id.blank?
+          return render json: { success: false, error: "Learner identifier (learner_id) is missing." }, status: :bad_request
+        end
+
+        if target_class_id.blank?
+          return render json: { success: false, error: "Target class identifier (target_class_id) is missing." }, status: :bad_request
+        end
 
         # Find target class
         begin
           target_class = @grade.school_classes.find(target_class_id)
-        rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId
+        rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId, Mongoid::Errors::InvalidFind
           return render json: { success: false, error: "Target class not found" }, status: :not_found
         end
 
+        # Find learner
+        begin
+          @learner = Learner.find(learner_id)
+        rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId, Mongoid::Errors::InvalidFind
+          return render json: { success: false, error: "Learner with ID #{learner_id} not found." }, status: :not_found
+        end
+
         # Validate learner exists in source class
-        unless @school_class.learner_ids.include?(BSON::ObjectId.from_string(learner_id.to_s))
+        bson_learner_id = BSON::ObjectId.from_string(learner_id.to_s) rescue nil
+        if bson_learner_id.nil?
+          return render json: { success: false, error: "Invalid learner ID format" }, status: :bad_request
+        end
+
+        unless @school_class.learner_ids.include?(bson_learner_id)
           return render json: { success: false, error: "Learner not found in source class" },
                         status: :unprocessable_entity
         end
@@ -133,13 +153,13 @@ module Api
         end
 
         # Atomic move operation
-        @school_class.pull(learner_ids: BSON::ObjectId.from_string(learner_id.to_s))
-        target_class.add_to_set(learner_ids: BSON::ObjectId.from_string(learner_id.to_s))
+        @school_class.pull(learner_ids: bson_learner_id)
+        target_class.add_to_set(learner_ids: bson_learner_id)
 
         # Update learner's grade and class references
-        Learner.find(learner_id).update(
-          grade_id: @grade.id,
-          school_class_id: target_class.id
+        @learner.update(
+          grade_id: @grade.id.to_s,
+          school_class_id: target_class.id.to_s
         )
 
         render json: {
