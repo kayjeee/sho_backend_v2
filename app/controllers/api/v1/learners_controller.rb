@@ -1,7 +1,7 @@
 module Api
   module V1
     class LearnersController < Api::V1::BaseController
-      before_action :set_learner, only: [:show, :update, :destroy, :graduate, :transfer, :activate, :deactivate]
+      before_action :set_learner, only: [:show, :update, :destroy, :graduate, :transfer, :activate, :deactivate, :history, :grades]
       before_action :set_grade, only: [:index], if: -> { params[:grade_id].present? }
       before_action :set_request_context
 
@@ -66,6 +66,73 @@ module Api
             message: e.message
           }, status: :internal_server_error
         end
+      end
+
+      # ------------------------------
+      # GET /api/v1/learners/export
+      # ------------------------------
+      def export
+        learners = Learner.all
+        learners = learners.where(school_id: params[:school_id]) if params[:school_id].present?
+        learners = learners.where(status: params[:status]) if params[:status].present?
+
+        # grade_id filter uses raw collection due to gradeId/grade_id field mismatch
+        if params[:grade_id].present?
+          ids = Learner.collection.find(gradeId: params[:grade_id]).map { |d| d["_id"] }
+          learners = learners.where(:id.in => ids)
+        end
+
+        render_success(data: learners.map { |l| learner_response(l) })
+      rescue => e
+        render_exception("Learners#export", e)
+      end
+
+      # ------------------------------
+      # GET /api/v1/learners/statistics
+      # ------------------------------
+      def statistics
+        learners = Learner.all
+        learners = learners.where(school_id: params[:school_id]) if params[:school_id].present?
+
+        total = learners.count
+        by_status = learners.group_by(&:status).transform_values(&:count)
+        by_gender = learners.group_by(&:gender).transform_values(&:count)
+
+        render_success(
+          data: {
+            total: total,
+            by_status: by_status,
+            by_gender: by_gender
+          }
+        )
+      rescue => e
+        render_exception("Learners#statistics", e)
+      end
+
+      # ------------------------------
+      # GET /api/v1/learners/:id/history
+      # ------------------------------
+      def history
+        # Placeholder: no audit/history model wired up yet.
+        render_success(data: [], message: "History tracking not yet implemented")
+      rescue => e
+        render_exception("Learners#history", e)
+      end
+
+      # ------------------------------
+      # GET /api/v1/learners/:id/grades
+      # ------------------------------
+      def grades
+        # @learner is set via before_action; grade_id field mismatch means we
+        # look the grade up via the raw stored gradeId value if present.
+        grade_id = Learner.collection.find(_id: @learner.id).first&.dig("gradeId")
+        grade = grade_id.present? ? Grade.find_by(id: grade_id) : nil
+
+        render_success(
+          data: grade ? { id: grade.id.to_s, name: grade.try(:name) } : nil
+        )
+      rescue => e
+        render_exception("Learners#grades", e)
       end
 
       # ------------------------------
