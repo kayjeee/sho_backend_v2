@@ -5,6 +5,58 @@ class Api::V1::LearnersController < ApplicationController
   before_action :set_request_context
 
   # ------------------------------
+  # GET /api/v1/learners/search
+  # ------------------------------
+  def search
+    query_str = params[:q]
+    school_id = params[:school_id] || params[:schoolId]
+
+    if school_id.blank?
+      return render json: { success: false, error: "School context identifier is required." }, status: :bad_request
+    end
+
+    if query_str.blank?
+      return render json: { success: true, total: 0, learners: [] }, status: :ok
+    end
+
+    # Setup search criteria with multi-tenant filtering
+    criteria = { "school_id" => school_id.to_s }
+
+    # Safe case-insensitive regex search
+    regex = /#{Regexp.escape(query_str)}/i
+    criteria["$or"] = [
+      { "firstName" => regex },
+      { "lastName" => regex },
+      { "first_name" => regex },
+      { "last_name" => regex },
+      { "accessionNumber" => regex },
+      { "accession_number" => regex }
+    ]
+
+    # Run find operation directly on the collection to avoid relation mismatch bugs
+    raw_docs = Learner.collection.find(criteria).limit(50)
+    @learners = raw_docs.map { |doc| Learner.instantiate(doc) }
+
+    render json: {
+      success: true,
+      total: @learners.size,
+      learners: @learners.map { |learner|
+        {
+          id: learner.id.to_s,
+          firstName: learner.try(:firstName) || learner.try(:first_name),
+          lastName: learner.try(:lastName) || learner.try(:last_name),
+          gender: learner.gender,
+          accessionNumber: learner.try(:accessionNumber) || learner.try(:accession_number),
+          gradeId: (learner.try(:gradeId) || learner.try(:grade_id))&.to_s,
+          school_id: learner.school_id.to_s,
+          parent_id: learner.try(:parent_id)&.to_s || nil,
+          status: learner.try(:status) || "active"
+        }
+      }
+    }, status: :ok
+  end
+
+  # ------------------------------
   # GET /api/v1/learners
   # GET /api/v1/grades/:grade_id/learners
   # ------------------------------
