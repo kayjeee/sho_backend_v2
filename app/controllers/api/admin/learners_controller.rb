@@ -52,7 +52,7 @@ module Api
             { :gradeId.in => grade_ids_str },
             { :grade_id.in => grade_ids_str },
             { :grade_id.in => grade_ids_bson }
-          ).compact
+          )
         end
 
         render json: {
@@ -65,17 +65,34 @@ module Api
       private
 
       # Resolves a school param that may be a slug, name, or already an ObjectId.
+      # Returns the school's actual _id string so it matches what learners store.
       def resolve_school_id(param)
         return param if param.blank?
         return param if param.to_s.match?(/\A[0-9a-f]{24}\z/i)
 
+        # 1. Try exact match on slug or schoolName
+        clean_name = param.to_s.gsub('-', ' ')
         school_doc = School.collection.find(
           "$or" => [
-            { "slug" => param },
-            { "name" => param },
-            { "schoolName" => param }
+            { "slug"       => param },
+            { "schoolName" => /^#{Regexp.escape(clean_name)}$/i },
+            { "name"       => /^#{Regexp.escape(clean_name)}$/i }
           ]
         ).first
+
+        # 2. Try partial match if exact match fails
+        unless school_doc
+          tokens = clean_name.split(' ').reject { |t| %w[school secondary high primary].include?(t.downcase) }
+          if tokens.any?
+            regex = /#{tokens.map { |t| Regexp.escape(t) }.join('.*')}/i
+            school_doc = School.collection.find(
+              "$or" => [
+                { "schoolName" => regex },
+                { "name"       => regex }
+              ]
+            ).first
+          end
+        end
 
         school_doc ? school_doc["_id"].to_s : param
       end

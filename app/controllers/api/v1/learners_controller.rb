@@ -129,23 +129,65 @@ module Api
       # GET /api/v1/schools/:school_id/learners
       # ------------------------------
       def index
-        learners = @grade ? @grade.learners : Learner.all
+        begin
+          school_param = params[:school_id] || params[:schoolId]
+          grade_param = params[:grade_id] || params[:gradeId]
 
-        if params[:school_id].present? || params[:schoolId].present?
-          resolved_school_id = resolve_school_id(params[:school_id] || params[:schoolId])
-          learners = learners.where(school_id: resolved_school_id)
-        end
+          # High-fidelity School Resolution
+          resolved_school_id = resolve_school_id(school_param) if school_param.present?
 
-        learners = learners.where(status: params[:status]) if params[:status].present?
+          # 2. Query execution bypasses the gradeId trap (Bug Lore #1)
+          if grade_param.present?
+            # Fetch matching both String and BSON variants for the grade
+            # We also gather all learners associated with the resolved school if it was provided
+            query_criteria = [
+              { gradeId: grade_param.to_s },
+              { grade_id: grade_param.to_s }
+            ]
+            if BSON::ObjectId.legal?(grade_param)
+              bson_grade_id = BSON::ObjectId.from_string(grade_param)
+              query_criteria << { gradeId: bson_grade_id }
+              query_criteria << { grade_id: bson_grade_id }
+            end
 
-        # grade_id filter uses raw collection due to gradeId/grade_id field mismatch
-        grade_id_param = params[:grade_id] || params[:gradeId]
-        if grade_id_param.present?
-          grade_doc_ids = Learner.collection.find(gradeId: grade_id_param).map { |d| d["_id"] }
-          learners = learners.where(:id.in => grade_doc_ids)
-        end
+            learners = Learner.any_of(*query_criteria)
 
-        page = (params[:page] || 1).to_i
+            if resolved_school_id
+              school_bson_id = BSON::ObjectId.from_string(resolved_school_id) rescue nil
+              school_criteria = [
+                { school_id: resolved_school_id },
+                { schoolId: resolved_school_id }
+              ]
+              school_criteria << { school_id: school_bson_id } if school_bson_id
+
+              learners = learners.any_of(*school_criteria)
+            end
+          elsif resolved_school_id
+            # Collect all grade IDs mapped to this school context (BSON and String)
+            # This is Bug Lore #1: sometimes learners are only linked via grade context
+            school = School.find(resolved_school_id) rescue nil
+            grade_ids_bson = school ? school.grades.pluck(:id) : []
+            grade_ids_str  = grade_ids_bson.map(&:to_s)
+
+            query_criteria = [
+              { school_id: resolved_school_id },
+              { schoolId: resolved_school_id },
+              { :gradeId.in => grade_ids_str },
+              { :grade_id.in => grade_ids_str },
+              { :grade_id.in => grade_ids_bson }
+            ]
+            if BSON::ObjectId.legal?(resolved_school_id)
+              query_criteria << { school_id: BSON::ObjectId.from_string(resolved_school_id) }
+            end
+
+            learners = Learner.any_of(*query_criteria)
+          else
+            learners = Learner.all
+          end
+
+          learners = learners.where(status: params[:status]) if params[:status].present?
+
+          page = (params[:page] || 1).to_i
         per_page = [(params[:per_page] || 20).to_i, 100].min
         total_count = learners.count
         learners = learners.skip((page - 1) * per_page).limit(per_page)
@@ -371,19 +413,33 @@ module Api
       # Returns the school's actual _id string so it matches what learners store.
       def resolve_school_id(param)
         return param if param.blank?
-
-        # If it looks like a BSON ObjectId already, use it as-is
         return param if param.to_s.match?(/\A[0-9a-f]{24}\z/i)
 
-        # Otherwise look the school up by slug or name
+        # 1. Try exact match on slug or schoolName
+        clean_name = param.to_s.gsub('-', ' ')
         school_doc = School.collection.find(
           "$or" => [
-            { "slug"          => param },
-            { "name"          => param },
-            { "school_name"   => param },
-            { "schoolName"    => param }
+            { "slug"       => param },
+            { "schoolName" => /^#{Regexp.escape(clean_name)}$/i },
+            { "name"       => /^#{Regexp.escape(clean_name)}$/i }
           ]
         ).first
+
+        # 2. Try partial match if exact match fails (handles "Far North Secondary High School" vs "far-north-secondary-school")
+        unless school_doc
+          # Extract key tokens (e.g., 'far', 'north')
+          tokens = clean_name.split(' ').reject { |t| %w[school secondary high primary].include?(t.downcase) }
+          if tokens.any?
+            # Create a regex that looks for all tokens in order
+            regex = /#{tokens.map { |t| Regexp.escape(t) }.join('.*')}/i
+            school_doc = School.collection.find(
+              "$or" => [
+                { "schoolName" => regex },
+                { "name"       => regex }
+              ]
+            ).first
+          end
+        end
 
         school_doc ? school_doc["_id"].to_s : param
       end
