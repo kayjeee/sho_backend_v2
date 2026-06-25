@@ -129,67 +129,38 @@ module Api
       # GET /api/v1/schools/:school_id/learners
       # ------------------------------
       def index
-        begin
-          # 1. Resolve Context ID vs Route Slug Mismatch (Bug Lore #4)
-          identifier = params[:school_id] || params[:schoolId]
-          @school = find_school_by_id_or_slug(identifier) if identifier.present?
+        learners = @grade ? @grade.learners : Learner.all
 
-          # Handle Grade context if provided
-          if params[:grade_id].present?
-            @grade ||= Grade.find(params[:grade_id]) rescue nil
-          end
-
-          # 2. Query execution bypasses the gradeId trap (Bug Lore #1)
-          if @grade
-            # Strict grade filter matching both String and BSON variants
-            learners = Learner.any_of(
-              { gradeId: @grade.id.to_s },
-              { gradeId: @grade.id },
-              { grade_id: @grade.id.to_s },
-              { grade_id: @grade.id }
-            )
-          elsif @school
-            # Collect all grade IDs mapped to this school context (BSON and String)
-            grade_ids_bson = @school.grades.pluck(:id)
-            grade_ids_str  = grade_ids_bson.map(&:to_s)
-
-            # Find all learners matching those grade configuration tokens
-            # Also fallback checks if schoolId is directly configured on the learner document
-            learners = Learner.any_of(
-              { :gradeId.in => grade_ids_str },
-              { :grade_id.in => grade_ids_str },
-              { :grade_id.in => grade_ids_bson },
-              { schoolId: @school.id.to_s },
-              { school_id: @school.id.to_s },
-              { school_id: @school.id }
-            )
-          else
-            learners = Learner.all
-          end
-
-          # Apply additional filters
-          learners = learners.where(status: params[:status]) if params[:status].present?
-
-          page = (params[:page] || 1).to_i
-          per_page = [(params[:per_page] || 20).to_i, 100].min
-          total_count = learners.count
-          learners = learners.skip((page - 1) * per_page).limit(per_page)
-
-          # 3. Formulate resilient response payload
-          render_success(
-            data: learners.map { |l| serialize_learner_frontend(l) },
-            pagination: {
-              current_page: page,
-              per_page: per_page,
-              total_count: total_count,
-              total_pages: (total_count.to_f / per_page).ceil
-            }
-          )
-
-        rescue StandardError => e
-          # Resilient API Output Guard (Bug Lore #5)
-          render_exception("Learners#index", e)
+        if params[:school_id].present? || params[:schoolId].present?
+          resolved_school_id = resolve_school_id(params[:school_id] || params[:schoolId])
+          learners = learners.where(school_id: resolved_school_id)
         end
+
+        learners = learners.where(status: params[:status]) if params[:status].present?
+
+        # grade_id filter uses raw collection due to gradeId/grade_id field mismatch
+        grade_id_param = params[:grade_id] || params[:gradeId]
+        if grade_id_param.present?
+          grade_doc_ids = Learner.collection.find(gradeId: grade_id_param).map { |d| d["_id"] }
+          learners = learners.where(:id.in => grade_doc_ids)
+        end
+
+        page = (params[:page] || 1).to_i
+        per_page = [(params[:per_page] || 20).to_i, 100].min
+        total_count = learners.count
+        learners = learners.skip((page - 1) * per_page).limit(per_page)
+
+        render_success(
+          data: learners.map { |l| serialize_learner_frontend(l) },
+          pagination: {
+            current_page: page,
+            per_page: per_page,
+            total_count: total_count,
+            total_pages: (total_count.to_f / per_page).ceil
+          }
+        )
+      rescue => e
+        render_exception("Learners#index", e)
       end
 
       # ------------------------------
@@ -394,6 +365,27 @@ module Api
           :school_id, :grade_id, :gender, :status,
           :phone, :tel_emergency, :tel_home, :whatsapp, :telegram
         )
+      end
+
+      # Resolves a school param that may be a slug, name, or already an ObjectId.
+      # Returns the school's actual _id string so it matches what learners store.
+      def resolve_school_id(param)
+        return param if param.blank?
+
+        # If it looks like a BSON ObjectId already, use it as-is
+        return param if param.to_s.match?(/\A[0-9a-f]{24}\z/i)
+
+        # Otherwise look the school up by slug or name
+        school_doc = School.collection.find(
+          "$or" => [
+            { "slug"          => param },
+            { "name"          => param },
+            { "school_name"   => param },
+            { "schoolName"    => param }
+          ]
+        ).first
+
+        school_doc ? school_doc["_id"].to_s : param
       end
 
       def update_status(status_code, action)

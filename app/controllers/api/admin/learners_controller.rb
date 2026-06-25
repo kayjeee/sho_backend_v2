@@ -15,7 +15,7 @@ module Api
         end
 
         # 1. Resolve school context if provided
-        @school = find_school_by_id_or_slug(school_id_param) if school_id_param.present?
+        resolved_school_id = resolve_school_id(school_id_param) if school_id_param.present?
 
         # 2. Query execution with identifier resolution
         if grade_id_param.present?
@@ -30,19 +30,29 @@ module Api
             query_criteria << { grade_id: bson_id }
           end
           @learners = Learner.any_of(*query_criteria)
-        elsif @school
-          # Collect all grade IDs for the school to catch learners missing a direct school link
-          grade_ids_bson = @school.grades.pluck(:id)
-          grade_ids_str  = grade_ids_bson.map(&:to_s)
+        elsif resolved_school_id
+          # Find all learners matching this school ID (String or BSON)
+          # We also gather grade IDs as a fallback for incomplete data
+          school_bson_id = BSON::ObjectId.from_string(resolved_school_id) rescue nil
+
+          grade_ids_str = []
+          grade_ids_bson = []
+          if school_bson_id
+            school = School.find(school_bson_id) rescue nil
+            if school
+              grade_ids_bson = school.grades.pluck(:id)
+              grade_ids_str  = grade_ids_bson.map(&:to_s)
+            end
+          end
 
           @learners = Learner.any_of(
+            { school_id: resolved_school_id },
+            { schoolId: resolved_school_id },
+            { school_id: school_bson_id },
             { :gradeId.in => grade_ids_str },
             { :grade_id.in => grade_ids_str },
-            { :grade_id.in => grade_ids_bson },
-            { schoolId: @school.id.to_s },
-            { school_id: @school.id.to_s },
-            { school_id: @school.id }
-          )
+            { :grade_id.in => grade_ids_bson }
+          ).compact
         end
 
         render json: {
@@ -53,6 +63,22 @@ module Api
       end
 
       private
+
+      # Resolves a school param that may be a slug, name, or already an ObjectId.
+      def resolve_school_id(param)
+        return param if param.blank?
+        return param if param.to_s.match?(/\A[0-9a-f]{24}\z/i)
+
+        school_doc = School.collection.find(
+          "$or" => [
+            { "slug" => param },
+            { "name" => param },
+            { "schoolName" => param }
+          ]
+        ).first
+
+        school_doc ? school_doc["_id"].to_s : param
+      end
 
       def serialize_learner_with_parents(learner)
         parent_ids = learner.try(:parent_ids) || []
