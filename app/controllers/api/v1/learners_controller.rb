@@ -138,29 +138,69 @@ module Api
       # ------------------------------
       # GET /api/v1/learners
       # GET /api/v1/grades/:grade_id/learners
+      # GET /api/v1/schools/:school_id/learners
       # ------------------------------
       def index
-        learners = @grade ? @grade.learners : Learner.all
-        learners = learners.where(school_id: params[:school_id]) if params[:school_id].present?
-        learners = learners.where(grade_id: params[:grade_id]) if params[:grade_id].present?
-        learners = learners.where(status: params[:status]) if params[:status].present?
+        begin
+          # 1. Resolve Context ID vs Route Slug Mismatch (Bug Lore #4)
+          identifier = params[:school_id] || params[:schoolId]
 
-        page = (params[:page] || 1).to_i
-        per_page = [(params[:per_page] || 20).to_i, 100].min
-        total_count = learners.count
-        learners = learners.skip((page - 1) * per_page).limit(per_page)
+          if identifier.present?
+            if BSON::ObjectId.legal?(identifier)
+              @school = School.find(identifier)
+            else
+              # Query by slug if a raw name string like 'far-north-secondary-school' is passed
+              @school = School.find_by(slug: identifier) || School.find_by(schoolName: /^#{Regexp.escape(identifier.gsub('-', ' '))}$/i)
+            end
+          end
 
-        render_success(
-          data: learners.map { |l| learner_response(l) },
-          pagination: {
-            current_page: page,
-            per_page: per_page,
-            total_count: total_count,
-            total_pages: (total_count.to_f / per_page).ceil
-          }
-        )
-      rescue => e
-        render_exception("Learners#index", e)
+          # Handle Grade context if provided
+          if params[:grade_id].present?
+            @grade ||= Grade.find(params[:grade_id]) rescue nil
+          end
+
+          # 2. Query execution bypasses the gradeId trap (Bug Lore #1)
+          if @grade
+            # Strict grade filter
+            learners = Learner.any_of({ gradeId: @grade.id.to_s }, { grade_id: @grade.id.to_s })
+          elsif @school
+            # Collect all grade IDs mapped to this school context
+            grade_ids = @school.grades.pluck(:id).map(&:to_s)
+
+            # Find all learners matching those grade configuration tokens
+            # Also fallback checks if schoolId is directly configured on the learner document
+            learners = Learner.any_of(
+              { :gradeId.in => grade_ids },
+              { schoolId: @school.id.to_s },
+              { school_id: @school.id.to_s }
+            )
+          else
+            learners = Learner.all
+          end
+
+          # Apply additional filters
+          learners = learners.where(status: params[:status]) if params[:status].present?
+
+          page = (params[:page] || 1).to_i
+          per_page = [(params[:per_page] || 20).to_i, 100].min
+          total_count = learners.count
+          learners = learners.skip((page - 1) * per_page).limit(per_page)
+
+          # 3. Formulate resilient response payload
+          render_success(
+            data: learners.map { |l| learner_response(l) },
+            pagination: {
+              current_page: page,
+              per_page: per_page,
+              total_count: total_count,
+              total_pages: (total_count.to_f / per_page).ceil
+            }
+          )
+
+        rescue StandardError => e
+          # Resilient API Output Guard (Bug Lore #5)
+          render_exception("Learners#index", e)
+        end
       end
 
       # ------------------------------
