@@ -42,19 +42,7 @@ module Api
           render json: {
             success: true,
             total: @learners.size,
-            learners: @learners.map { |learner|
-              {
-                id: learner.id.to_s,
-                firstName: learner.try(:firstName) || learner.try(:first_name),
-                lastName: learner.try(:lastName) || learner.try(:last_name),
-                gender: learner.gender,
-                accessionNumber: learner.try(:accessionNumber) || learner.try(:accession_number),
-                gradeId: (learner.try(:gradeId) || learner.try(:grade_id))&.to_s,
-                school_id: learner.school_id.to_s,
-                parent_id: learner.try(:parent_id)&.to_s || nil,
-                status: learner.try(:status) || "active"
-              }
-            }
+            learners: @learners.map { |learner| serialize_learner_frontend(learner) }
           }, status: :ok
 
         rescue StandardError => e
@@ -82,7 +70,7 @@ module Api
           learners = learners.where(:id.in => ids)
         end
 
-        render_success(data: learners.map { |l| learner_response(l) })
+        render_success(data: learners.map { |l| serialize_learner_frontend(l) })
       rescue => e
         render_exception("Learners#export", e)
       end
@@ -144,15 +132,7 @@ module Api
         begin
           # 1. Resolve Context ID vs Route Slug Mismatch (Bug Lore #4)
           identifier = params[:school_id] || params[:schoolId]
-
-          if identifier.present?
-            if BSON::ObjectId.legal?(identifier)
-              @school = School.find(identifier)
-            else
-              # Query by slug if a raw name string like 'far-north-secondary-school' is passed
-              @school = School.find_by(slug: identifier) || School.find_by(schoolName: /^#{Regexp.escape(identifier.gsub('-', ' '))}$/i)
-            end
-          end
+          @school = find_school_by_id_or_slug(identifier) if identifier.present?
 
           # Handle Grade context if provided
           if params[:grade_id].present?
@@ -161,18 +141,27 @@ module Api
 
           # 2. Query execution bypasses the gradeId trap (Bug Lore #1)
           if @grade
-            # Strict grade filter
-            learners = Learner.any_of({ gradeId: @grade.id.to_s }, { grade_id: @grade.id.to_s })
+            # Strict grade filter matching both String and BSON variants
+            learners = Learner.any_of(
+              { gradeId: @grade.id.to_s },
+              { gradeId: @grade.id },
+              { grade_id: @grade.id.to_s },
+              { grade_id: @grade.id }
+            )
           elsif @school
-            # Collect all grade IDs mapped to this school context
-            grade_ids = @school.grades.pluck(:id).map(&:to_s)
+            # Collect all grade IDs mapped to this school context (BSON and String)
+            grade_ids_bson = @school.grades.pluck(:id)
+            grade_ids_str  = grade_ids_bson.map(&:to_s)
 
             # Find all learners matching those grade configuration tokens
             # Also fallback checks if schoolId is directly configured on the learner document
             learners = Learner.any_of(
-              { :gradeId.in => grade_ids },
+              { :gradeId.in => grade_ids_str },
+              { :grade_id.in => grade_ids_str },
+              { :grade_id.in => grade_ids_bson },
               { schoolId: @school.id.to_s },
-              { school_id: @school.id.to_s }
+              { school_id: @school.id.to_s },
+              { school_id: @school.id }
             )
           else
             learners = Learner.all
@@ -188,7 +177,7 @@ module Api
 
           # 3. Formulate resilient response payload
           render_success(
-            data: learners.map { |l| learner_response(l) },
+            data: learners.map { |l| serialize_learner_frontend(l) },
             pagination: {
               current_page: page,
               per_page: per_page,
@@ -207,7 +196,7 @@ module Api
       # GET /api/v1/learners/:id
       # ------------------------------
       def show
-        render_success(data: learner_response(@learner))
+        render_success(data: serialize_learner_frontend(@learner))
       end
 
       # ------------------------------
@@ -218,7 +207,7 @@ module Api
 
         if learner.save
           mark_upload_learners_complete(params[:user_id])
-          render_success(message: "Learner created", data: learner_response(learner), status: :created)
+          render_success(message: "Learner created", data: serialize_learner_frontend(learner), status: :created)
         else
           render_error(learner.errors.full_messages, :unprocessable_entity)
         end
@@ -232,7 +221,7 @@ module Api
       def update
         if @learner.update(learner_params)
           mark_upload_learners_complete(params[:user_id])
-          render_success(message: "Learner updated", data: learner_response(@learner))
+          render_success(message: "Learner updated", data: serialize_learner_frontend(@learner))
         else
           render_error(@learner.errors.full_messages, :unprocessable_entity)
         end
@@ -267,7 +256,7 @@ module Api
 
         if @learner.update(update_fields)
           mark_upload_learners_complete(params[:user_id])
-          render_success(message: "Learner transferred", data: learner_response(@learner))
+          render_success(message: "Learner transferred", data: serialize_learner_frontend(@learner))
         else
           render_error(@learner.errors.full_messages, :unprocessable_entity)
         end
@@ -410,7 +399,7 @@ module Api
       def update_status(status_code, action)
         if @learner.update(status: status_code)
           mark_upload_learners_complete(params[:user_id])
-          render_success(message: "Learner #{action}", data: learner_response(@learner))
+          render_success(message: "Learner #{action}", data: serialize_learner_frontend(@learner))
         else
           render_error(@learner.errors.full_messages, :unprocessable_entity)
         end
@@ -418,19 +407,21 @@ module Api
         render_exception("Learners##{action}", e)
       end
 
-      def learner_response(l)
+      def serialize_learner_frontend(learner)
         {
-          id: l.id.to_s,
-          first_name: l.first_name,
-          last_name: l.last_name,
-          full_name: l.try(:full_name),
-          accession_number: l.accession_number,
-          status: l.status,
-          phone: l.phone,
-          school_id: l.school_id,
-          grade_id: l.grade_id,
-          created_at: l.created_at,
-          updated_at: l.updated_at
+          id: learner.id.to_s,
+          firstName: learner.try(:firstName) || learner.try(:first_name),
+          lastName: learner.try(:lastName) || learner.try(:last_name),
+          fullName: learner.try(:full_name) || "#{learner.try(:first_name)} #{learner.try(:last_name)}".strip,
+          gender: learner.gender,
+          accessionNumber: learner.try(:accessionNumber) || learner.try(:accession_number),
+          gradeId: (learner.try(:gradeId) || learner.try(:grade_id))&.to_s,
+          schoolId: (learner.try(:schoolId) || learner.try(:school_id))&.to_s,
+          parentId: learner.try(:parent_id)&.to_s || nil,
+          status: learner.try(:status) || "active",
+          phone: learner.try(:phone),
+          createdAt: learner.created_at,
+          updatedAt: learner.updated_at
         }
       end
 

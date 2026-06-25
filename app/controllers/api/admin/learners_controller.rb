@@ -1,25 +1,49 @@
 module Api
   module Admin
     class LearnersController < Api::Admin::BaseController
-      # GET /api/admin/learners?gradeId=...
+      # GET /api/admin/learners?gradeId=...&schoolId=...
       def index
         grade_id_param = params[:gradeId] || params[:grade_id]
+        school_id_param = params[:schoolId] || params[:school_id]
 
-        if grade_id_param.blank?
+        if grade_id_param.blank? && school_id_param.blank?
           return render json: {
             success: false,
             error: "Bad Request",
-            message: "Missing required gradeId parameter"
+            message: "Missing required identifier (gradeId or schoolId)"
           }, status: :bad_request
         end
 
-        # Enforce strict validation check on the ID
-        unless BSON::ObjectId.legal?(grade_id_param)
-          raise BSON::Error::InvalidObjectId
-        end
+        # 1. Resolve school context if provided
+        @school = find_school_by_id_or_slug(school_id_param) if school_id_param.present?
 
-        # Query matching learners
-        @learners = Learner.where(grade_id: BSON::ObjectId.from_string(grade_id_param))
+        # 2. Query execution with identifier resolution
+        if grade_id_param.present?
+          # Fetch matching both String and BSON variants for the grade
+          query_criteria = [
+            { gradeId: grade_id_param.to_s },
+            { grade_id: grade_id_param.to_s }
+          ]
+          if BSON::ObjectId.legal?(grade_id_param)
+            bson_id = BSON::ObjectId.from_string(grade_id_param)
+            query_criteria << { gradeId: bson_id }
+            query_criteria << { grade_id: bson_id }
+          end
+          @learners = Learner.any_of(*query_criteria)
+        elsif @school
+          # Collect all grade IDs for the school to catch learners missing a direct school link
+          grade_ids_bson = @school.grades.pluck(:id)
+          grade_ids_str  = grade_ids_bson.map(&:to_s)
+
+          @learners = Learner.any_of(
+            { :gradeId.in => grade_ids_str },
+            { :grade_id.in => grade_ids_str },
+            { :grade_id.in => grade_ids_bson },
+            { schoolId: @school.id.to_s },
+            { school_id: @school.id.to_s },
+            { school_id: @school.id }
+          )
+        end
 
         render json: {
           success: true,
