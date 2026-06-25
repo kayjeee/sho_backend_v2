@@ -76,33 +76,28 @@ module Api
       # Returns the school's actual _id string so it matches what learners store.
       def resolve_school_id(param)
         return param if param.blank?
+
+        # Already a 24-char hex ObjectId — use directly
         return param if param.to_s.match?(/\A[0-9a-f]{24}\z/i)
 
-        # 1. Try exact match on slug or schoolName
-        clean_name = param.to_s.gsub('-', ' ')
+        # Convert slug back to a name-like search
+        # e.g. "far-north-secondary-school" → /far north secondary school/i
+        name_pattern = Regexp.new(Regexp.escape(param.to_s.gsub('-', ' ')), Regexp::IGNORECASE)
+
         school_doc = School.collection.find(
           "$or" => [
-            { "slug"       => param },
-            { "schoolName" => /^#{Regexp.escape(clean_name)}$/i },
-            { "name"       => /^#{Regexp.escape(clean_name)}$/i }
+            { "schoolName"   => name_pattern },
+            { "school_name"  => name_pattern },
+            { "name"         => name_pattern }
           ]
         ).first
 
-        # 2. Try partial match if exact match fails
-        unless school_doc
-          tokens = clean_name.split(' ').reject { |t| %w[school secondary high primary].include?(t.downcase) }
-          if tokens.any?
-            regex = /#{tokens.map { |t| Regexp.escape(t) }.join('.*')}/i
-            school_doc = School.collection.find(
-              "$or" => [
-                { "schoolName" => regex },
-                { "name"       => regex }
-              ]
-            ).first
-          end
+        if school_doc
+          school_doc["_id"].to_s
+        else
+          Rails.logger.warn "⚠️ resolve_school_id: no school found for param '#{param}'"
+          param  # fall through — will return empty results rather than crash
         end
-
-        school_doc ? school_doc["_id"].to_s : param
       end
 
       def serialize_learner_with_parents(learner)
