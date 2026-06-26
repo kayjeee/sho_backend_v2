@@ -22,7 +22,9 @@ module Api
 
         begin
           # Setup search criteria with multi-tenant filtering
-          criteria = { "school_id" => school_id.to_s }
+          # Using raw collection find to avoid Mongoid type-casting issues
+          resolved_id = resolve_school_id(school_id)
+          criteria = { "school_id" => resolved_id }
 
           # Safe case-insensitive regex search
           regex = /#{Regexp.escape(query_str)}/i
@@ -46,13 +48,7 @@ module Api
           }, status: :ok
 
         rescue StandardError => e
-          # Catch any Mongoid lookup/formatting error and return as clean JSON
-          # to avoid rendering development HTML web console templates.
-          render json: {
-            success: false,
-            error: "An error occurred during query execution",
-            message: e.message
-          }, status: :internal_server_error
+          render_exception("Learners#search", e)
         end
       end
 
@@ -60,15 +56,16 @@ module Api
       # GET /api/v1/learners/export
       # ------------------------------
       def export
-        learners = Learner.all
-        learners = learners.where(school_id: params[:school_id]) if params[:school_id].present?
-        learners = learners.where(status: params[:status]) if params[:status].present?
+        school_param = params[:school_id] || params[:schoolId]
+        grade_param  = params[:grade_id]  || params[:gradeId]
 
-        # grade_id filter uses raw collection due to gradeId/grade_id field mismatch
-        if params[:grade_id].present?
-          ids = Learner.collection.find(gradeId: params[:grade_id]).map { |d| d["_id"] }
-          learners = learners.where(:id.in => ids)
-        end
+        raw_filter = {}
+        raw_filter["school_id"] = resolve_school_id(school_param) if school_param.present?
+        raw_filter["status"]    = params[:status]                 if params[:status].present?
+        raw_filter["gradeId"]   = grade_param                     if grade_param.present?
+
+        raw_docs = Learner.collection.find(raw_filter)
+        learners = raw_docs.map { |doc| Learner.instantiate(doc) }
 
         render_success(data: learners.map { |l| serialize_learner_frontend(l) })
       rescue => e
@@ -79,10 +76,15 @@ module Api
       # GET /api/v1/learners/statistics
       # ------------------------------
       def statistics
-        learners = Learner.all
-        learners = learners.where(school_id: params[:school_id]) if params[:school_id].present?
+        school_param = params[:school_id] || params[:schoolId]
 
-        total = learners.count
+        raw_filter = {}
+        raw_filter["school_id"] = resolve_school_id(school_param) if school_param.present?
+
+        raw_docs = Learner.collection.find(raw_filter)
+        learners = raw_docs.map { |doc| Learner.instantiate(doc) }
+
+        total = learners.size
         by_status = learners.group_by(&:status).transform_values(&:count)
         by_gender = learners.group_by(&:gender).transform_values(&:count)
 
@@ -129,38 +131,44 @@ module Api
       # GET /api/v1/schools/:school_id/learners
       # ------------------------------
       def index
-        learners = @grade ? @grade.learners : Learner.all
+        begin
+          school_param = params[:school_id] || params[:schoolId]
+          grade_param  = params[:grade_id]  || params[:gradeId]
 
-        if params[:school_id].present? || params[:schoolId].present?
-          resolved_school_id = resolve_school_id(params[:school_id] || params[:schoolId])
-          learners = learners.where(school_id: resolved_school_id)
+          # Build filter using raw field names to avoid Mongoid type-casting issues
+          raw_filter = {}
+          raw_filter["school_id"] = resolve_school_id(school_param) if school_param.present?
+          raw_filter["status"]    = params[:status]                 if params[:status].present?
+
+          if grade_param.present?
+            raw_filter["gradeId"] = grade_param
+          end
+
+          if @grade
+            grade_raw_id = @grade.id.to_s
+            raw_filter["gradeId"] = grade_raw_id
+          end
+
+          page     = (params[:page] || 1).to_i
+          per_page = [(params[:per_page] || 20).to_i, 100].min
+
+          raw_docs    = Learner.collection.find(raw_filter)
+          total_count = raw_docs.count
+          learners    = raw_docs.skip((page - 1) * per_page).limit(per_page)
+                                .map { |doc| Learner.instantiate(doc) }
+
+          render_success(
+            data: learners.map { |l| serialize_learner_frontend(l) },
+            pagination: {
+              current_page: page,
+              per_page:     per_page,
+              total_count:  total_count,
+              total_pages:  (total_count.to_f / per_page).ceil
+            }
+          )
+        rescue => e
+          render_exception("Learners#index", e)
         end
-
-        learners = learners.where(status: params[:status]) if params[:status].present?
-
-        # grade_id filter uses raw collection due to gradeId/grade_id field mismatch
-        grade_id_param = params[:grade_id] || params[:gradeId]
-        if grade_id_param.present?
-          grade_doc_ids = Learner.collection.find("gradeId" => grade_id_param).map { |d| d["_id"] }
-          learners = learners.where(:id.in => grade_doc_ids)
-        end
-
-        page = (params[:page] || 1).to_i
-        per_page = [(params[:per_page] || 20).to_i, 100].min
-        total_count = learners.count
-        learners = learners.skip((page - 1) * per_page).limit(per_page)
-
-        render_success(
-          data: learners.map { |l| serialize_learner_frontend(l) },
-          pagination: {
-            current_page: page,
-            per_page: per_page,
-            total_count: total_count,
-            total_pages: (total_count.to_f / per_page).ceil
-          }
-        )
-      rescue => e
-        render_exception("Learners#index", e)
       end
 
       # ------------------------------

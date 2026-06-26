@@ -4,10 +4,10 @@ module Api
       # GET /api/admin/learners?gradeId=...&schoolId=...
       def index
         begin
-          grade_id_param = params[:gradeId] || params[:grade_id]
-          school_id_param = params[:schoolId] || params[:school_id]
+          grade_param = params[:gradeId] || params[:grade_id]
+          school_param = params[:schoolId] || params[:school_id]
 
-          if grade_id_param.blank? && school_id_param.blank?
+          if grade_param.blank? && school_param.blank?
             return render json: {
               success: false,
               error: "Bad Request",
@@ -16,49 +16,22 @@ module Api
           end
 
           # 1. Resolve school context if provided
-          resolved_school_id = resolve_school_id(school_id_param) if school_id_param.present?
+          resolved_school_id = resolve_school_id(school_param) if school_param.present?
 
-          # 2. Query execution with identifier resolution
-          if grade_id_param.present?
-            # Fetch matching both String and BSON variants for the grade
-            query_criteria = [
-              { gradeId: grade_id_param.to_s },
-              { grade_id: grade_id_param.to_s }
-            ]
-            if BSON::ObjectId.legal?(grade_id_param)
-              bson_id = BSON::ObjectId.from_string(grade_id_param)
-              query_criteria << { gradeId: bson_id }
-              query_criteria << { grade_id: bson_id }
-            end
-            @learners = Learner.any_of(*query_criteria)
+          # 2. Query execution with high-fidelity raw filters
+          raw_filter = {}
+          if grade_param.present?
+            raw_filter["gradeId"] = grade_param
           elsif resolved_school_id
-            # Find all learners matching this school ID (String or BSON)
-            # We also gather grade IDs as a fallback for incomplete data
-            school_bson_id = BSON::ObjectId.from_string(resolved_school_id) rescue nil
-
-            grade_ids_str = []
-            grade_ids_bson = []
-            if school_bson_id
-              school = School.find(school_bson_id) rescue nil
-              if school
-                grade_ids_bson = school.grades.pluck(:id)
-                grade_ids_str  = grade_ids_bson.map(&:to_s)
-              end
-            end
-
-            @learners = Learner.any_of(
-              { school_id: resolved_school_id },
-              { schoolId: resolved_school_id },
-              ({ school_id: school_bson_id } if school_bson_id),
-              { :gradeId.in => grade_ids_str },
-              { :grade_id.in => grade_ids_str },
-              { :grade_id.in => grade_ids_bson }
-            )
+            raw_filter["school_id"] = resolved_school_id
           end
+
+          raw_docs = Learner.collection.find(raw_filter)
+          @learners = raw_docs.map { |doc| Learner.instantiate(doc) }
 
           render json: {
             success: true,
-            total: @learners.count,
+            total: @learners.size,
             learners: @learners.map { |l| serialize_learner_with_parents(l) }
           }
         rescue => e
