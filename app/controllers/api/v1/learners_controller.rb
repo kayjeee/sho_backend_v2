@@ -141,7 +141,7 @@ module Api
         # grade_id filter uses raw collection due to gradeId/grade_id field mismatch
         grade_id_param = params[:grade_id] || params[:gradeId]
         if grade_id_param.present?
-          grade_doc_ids = Learner.collection.find(gradeId: grade_id_param).map { |d| d["_id"] }
+          grade_doc_ids = Learner.collection.find("gradeId" => grade_id_param).map { |d| d["_id"] }
           learners = learners.where(:id.in => grade_doc_ids)
         end
 
