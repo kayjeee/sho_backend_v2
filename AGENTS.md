@@ -48,6 +48,7 @@ graph TD
 *   **Filename Exceptions**: Note that `app/controllers/api/v1/schoolsController.rb` and `usersController.rb` use camelCase filenames. Maintain this naming.
 *   **Parameter Support**: Support both `snake_case` and `camelCase` parameters in API payloads (e.g., `school_id` and `schoolId`).
 *   **Namespace Hierarchy**: Preference is given to nested controllers (e.g., `Api::V1::Grades::LearnersController`) for grade-specific listings.
+*   **Shallow vs. Nested Routes**: Support both shallow (e.g., `/api/v1/classes/:id`) and nested (e.g., `/api/v1/schools/:s_id/grades/:g_id/classes/:id`) routing for frontend compatibility. Controllers should infer context (School, Grade) from the class ID if hierarchical params are missing.
 
 ### 5. Data Integrity & Performance
 *   **Hash Dirty Tracking**: When updating `Hash` fields (like `subject_teacher_ids`), call `.dup` on the hash before modification to ensure Mongoid tracks the change.

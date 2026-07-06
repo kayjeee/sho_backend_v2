@@ -229,7 +229,34 @@ Rails.application.routes.draw do
 
       # CONVERSATIONS
       resources :conversations, only: [:index, :show, :create] do
-        resources :messages, only: [:create, :index]
+        member do
+          put :read
+          post :typing
+        end
+        collection do
+          post :group_initiation
+        end
+        resources :messages, only: [:create, :index] do
+          member do
+            post :react
+            post :pin
+            post :star
+          end
+          collection do
+            get :search
+          end
+        end
+      end
+
+      # Standalone messages routes
+      get 'messages/starred', to: 'messages#starred'
+
+      # Shallow Class routes for frontend compatibility
+      resources :classes, only: [] do
+        member do
+          post :assign_teacher
+          post :move_learner
+        end
       end
 
       # ASSESSMENTS

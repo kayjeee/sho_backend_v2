@@ -75,9 +75,9 @@ module Api
 
       # POST /api/v1/schools/:school_id/grades/:grade_id/classes/:id/assign_teacher
       def assign_teacher
-        teacher_id = params[:teacher_id]
+        teacher_id = params[:teacher_id] || params[:teacherId]
         role = params[:role] # 'class_teacher' or 'subject_teacher'
-        subject_id = params[:subject_id] # Required for subject_teacher
+        subject_id = params[:subject_id] || params[:subjectId] # Required for subject_teacher
 
         case role
         when 'class_teacher'
@@ -213,7 +213,11 @@ module Api
       private
 
       def set_school
-        @school = find_school_by_id_or_slug(params[:school_id])
+        # In shallow routing, school_id might be missing
+        school_id_param = params[:school_id] || params[:schoolId]
+        if school_id_param.present?
+          @school = find_school_by_id_or_slug(school_id_param)
+        end
 
         # Derive from grade_id if school missing
         if @school.nil? && params[:grade_id].present?
@@ -225,6 +229,17 @@ module Api
           end
         end
 
+        # Derive from class id if both school and grade missing
+        if @school.nil? && params[:id].present?
+          begin
+            @school_class = SchoolClass.find(params[:id])
+            @grade = @school_class.grade
+            @school = @grade&.school
+          rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId
+            # Handled in set_class
+          end
+        end
+
         unless @school
           render json: { success: false, error: "School not found" }, status: :not_found and return
         end
@@ -233,14 +248,25 @@ module Api
       end
 
       def set_grade
+        return if @grade # Might have been set in set_school
         return unless @school
-        @grade = @school.grades.find(params[:grade_id])
+
+        grade_id_param = params[:grade_id] || params[:gradeId]
+        if grade_id_param.present?
+          @grade = @school.grades.find(grade_id_param)
+        end
+
+        unless @grade
+          render json: { success: false, error: "Grade not found" }, status: :not_found and return
+        end
       rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId
         render json: { success: false, error: "Grade not found" }, status: :not_found and return
       end
 
       def set_class
+        return if @school_class # Might have been set in set_school
         return unless @grade
+
         @school_class = @grade.school_classes.find(params[:id])
       rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId
         render json: { success: false, error: "Class not found" }, status: :not_found and return
