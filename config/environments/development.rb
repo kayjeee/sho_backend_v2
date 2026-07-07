@@ -43,6 +43,20 @@ Rails.application.configure do
   # Print deprecation notices to the Rails logger.
   config.active_support.deprecation = :log
 
+  # Show development request/application logs in the terminal while keeping the
+  # usual log/development.log file available for tailing and debugging.
+  config.log_level = ENV.fetch("RAILS_LOG_LEVEL", "debug").to_sym
+
+  file_logger = ActiveSupport::Logger.new(Rails.root.join("log/development.log"))
+  file_logger.formatter = config.log_formatter
+
+  stdout_logger = ActiveSupport::Logger.new($stdout)
+  stdout_logger.formatter = config.log_formatter
+
+  config.logger = ActiveSupport::TaggedLogging.new(
+    ActiveSupport::BroadcastLogger.new(file_logger, stdout_logger)
+  )
+
   # Raise an error on page load if there are pending migrations.
   # config.active_record.migration_error = :page_load
 
