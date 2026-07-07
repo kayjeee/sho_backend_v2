@@ -372,6 +372,7 @@ Rails.application.routes.draw do
   root 'api/v1/application#index'
 
   # Global health
+  get 'up', to: 'api/v1/application#health'
   get 'health', to: 'api/v1/application#health'
 
   # API docs

@@ -22,26 +22,31 @@ module Api
       end
 
       # POST /api/v1/conversations
-     # POST /api/v1/conversations
-     def create
-      school_id = params[:conversation][:school_id]
-      user_id = params[:conversation][:user_id]
-    
-      if school_id.blank? || user_id.blank?
-        return render json: { success: false, error: "Missing parameters: school_id and user_id are required" }, status: :bad_request
+      def create
+        conversation_params = params[:conversation] || {}
+        school_id = conversation_params[:school_id].presence || params[:school_id]
+        user_identifier = conversation_params[:user_id].presence || params[:user_id]
+
+        Rails.logger.info(
+          "POST /api/v1/conversations received school_id=#{school_id.inspect} " \
+          "user_id=#{user_identifier.inspect} request_id=#{request.request_id}"
+        )
+
+        if school_id.blank? || user_identifier.blank?
+          return render json: { success: false, error: "Missing parameters: school_id and user_id are required" }, status: :bad_request
+        end
+
+        user = find_user(user_identifier)
+        return render json: { success: false, error: "User not found" }, status: :not_found unless user
+
+        conversation = Conversation.find_or_create_by_school_and_user(school_id, user.id)
+
+        if conversation.persisted?
+          render json: { success: true, data: conversation, message: "Conversation created or retrieved" }, status: :ok
+        else
+          render json: { success: false, errors: conversation.errors.full_messages }, status: :unprocessable_entity
+        end
       end
-    
-      user = User.find_by(id: user_id)
-      return render json: { success: false, error: "User not found" }, status: :not_found unless user
-    
-      conversation = Conversation.find_or_create_by(school_id: school_id, user_id: user_id)
-      
-      if conversation.persisted?
-        render json: { success: true, data: conversation, message: "Conversation created or retrieved" }, status: :ok
-      else
-        render json: { success: false, errors: conversation.errors.full_messages }, status: :unprocessable_entity
-      end
-    end
     
     
       # DELETE /api/v1/conversations/:id
@@ -58,6 +63,12 @@ module Api
       def set_conversation
         @conversation = Conversation.find_by(id: params[:id], school_id: params[:school_id], user_id: params[:user_id])
         return render json: { success: false, error: "Conversation not found" }, status: :not_found unless @conversation
+      end
+
+      def find_user(identifier)
+        User.find_by(id: identifier) || User.find_by(auth0_id: identifier)
+      rescue Mongoid::Errors::InvalidFind, BSON::ObjectId::Invalid
+        User.find_by(auth0_id: identifier)
       end
     end
   end
