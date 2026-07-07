@@ -66,9 +66,14 @@ module Api
       end
 
       def find_user(identifier)
-        User.find_by(id: identifier) || User.find_by(auth0_id: identifier)
-      rescue Mongoid::Errors::InvalidFind, BSON::ObjectId::Invalid
+        user = User.find_by(id: identifier) if object_id?(identifier)
+        user || User.find_by(auth0_id: identifier)
+      rescue Mongoid::Errors::InvalidFind
         User.find_by(auth0_id: identifier)
+      end
+
+      def object_id?(value)
+        value.to_s.match?(/\A[0-9a-f]{24}\z/i)
       end
     end
   end
