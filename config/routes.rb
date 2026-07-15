@@ -35,6 +35,7 @@ Rails.application.routes.draw do
           get :schools
           patch :add_school
           get :onboarding_required
+          patch :update_profile # Cleanly added to member routes (Option 1)
 
           resource :onboarding_status, controller: 'onboarding_statuses', only: [:show, :update] do
             post :complete_step
@@ -104,11 +105,11 @@ Rails.application.routes.draw do
           end
         end
 
-        # ✅ PR Code routes nested under schools
+        # PR Code routes nested under schools
         resources :pr_codes, only: [:index, :show, :create, :destroy]
       end
 
-      # ✅ PR Code validation and usage endpoints
+      # PR Code validation and usage endpoints
       post 'pr_codes/validate', to: 'pr_codes#validate'
       post 'pr_codes/use', to: 'pr_codes#use'
 
