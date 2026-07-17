@@ -5,7 +5,7 @@ class OnboardingStatusService
       step_name = step_name.to_s.underscore
       return { success: false, errors: ["Step name is required"], message: "Missing step name parameter" } if step_name.blank?
 
-      metadata_hash = metadata.respond_to?(:to_unsafe_hash) ? metadata.to_unsafe_hash : metadata.to_h
+      metadata_hash = (metadata.respond_to?(:to_unsafe_hash) ? metadata.to_unsafe_hash : metadata.to_h).with_indifferent_access
       safe_metadata = prepare_safe_metadata(metadata_hash)
 
       validation_result = validate_step_metadata(step_name, metadata_hash)
@@ -19,8 +19,12 @@ class OnboardingStatusService
       update_completed_steps(user, step_name)
       update_client_metadata(user, step_name, safe_metadata, request_context)
 
-      # Persist user
-      user.save!
+      # Recalculate progress metrics and check completion
+      user.onboarding_status.calculate_progress_metrics
+      user.onboarding_status.auto_complete_if_ready!
+
+      # Persist the embedded onboarding_status directly to trigger callbacks and dirty tracking
+      user.onboarding_status.save!
 
       # Side effects
       run_step_side_effects(user, step_name, safe_metadata)
@@ -51,17 +55,17 @@ class OnboardingStatusService
     def flip_step(user, step_name)
       case step_name
       when "create_grades"
-        user.onboarding_status.set(create_grades: true)
+        user.onboarding_status.create_grades = true
       when "upload_learners"
-        user.onboarding_status.set(upload_learners: true)
+        user.onboarding_status.upload_learners = true
       when "send_invites"
-        user.onboarding_status.set(send_invites: true)
+        user.onboarding_status.send_invites = true
       when "admin_onboarding"
-        user.onboarding_status.set(admin_onboarding_completed: true)
+        user.onboarding_status.admin_onboarding_completed = true
       when "parent_onboarding"
-        user.onboarding_status.set(parent_onboarding_completed: true)
+        user.onboarding_status.parent_onboarding_completed = true
       when "guest_onboarding"
-        user.onboarding_status.set(guest_onboarding_completed: true)
+        user.onboarding_status.guest_onboarding_completed = true
       else
         Rails.logger.warn "⚠️ Unknown onboarding step: #{step_name}"
       end
@@ -69,29 +73,32 @@ class OnboardingStatusService
 
     # Safely push step into completed_steps if not already present
     def update_completed_steps(user, step_name)
-      steps = Array(user.onboarding_status.completed_steps)
-      return if steps.include?(step_name)
-      steps << step_name
-      user.onboarding_status.set(completed_steps: steps)
+      steps = Array(user.onboarding_status.completed_steps).dup
+      unless steps.include?(step_name)
+        steps << step_name
+        user.onboarding_status.completed_steps = steps
+      end
     end
 
     # Store client metadata for the step
     def update_client_metadata(user, step_name, safe_metadata, request_context)
-      user.onboarding_status.client_metadata ||= {}
-      user.onboarding_status.client_metadata["last_request"] = {
+      metadata = (user.onboarding_status.client_metadata || {}).dup
+      metadata["last_request"] = {
         "updated_at" => Time.current.iso8601,
         "user_agent" => request_context[:user_agent],
         "ip_address" => request_context[:ip_address],
         "step_completed" => step_name
       }
-      user.onboarding_status.client_metadata["#{step_name}_metadata"] = safe_metadata if safe_metadata.any?
+      metadata["#{step_name}_metadata"] = safe_metadata if safe_metadata.any?
 
       if step_name == "upload_learners"
-        user.onboarding_status.client_metadata["_request_metadata"] = {
+        metadata["_request_metadata"] = {
           "updated_at" => Time.current.iso8601,
           "step_completed" => "upload_learners"
         }
       end
+
+      user.onboarding_status.client_metadata = metadata
     end
 
     def run_step_side_effects(user, step_name, safe_metadata)

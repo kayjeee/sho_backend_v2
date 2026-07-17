@@ -4,14 +4,16 @@ class User
   include Mongoid::Timestamps
 
   # ======================== FIELDS ========================
-  field :name,             type: String               
-  field :email,            type: String               
-  field :auth0_id,         type: String               
-  field :roles,            type: Array,  default: []   
-  field :cash_account,     type: Float,  default: 0.0  
-  field :payment_history,  type: Array,  default: []   
-  field :status,           type: String, default: 'active'
-  field :last_login,       type: Time
+  field :name,                 type: String
+  field :email,                type: String
+  field :auth0_id,             type: String
+  field :roles,                type: Array,  default: []
+  field :cash_account,         type: Float,  default: 0.0
+  field :payment_history,      type: Array,  default: []
+  field :status,               type: String, default: 'active'
+  field :last_login,           type: Time
+  field :onboarding_completed, type: Boolean, default: false
+  field :onboarding_progress,  type: Float,   default: 0.0
 
   # ===================== VALIDATIONS ======================
   validates :email,        presence: true, uniqueness: true
@@ -108,9 +110,16 @@ class User
   def add_school(school_id_string)
     Rails.logger.debug "🏫 User#add_school: Attempting to add school with ID string '#{school_id_string}' to user #{id}"
 
+    school_id_string = school_id_string.to_s.strip
+    unless BSON::ObjectId.legal?(school_id_string)
+      Rails.logger.error "❌ User#add_school: Invalid BSON::ObjectId string provided: '#{school_id_string}'."
+      errors.add(:schools, "Invalid school ID format.")
+      return false
+    end
+
     begin
-      school_bson_id = BSON::ObjectId.from_string(school_id_string.to_s.strip)
-    rescue BSON::ObjectId::Invalid
+      school_bson_id = BSON::ObjectId.from_string(school_id_string)
+    rescue BSON::Error::InvalidObjectId, Mongoid::Errors::DocumentNotFound, Mongoid::Errors::InvalidFind
       Rails.logger.error "❌ User#add_school: Invalid BSON::ObjectId string provided: '#{school_id_string}'."
       errors.add(:schools, "Invalid school ID format.")
       return false
@@ -143,9 +152,16 @@ class User
   def remove_school(school_id_string)
     Rails.logger.debug "➖ User#remove_school: Attempting to remove school with ID string '#{school_id_string}' from user #{id}"
 
+    school_id_string = school_id_string.to_s.strip
+    unless BSON::ObjectId.legal?(school_id_string)
+      Rails.logger.error "❌ User#remove_school: Invalid BSON::ObjectId string provided: '#{school_id_string}'."
+      errors.add(:schools, "Invalid school ID format.")
+      return false
+    end
+
     begin
-      school_bson_id = BSON::ObjectId.from_string(school_id_string.to_s.strip)
-    rescue BSON::ObjectId::Invalid
+      school_bson_id = BSON::ObjectId.from_string(school_id_string)
+    rescue BSON::Error::InvalidObjectId, Mongoid::Errors::DocumentNotFound, Mongoid::Errors::InvalidFind
       Rails.logger.error "❌ User#remove_school: Invalid BSON::ObjectId string provided: '#{school_id_string}'."
       errors.add(:schools, "Invalid school ID format.")
       return false
@@ -201,7 +217,7 @@ class User
       onboarding.total_steps_count = 4 # create_grades, upload_learners, send_invites, admin_onboarding
     when user_roles.include?('parent')
       onboarding.current_step = 'parent_onboarding'
-      onboarding.total_steps_count = 1 # Only parent-specific onboarding
+      onboarding.total_steps_count = 8 # Total steps for parent onboarding
     when user_roles.include?('guest')
       onboarding.current_step = 'guest_onboarding'
       onboarding.total_steps_count = 1 # Only guest-specific onboarding
@@ -220,10 +236,9 @@ class User
 
   # Determine the context in which onboarding was initialized
   def determine_initialization_context
-    # This can be enhanced based on how users are created in your system
     if schools.any?
       'existing_school_association'
-    elsif created_at > 1.hour.ago
+    elsif created_at.present? && created_at > 1.hour.ago
       'new_user_registration'
     else
       'retroactive_initialization'
@@ -258,11 +273,11 @@ class User
   # Check if user needs onboarding
   def needs_onboarding?
     ensure_onboarding_status
-    !onboarding_status.completed
+    !onboarding_completed
   end
 
   # Get onboarding progress percentage
-  def onboarding_progress
+  def onboarding_progress_percentage
     ensure_onboarding_status
     onboarding_status.completion_percentage
   end
@@ -295,8 +310,10 @@ class User
     
     begin
       # Store completion metadata
-      onboarding_status.client_metadata["#{step_name}_completed_at"] = Time.current.iso8601
-      onboarding_status.client_metadata["#{step_name}_metadata"] = metadata if metadata.any?
+      meta = (onboarding_status.client_metadata || {}).dup
+      meta["#{step_name}_completed_at"] = Time.current.iso8601
+      meta["#{step_name}_metadata"] = metadata if metadata.any?
+      onboarding_status.client_metadata = meta
       
       onboarding_status.complete_step!(step_name)
       
@@ -323,7 +340,10 @@ class User
         'metadata' => metadata
       }
       
-      onboarding_status.client_metadata["#{step_name}_skipped"] = skip_data
+      meta = (onboarding_status.client_metadata || {}).dup
+      meta["#{step_name}_skipped"] = skip_data
+      onboarding_status.client_metadata = meta
+
       onboarding_status.skip_step!(step_name, reason: reason)
       
       Rails.logger.info "⏭️ User #{auth0_id} skipped onboarding step: #{step_name} (#{reason})"
@@ -340,9 +360,11 @@ class User
     
     begin
       # Store reset metadata
-      onboarding_status.client_metadata['reset_by'] = reset_by
-      onboarding_status.client_metadata['reset_reason'] = reason
-      onboarding_status.client_metadata['reset_at'] = Time.current.iso8601
+      meta = (onboarding_status.client_metadata || {}).dup
+      meta['reset_by'] = reset_by
+      meta['reset_reason'] = reason
+      meta['reset_at'] = Time.current.iso8601
+      onboarding_status.client_metadata = meta
       
       onboarding_status.reset!
       
@@ -415,8 +437,36 @@ class User
     base_hash[:needsOnboarding] = needs_onboarding?
     base_hash[:canAccessMainFeatures] = can_access_main_features?
     base_hash[:onboardingProgress] = onboarding_progress
+    base_hash[:onboarding_completed] = onboarding_completed
+    base_hash[:onboardingCompleted] = onboarding_completed
     
     base_hash
+  end
+
+  def as_json(options = {})
+    json = super(options || {})
+
+    # Ensure onboarding_completed and onboarding_progress are included at top level
+    json['onboarding_completed'] = onboarding_completed
+    json['onboardingCompleted'] = onboarding_completed
+    json['onboarding_progress'] = onboarding_progress
+    json['onboardingProgress'] = onboarding_progress
+
+    # Get primary school's schoolName via FetchSchoolsService
+    primary_school = UserServices::FetchSchoolsService.new(user: self).call.first
+    primary_school_name = primary_school&.schoolName || primary_school&.[](:schoolName)
+    json['primary_school_name'] = primary_school_name
+    json['primarySchoolName'] = primary_school_name
+    json['school_name'] = primary_school_name
+    json['schoolName'] = primary_school_name
+
+    # Ensure onboarding_status is serialized correctly
+    if onboarding_status
+      json['onboarding_status'] = onboarding_status.as_json(options)
+      json['onboardingStatus'] = onboarding_status.as_json(options)
+    end
+
+    json
   end
 
   # ================== CLASS METHODS FOR BULK OPERATIONS ==================
@@ -441,16 +491,16 @@ class User
   def self.by_onboarding_status(status)
     case status.to_s
     when 'completed'
-      where('onboarding_status.completed' => true)
+      where(onboarding_completed: true)
     when 'in_progress'
-      where('onboarding_status.completed' => false, 'onboarding_status.started_at'.ne => nil)
+      where(onboarding_completed: false, 'onboarding_status.started_at'.ne => nil)
     when 'not_started'
       where('onboarding_status.started_at' => nil)
     when 'needs_attention'
       # Users who started onboarding more than 7 days ago but haven't completed
       cutoff_date = 7.days.ago
       where(
-        'onboarding_status.completed' => false,
+        onboarding_completed: false,
         'onboarding_status.started_at'.lt => cutoff_date
       )
     else
@@ -461,9 +511,9 @@ class User
   # Get onboarding completion statistics
   def self.onboarding_statistics
     total_users = count
-    completed_users = where('onboarding_status.completed' => true).count
+    completed_users = where(onboarding_completed: true).count
     in_progress_users = where(
-      'onboarding_status.completed' => false,
+      onboarding_completed: false,
       'onboarding_status.started_at'.ne => nil
     ).count
     not_started_users = where('onboarding_status.started_at' => nil).count
@@ -545,31 +595,20 @@ class User
     case step_name.to_s
     when 'create_grades'
       Rails.logger.info "🎯 User #{auth0_id} completed grade creation"
-      # Could trigger analytics event, send notification, etc.
-      # NotificationService.send_step_completion_notification(self, 'create_grades')
-      
     when 'upload_learners'
       Rails.logger.info "👥 User #{auth0_id} completed learner upload"
       learner_count = metadata[:learners_uploaded] || created_learners.count
       Rails.logger.info "📊 Uploaded #{learner_count} learners"
-      
     when 'send_invites'
       Rails.logger.info "📧 User #{auth0_id} completed invite sending"
       invite_count = metadata[:invites_sent] || 0
       Rails.logger.info "📊 Sent #{invite_count} invitations"
-      
     when 'admin_onboarding'
       Rails.logger.info "👑 User #{auth0_id} completed admin onboarding"
-      # AdminOnboardingCompletionJob.perform_async(id)
-      
     when 'parent_onboarding'
       Rails.logger.info "👨‍👩‍👧‍👦 User #{auth0_id} completed parent onboarding"
-      
     when 'guest_onboarding'
       Rails.logger.info "👤 User #{auth0_id} completed guest onboarding"
     end
-    
-    # Trigger general step completion analytics
-    # AnalyticsService.track_onboarding_step_completion(self, step_name, metadata)
   end
 end
