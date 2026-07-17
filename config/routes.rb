@@ -26,6 +26,10 @@ Rails.application.routes.draw do
       # AdminUser custom route
       get 'admin_users/schools_for_admin', to: 'admin_users#schools_for_admin'
 
+      # Put this BEFORE the general users resource block so Rails matches it first!
+      # Matches: PATCH /api/v1/users/update_profile
+      patch 'users/update_profile', to: 'users#update_profile'
+
       # User Routes with onboarding status nested resources
       resources :users, param: :auth0_id, only: [:index, :show, :create, :update, :destroy] do
         member do
@@ -35,7 +39,6 @@ Rails.application.routes.draw do
           get :schools
           patch :add_school
           get :onboarding_required
-          patch :update_profile # Cleanly added to member routes (Option 1)
 
           resource :onboarding_status, controller: 'onboarding_statuses', only: [:show, :update] do
             post :complete_step
@@ -378,9 +381,4 @@ Rails.application.routes.draw do
 
   # API docs
   get 'api/docs', to: 'api/v1/documentation#index'
-
-  # Catch-all (optional)
-  # get '*path', to: 'application#index', constraints: ->(request) do
-  #   !request.xhr? && request.format.html?
-  # end
 end
