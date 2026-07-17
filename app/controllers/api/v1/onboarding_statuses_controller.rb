@@ -9,118 +9,197 @@ module Api
 
       # GET /api/v1/users/:user_id/onboarding_status
       def show
-        render json: {
-          success: true,
-          data: @target_user.onboarding_status || {},
-          message: "Fetched onboarding status",
-          metadata: @request_context
-        }
+        begin
+          primary_school = UserServices::FetchSchoolsService.new(user: @target_user).call.first
+          primary_school_name = primary_school&.schoolName || primary_school&.[](:schoolName)
+
+          data = (@target_user.onboarding_status || {}).as_json
+          data['onboarding_completed'] = @target_user.onboarding_completed
+          data['onboardingCompleted'] = @target_user.onboarding_completed
+          data['primary_school_name'] = primary_school_name
+          data['primarySchoolName'] = primary_school_name
+          data['school_name'] = primary_school_name
+          data['schoolName'] = primary_school_name
+
+          render json: {
+            success: true,
+            data: data,
+            message: "Fetched onboarding status",
+            metadata: @request_context
+          }
+        rescue StandardError => e
+          Rails.logger.error "🔥 Error in show: #{e.message}"
+          render json: { success: false, errors: [e.message], message: "Failed to fetch onboarding status" }, status: :internal_server_error
+        end
       end
 
       # PATCH /api/v1/users/:user_id/onboarding_status
       def update
-        updates = onboarding_params.to_h
+        begin
+          updates = onboarding_params.to_h
 
-        updates.each do |key, value|
-          @target_user.set("onboarding_status.#{key}" => value)
-        end
+          @target_user.ensure_onboarding_status
+          @target_user.onboarding_status.assign_attributes_from_api(updates)
 
-        # Add request metadata
-        @target_user.set(
-          "onboarding_status._request_metadata" => {
-            "updated_at" => Time.current.iso8601,
-            "user_agent" => request.user_agent,
-            "ip_address" => request.remote_ip
+          # Recalculate metrics on the onboarding_status object explicitly
+          @target_user.onboarding_status.calculate_progress_metrics
+          @target_user.onboarding_status.auto_complete_if_ready!
+
+          @target_user.save!
+
+          # Return enriched data
+          primary_school = UserServices::FetchSchoolsService.new(user: @target_user).call.first
+          primary_school_name = primary_school&.schoolName || primary_school&.[](:schoolName)
+
+          data = @target_user.onboarding_status.as_json
+          data['onboarding_completed'] = @target_user.onboarding_completed
+          data['onboardingCompleted'] = @target_user.onboarding_completed
+          data['primary_school_name'] = primary_school_name
+          data['primarySchoolName'] = primary_school_name
+          data['school_name'] = primary_school_name
+          data['schoolName'] = primary_school_name
+
+          render json: {
+            success: true,
+            data: data,
+            message: "Onboarding status updated",
+            metadata: @request_context
           }
-        )
-
-        render json: {
-          success: true,
-          data: @target_user.reload.onboarding_status,
-          message: "Onboarding status updated",
-          metadata: @request_context
-        }
+        rescue StandardError => e
+          Rails.logger.error "🔥 Error in update: #{e.message}"
+          render json: { success: false, errors: [e.message], message: "Failed to update onboarding status" }, status: :unprocessable_entity
+        end
       end
 
       # POST /api/v1/users/:user_id/onboarding_status/complete_step
       def complete_step
-        step_name = params[:step_name]
-        step_metadata = params[:metadata] || {}
+        begin
+          step_name = params[:step_name] || params[:stepName]
+          step_metadata = params[:metadata] || params[:metaData] || {}
 
-        # Delegate to service
-        result = OnboardingStatusService.complete_step(
-          @target_user, 
-          step_name, 
-          step_metadata,
-          @request_context
-        )
+          # Delegate to service
+          result = OnboardingStatusService.complete_step(
+            @target_user,
+            step_name,
+            step_metadata,
+            @request_context
+          )
 
-        if result[:success]
-          render json: {
-            success: true,
-            message: result[:message],
-            data: result[:data],
-            metadata: @request_context
-          }
-        else
-          render json: {
-            success: false,
-            errors: result[:errors],
-            message: result[:message]
-          }, status: :bad_request
+          if result[:success]
+            primary_school = UserServices::FetchSchoolsService.new(user: @target_user).call.first
+            primary_school_name = primary_school&.schoolName || primary_school&.[](:schoolName)
+
+            data = @target_user.reload.onboarding_status.as_json
+            data['onboarding_completed'] = @target_user.onboarding_completed
+            data['onboardingCompleted'] = @target_user.onboarding_completed
+            data['primary_school_name'] = primary_school_name
+            data['primarySchoolName'] = primary_school_name
+            data['school_name'] = primary_school_name
+            data['schoolName'] = primary_school_name
+
+            render json: {
+              success: true,
+              message: result[:message],
+              data: data,
+              metadata: @request_context
+            }
+          else
+            render json: {
+              success: false,
+              errors: result[:errors],
+              message: result[:message]
+            }, status: :bad_request
+          end
+        rescue StandardError => e
+          Rails.logger.error "🔥 Error in complete_step: #{e.message}"
+          render json: { success: false, errors: [e.message], message: "Failed to complete step" }, status: :internal_server_error
         end
       end
 
       # POST /api/v1/users/:user_id/onboarding_status/skip_step
       def skip_step
-        step_name = params[:step_name]
-        reason = params[:reason]
+        begin
+          step_name = params[:step_name] || params[:stepName]
+          reason = params[:reason]
 
-        if step_name.blank?
-          return render json: { 
-            success: false, 
-            errors: ["Step name is required"], 
-            message: "Missing step name parameter" 
-          }, status: :bad_request
+          if step_name.blank?
+            return render json: {
+              success: false,
+              errors: ["Step name is required"],
+              message: "Missing step name parameter"
+            }, status: :bad_request
+          end
+
+          if requires_skip_reason?(step_name) && reason.blank?
+            return render json: {
+              success: false,
+              errors: ["Skip reason is required for this step"],
+              message: "Missing skip reason"
+            }, status: :bad_request
+          end
+
+          @target_user.ensure_onboarding_status
+          @target_user.onboarding_status.skip_step!(step_name, reason: reason)
+
+          @target_user.onboarding_status.calculate_progress_metrics
+          @target_user.onboarding_status.save!
+
+          primary_school = UserServices::FetchSchoolsService.new(user: @target_user).call.first
+          primary_school_name = primary_school&.schoolName || primary_school&.[](:schoolName)
+
+          data = @target_user.reload.onboarding_status.as_json
+          data['onboarding_completed'] = @target_user.onboarding_completed
+          data['onboardingCompleted'] = @target_user.onboarding_completed
+          data['primary_school_name'] = primary_school_name
+          data['primarySchoolName'] = primary_school_name
+          data['school_name'] = primary_school_name
+          data['schoolName'] = primary_school_name
+
+          render json: {
+            success: true,
+            data: data,
+            message: "Step '#{step_name}' skipped",
+            metadata: @request_context
+          }
+        rescue StandardError => e
+          Rails.logger.error "🔥 Error in skip_step: #{e.message}"
+          render json: { success: false, errors: [e.message], message: "Failed to skip step" }, status: :internal_server_error
         end
-
-        if requires_skip_reason?(step_name) && reason.blank?
-          return render json: { 
-            success: false, 
-            errors: ["Skip reason is required for this step"], 
-            message: "Missing skip reason" 
-          }, status: :bad_request
-        end
-
-        skipped = { 
-          step: step_name, 
-          reason: reason, 
-          skipped_at: Time.current.iso8601 
-        }
-
-        # Atomic $push to skipped_steps array
-        @target_user.push("onboarding_status.skipped_steps" => skipped)
-
-        render json: {
-          success: true,
-          data: @target_user.reload.onboarding_status,
-          message: "Step '#{step_name}' skipped",
-          metadata: @request_context
-        }
       end
 
       # POST /api/v1/users/:user_id/onboarding_status/reset
       def reset
-        reset_reason = params[:reason] || "API reset request"
+        begin
+          reset_reason = params[:reason] || "API reset request"
 
-        @target_user.set(onboarding_status: {})
+          @target_user.ensure_onboarding_status
+          @target_user.onboarding_status.reset!
 
-        render json: {
-          success: true,
-          data: {},
-          message: "Onboarding reset",
-          metadata: @request_context.merge("reset_reason" => reset_reason)
-        }
+          @target_user.onboarding_completed = false if @target_user.respond_to?(:onboarding_completed=)
+          @target_user.onboarding_progress = 0.0 if @target_user.respond_to?(:onboarding_progress=)
+          @target_user.set(onboarding_completed: false, onboarding_progress: 0.0)
+
+          primary_school = UserServices::FetchSchoolsService.new(user: @target_user).call.first
+          primary_school_name = primary_school&.schoolName || primary_school&.[](:schoolName)
+
+          data = @target_user.reload.onboarding_status.as_json
+          data['onboarding_completed'] = @target_user.onboarding_completed
+          data['onboardingCompleted'] = @target_user.onboarding_completed
+          data['primary_school_name'] = primary_school_name
+          data['primarySchoolName'] = primary_school_name
+          data['school_name'] = primary_school_name
+          data['schoolName'] = primary_school_name
+
+          render json: {
+            success: true,
+            data: data,
+            message: "Onboarding reset",
+            metadata: @request_context.merge("reset_reason" => reset_reason)
+          }
+        rescue StandardError => e
+          Rails.logger.error "🔥 Error in reset: #{e.message}"
+          render json: { success: false, errors: [e.message], message: "Failed to reset onboarding" }, status: :internal_server_error
+        end
       end
 
       private
@@ -135,7 +214,11 @@ module Api
             User.find_by(auth0_id: target_id)
           else
             # Standard BSON ID lookup
-            User.find(target_id)
+            if BSON::ObjectId.legal?(target_id)
+              User.find(target_id)
+            else
+              nil
+            end
           end
 
         render(json: { success: false, message: "User not found" }, status: :not_found) unless @target_user

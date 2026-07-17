@@ -17,7 +17,19 @@ class Api::V1::UsersController < ApplicationController
   # GET /api/v1/users/:auth0_id
   def show
     Rails.logger.debug "👁️ Showing user with auth0_id: #{@user.auth0_id}"
-    render json: { success: true, data: { user: @user } }, status: :ok
+
+    primary_school = UserServices::FetchSchoolsService.new(user: @user).call.first
+    primary_school_name = primary_school&.schoolName || primary_school&.[](:schoolName)
+
+    user_data = @user.as_json
+    user_data['onboarding_completed'] = @user.onboarding_completed
+    user_data['onboardingCompleted'] = @user.onboarding_completed
+    user_data['primary_school_name'] = primary_school_name
+    user_data['primarySchoolName'] = primary_school_name
+    user_data['school_name'] = primary_school_name
+    user_data['schoolName'] = primary_school_name
+
+    render json: { success: true, data: { user: user_data } }, status: :ok
   end
 
   # PATCH /api/v1/users/:auth0_id/update_profile
