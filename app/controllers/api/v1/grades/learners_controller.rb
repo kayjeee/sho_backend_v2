@@ -10,44 +10,38 @@ module Api
             return render json: { success: false, error: "Grade identifier is required." }, status: :bad_request
           end
 
-          # 1. Build dynamic query object matching schema types
-          # Handles both raw string storage and BSON ObjectId attributes
-          query = {}
-          if BSON::ObjectId.legal?(grade_id)
-            query[:gradeId] = grade_id.to_s
-          else
-            query[:gradeId] = grade_id
+          begin
+            @grade = Grade.find(grade_id)
+          rescue Mongoid::Errors::DocumentNotFound, Mongoid::Errors::InvalidFind
+            return render json: { success: false, error: "Grade not found." }, status: :not_found
           end
 
+          # The production database collection strictly stores relation values as 'gradeId' (camelCase string)
+          query = { "gradeId" => @grade.id.to_s }
+
+          # Query school_id as a string if provided
           if school_id.present?
-            query[:school_id] = BSON::ObjectId.legal?(school_id) ? school_id.to_s : school_id
+            query["school_id"] = school_id.to_s
           end
 
-          # 2. Extract genuine Learner documents from the collection
-          @learners = Learner.where(query)
+          # Fetch using the Mongo Ruby driver and safely convert/instantiate back to Mongoid model instances
+          raw_docs = Learner.collection.find(query)
+          @learners = raw_docs.map { |doc| Learner.instantiate(doc) }
 
-          # Fallback query pattern if your schema uses underscores instead of camelCase keys:
-          if @learners.count == 0
-            alt_query = {}
-            alt_query[:grade_id] = BSON::ObjectId.legal?(grade_id) ? BSON::ObjectId.from_string(grade_id) : grade_id
-            alt_query[:school_id] = BSON::ObjectId.legal?(school_id) ? BSON::ObjectId.from_string(school_id) : school_id if school_id.present?
-            @learners = Learner.where(alt_query)
-          end
-
-          # 3. Serialize output fields safely for frontend grid components
           render json: {
             success: true,
-            total: @learners.count,
+            total: @learners.size,
             learners: @learners.map { |learner|
               {
                 id: learner.id.to_s,
-                firstName: learner.firstName,
-                lastName: learner.lastName,
+                firstName: learner.try(:firstName) || learner.try(:first_name),
+                lastName: learner.try(:lastName) || learner.try(:last_name),
                 gender: learner.gender,
-                accessionNumber: learner.accessionNumber,
-                gradeId: learner.try(:gradeId) || learner.try(:grade_id)&.to_s,
+                accessionNumber: learner.try(:accessionNumber) || learner.try(:accession_number),
+                gradeId: @grade.id.to_s,
                 school_id: learner.school_id.to_s,
-                parent_id: learner.try(:parent_id)&.to_s || nil # Reserved placeholder for future linkages
+                parent_id: learner.try(:parent_id)&.to_s || nil,
+                status: learner.try(:status) || "active"
               }
             }
           }, status: :ok

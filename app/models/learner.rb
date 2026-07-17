@@ -4,6 +4,11 @@ class Learner
   include Mongoid::Timestamps
 
   # ======================== SNAPSHOT FIELDS ========================
+  # PHYSICAL DB FIELD Naming Alignment
+  # The database collection uses camelCase keys (firstName, lastName, etc.)
+  # We use 'as: :ruby_name' to provide standard snake_case accessors while
+  # preserving the physical field name.
+
   field :firstName,       as: :first_name, type: String
   field :lastName,        as: :last_name, type: String
   field :gender,          type: String
@@ -45,7 +50,7 @@ class Learner
   validates :status, inclusion: { in: STATUSES }, allow_nil: true
 
   # ===================== ASSOCIATIONS =====================
-  # Use explicit foreign keys to match the snapshot data
+  # Use explicit foreign keys to match the physical database field 'gradeId'
   belongs_to :school,     class_name: 'School', foreign_key: :school_id, optional: true
   belongs_to :created_by, class_name: 'User',   optional: true
   belongs_to :grade,      class_name: 'Grade',  foreign_key: :gradeId,   optional: true
@@ -53,12 +58,11 @@ class Learner
 
   # ======================== INDEXES ========================
   index({ school_id: 1, accession_number: 1 }, unique: true, sparse: true)
-  index({ first_name: 1, last_name: 1 })
+  index({ firstName: 1, lastName: 1 })
   index({ school_id: 1 })
   index({ mobile_sync_id: 1 }, { unique: true, sparse: true })
   index({ school_id: 1, last_sync_at: 1 })
-  # Update the grade index to use the actual database field name
-  index({ gradeId: 1 })  # ← UPDATE THIS INDEX
+  index({ gradeId: 1 })
 
   # ======================= CALLBACKS =======================
   before_validation :set_default_accession_number, if: -> { accession_number.blank? }
@@ -69,7 +73,7 @@ class Learner
   scope :inactive,  -> { where(status: STATUSES['inactive']) }
   scope :graduated, -> { where(status: STATUSES['graduated']) }
   scope :by_school, ->(school_id) { where(school_id: school_id) }
-  scope :by_grade,  ->(grade_id)  { where(gradeId: grade_id) }  # ← UPDATE THIS SCOPE
+  scope :by_grade,  ->(grade_id)  { where(grade_id: grade_id) }
 
   # ======================== METHODS =========================
 

@@ -110,18 +110,50 @@ module Api
 
       # POST /api/v1/schools/:school_id/grades/:grade_id/classes/:id/move_learner
       def move_learner
-        learner_id = params[:learner_id]
-        target_class_id = params[:target_class_id]
+        learner_id = params[:learner_id] || params[:learnerId]
+        payload_target_class_id = params[:target_class_id] || params[:targetClassId]
 
-        # Find target class
-        begin
-          target_class = @grade.school_classes.find(target_class_id)
-        rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId
-          return render json: { success: false, error: "Target class not found" }, status: :not_found
+        if learner_id.blank?
+          return render json: { success: false, error: "Learner identifier (learner_id) is missing." }, status: :bad_request
         end
 
-        # Validate learner exists in source class
-        unless @school_class.learner_ids.include?(BSON::ObjectId.from_string(learner_id.to_s))
+        # Find learner
+        begin
+          @learner = Learner.find(learner_id)
+        rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId, Mongoid::Errors::InvalidFind
+          return render json: { success: false, error: "Learner with ID #{learner_id} not found." }, status: :not_found
+        end
+
+        bson_learner_id = BSON::ObjectId.from_string(learner_id.to_s) rescue nil
+        if bson_learner_id.nil?
+          return render json: { success: false, error: "Invalid learner ID format" }, status: :bad_request
+        end
+
+        # Determine source and target classes
+        # Mode A: Payload contains target_class_id -> URL :id is the source
+        # Mode B: Payload has NO target_class_id -> URL :id is the target, source is inferred from learner
+        if payload_target_class_id.present?
+          source_class = @school_class
+          begin
+            target_class = @grade.school_classes.find(payload_target_class_id)
+          rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId, Mongoid::Errors::InvalidFind
+            return render json: { success: false, error: "Target class not found" }, status: :not_found
+          end
+        else
+          target_class = @school_class
+          source_class_id = @learner.school_class_id
+          if source_class_id.present?
+            source_class = SchoolClass.find(source_class_id) rescue nil
+          end
+        end
+
+        if source_class && source_class.id == target_class.id
+          return render json: { success: false, error: "Learner is already in the target class" },
+                        status: :unprocessable_entity
+        end
+
+        # Validate learner exists in source class (if source class is known)
+        if source_class && !source_class.learner_ids.include?(bson_learner_id)
           return render json: { success: false, error: "Learner not found in source class" },
                         status: :unprocessable_entity
         end
@@ -133,19 +165,19 @@ module Api
         end
 
         # Atomic move operation
-        @school_class.pull(learner_ids: BSON::ObjectId.from_string(learner_id.to_s))
-        target_class.add_to_set(learner_ids: BSON::ObjectId.from_string(learner_id.to_s))
+        source_class.pull(learner_ids: bson_learner_id) if source_class
+        target_class.add_to_set(learner_ids: bson_learner_id)
 
         # Update learner's grade and class references
-        Learner.find(learner_id).update(
-          grade_id: @grade.id,
-          school_class_id: target_class.id
+        @learner.update(
+          grade_id: @grade.id.to_s,
+          school_class_id: target_class.id.to_s
         )
 
         render json: {
           success: true,
           message: "Learner moved successfully",
-          source_class: class_json(@school_class.reload),
+          source_class: source_class ? class_json(source_class.reload) : nil,
           target_class: class_json(target_class.reload)
         }
       end

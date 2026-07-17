@@ -18,14 +18,9 @@ module Api
           }, status: :bad_request
         end
 
-        # 2. Resolve the identifier whether it's a valid hex BSON ObjectId or a text slug
-        school_id = if BSON::ObjectId.legal?(school_param)
-                      BSON::ObjectId.from_string(school_param)
-                    else
-                      # Fallback lookup if the frontend passes a slug name string (e.g. "far-north-secondary-school")
-                      clean_name = school_param.gsub('-', ' ')
-                      School.find_by(schoolName: /^#{Regexp.escape(clean_name)}$/i)&.id
-                    end
+        # 2. Resolve the identifier whether it's a BSON ObjectId, text slug, email, or owner auth0 id.
+        school = find_school_by_id_or_slug(school_param)
+        school_id = school&.id
 
         if school_id.nil?
           return render json: {

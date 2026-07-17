@@ -1,29 +1,37 @@
 class Api::V1::UsersController < ApplicationController
-  before_action :set_user, only: [:show, :update_roles, :schools, :add_school]
+  # Added :update_profile to the set_user filter array
+  before_action :set_user, only: [:show, :update_roles, :schools, :add_school, :update_profile]
 
   # POST /api/v1/users
-# POST /api/v1/users
-# app/controllers/api/v1/users_controller.rb
-def create
-  service = UserServices::CreateUserService.new(user_params: user_params)
-  result = service.call
+  def create
+    service = UserServices::CreateUserService.new(user_params: user_params)
+    result = service.call
 
-  if result.success?
-    render json: { success: true, data: { user: result.user } }, status: :created
-  else
-    render json: { success: false, errors: result.errors }, status: :unprocessable_entity
+    if result.success?
+      render json: { success: true, data: { user: result.user } }, status: :created
+    else
+      render json: { success: false, errors: result.errors }, status: :unprocessable_entity
+    end
   end
-end
 
-
-
-  # GET /api/v1/users/:id
+  # GET /api/v1/users/:auth0_id
   def show
     Rails.logger.debug "👁️ Showing user with auth0_id: #{@user.auth0_id}"
     render json: { success: true, data: { user: @user } }, status: :ok
   end
 
-  # GET /api/v1/users/:id/schools
+  # PATCH /api/v1/users/:auth0_id/update_profile
+  def update_profile
+    Rails.logger.debug "✏️ Updating profile for user with auth0_id: #{@user.auth0_id}"
+    
+    if @user.update(user_params)
+      render json: { success: true, data: { user: @user } }, status: :ok
+    else
+      render json: { success: false, errors: @user.errors.full_messages }, status: :unprocessable_entity
+    end
+  end
+
+  # GET /api/v1/users/:auth0_id/schools
   def schools
     schools = UserServices::FetchSchoolsService.new(user: @user).call
 
@@ -47,7 +55,7 @@ end
     end
   end
 
-  # PUT /api/v1/users/:id/update_roles
+  # PUT /api/v1/users/:auth0_id/update_roles
   def update_roles
     result = UserServices::UpdateRolesService.call(user: @user, new_roles: params[:roles])
 
@@ -58,7 +66,7 @@ end
     end
   end
 
-  # POST /api/v1/users/:id/add_school
+  # POST /api/v1/users/:auth0_id/add_school
   def add_school
     result = UserServices::AddSchoolService.call(user: @user, school_id: params[:schoolId])
 
