@@ -23,6 +23,7 @@ class School
   # Theme and branding
   field :theme, type: String
   field :website, type: String
+  field :status, type: String, default: 'active'
   
   # Social media links
   field :facebook, type: String
