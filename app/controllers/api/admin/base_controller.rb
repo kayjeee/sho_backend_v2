@@ -12,7 +12,8 @@ module Api
 
       def handle_unexpected_api_crash(exception)
         Rails.logger.error "🔥 CRASH IN API ENGINES: #{exception.message}"
-        Rails.logger.error exception.backtrace.first(15).join("\n")
+        cleaned_trace = BacktraceCleanerUtil.clean(exception.backtrace)
+        Rails.logger.error cleaned_trace.join("\n")
 
         render json: {
           success: false,

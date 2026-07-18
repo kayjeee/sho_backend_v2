@@ -464,7 +464,8 @@ module Api
       end
 
       def render_exception(context, exception)
-        Rails.logger.error "❌ #{context} error: #{exception.message}\n#{exception.backtrace.first(5).join("\n")}"
+        cleaned_trace = BacktraceCleanerUtil.clean(exception.backtrace)
+        Rails.logger.error "❌ #{context} error: #{exception.message}\n#{cleaned_trace.first(5).join("\n")}"
         render json: { status: "error", error: exception.message }, status: :internal_server_error
       end
     end

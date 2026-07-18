@@ -33,7 +33,8 @@ class OnboardingStatusService
 
       { success: true, data: user.onboarding_status.to_api_hash, message: "Step '#{step_name}' completed" }
     rescue => e
-      Rails.logger.error "❌ Failed to complete step '#{step_name}': #{e.message}\n#{e.backtrace.join("\n")}"
+      cleaned_trace = BacktraceCleanerUtil.clean(e.backtrace)
+      Rails.logger.error "❌ Failed to complete step '#{step_name}': #{e.message}\n#{cleaned_trace.join("\n")}"
       { success: false, message: "Unexpected error", errors: [e.message] }
     end
 

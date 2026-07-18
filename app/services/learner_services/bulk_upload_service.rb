@@ -38,7 +38,10 @@ module LearnerServices
       self
     rescue => e
       Rails.logger.error "❌ Bulk upload failed for school_id=#{school_id}: #{e.message}"
-      Rails.logger.error e.backtrace.join("\n") if Rails.env.development?
+      if Rails.env.development?
+        cleaned_trace = BacktraceCleanerUtil.clean(e.backtrace)
+        Rails.logger.error cleaned_trace.join("\n")
+      end
       errors << "Unexpected error: #{e.message}"
       self
     end
