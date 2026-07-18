@@ -208,24 +208,6 @@ module Api
         # Account for routing schema update where parent ID is params[:user_auth0_id]
         target_id = params[:user_auth0_id] || params[:auth0_id] || params[:user_id] || params[:id]
 
-        if target_id.blank?
-          if request.headers['Authorization'].present?
-            begin
-              authorize
-              if @decoded_token && @decoded_token.respond_to?(:token) && @decoded_token.token.is_a?(Array)
-                target_id = @decoded_token.token[0]['sub']
-              end
-            rescue => e
-              Rails.logger.error "⚠️ Could not authorize token in fallback set_target_user: #{e.message}"
-            end
-          end
-        end
-
-        if target_id.blank?
-          render json: { success: false, error: "User not found", message: "User identifier is required" }, status: :not_found
-          return
-        end
-
         @target_user =
           if target_id.to_s.include?('|') || !target_id.to_s.match?(/^[a-f\d]{24}$/i)
             # Safe lookup by auth0_id for strings containing pipes or non-hex patterns
