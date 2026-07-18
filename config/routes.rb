@@ -30,6 +30,10 @@ Rails.application.routes.draw do
       # Matches: PATCH /api/v1/users/update_profile
       patch 'users/update_profile', to: 'users#update_profile'
 
+      # Fallback routes for onboarding status when user ID is missing/collapsed from frontend URL
+      get 'users/onboarding_status', to: 'onboarding_statuses#show'
+      patch 'users/onboarding_status', to: 'onboarding_statuses#update'
+
       # User Routes with onboarding status nested resources
       resources :users, param: :auth0_id, only: [:index, :show, :create, :update, :destroy] do
         member do
