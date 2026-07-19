@@ -102,6 +102,30 @@ class Api::V1::UsersController < ApplicationController
 
   def set_user
     lookup_id = params[:auth0_id] || params[:id]
+
+    # If the URL was users/show (meaning Rails routed to show action and params[:auth0_id] is "show")
+    if lookup_id == "show"
+      # Try to extract the real auth0_id from query params or headers
+      lookup_id = params[:real_auth0_id] || request.query_parameters['auth0_id'] || params[:user_auth0_id]
+
+      # If still blank, fallback to token sub if present
+      if lookup_id.blank? && request.headers['Authorization'].present?
+        begin
+          authorize
+          if @decoded_token && @decoded_token.respond_to?(:token) && @decoded_token.token.is_a?(Array)
+            lookup_id = @decoded_token.token[0]['sub']
+          end
+        rescue => e
+          Rails.logger.error "⚠️ Could not authorize token in fallback set_user: #{e.message}"
+        end
+      end
+    end
+
+    if lookup_id.blank?
+      render json: { success: false, error: "User not found", message: "User identifier is required" }, status: :not_found
+      return
+    end
+
     Rails.logger.debug "🔍 Looking up user by auth0_id: #{lookup_id}"
     @user = User.find_by(auth0_id: lookup_id)
     
@@ -109,5 +133,10 @@ class Api::V1::UsersController < ApplicationController
       Rails.logger.warn "❌ User not found with auth0_id: #{lookup_id}"
       render json: { success: false, error: "User not found" }, status: :not_found
     end
+  rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId, Mongoid::Errors::InvalidFind
+    render json: { success: false, error: "User not found" }, status: :not_found
+  rescue StandardError => e
+    Rails.logger.error "🔥 Unexpected error in set_user: #{e.message}"
+    render json: { success: false, error: "User not found" }, status: :not_found
   end
 end

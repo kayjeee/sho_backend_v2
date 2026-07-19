@@ -30,6 +30,9 @@ Rails.application.routes.draw do
       # Matches: PATCH /api/v1/users/update_profile
       patch 'users/update_profile', to: 'users#update_profile'
 
+      # Explicit route for fetching current user profile by query parameter/token
+      get 'users/show', to: 'users#show'
+
       # Fallback routes for onboarding status when user ID is missing/collapsed from frontend URL
       get 'users/onboarding_status', to: 'onboarding_statuses#show'
       patch 'users/onboarding_status', to: 'onboarding_statuses#update'
