@@ -28,13 +28,14 @@ class ApplicationController < ActionController::API
 
   def handle_unexpected_api_crash(exception)
     Rails.logger.error "🔥 CRASH IN API ENGINES: #{exception.message}"
-    Rails.logger.error exception.backtrace.join("\n")
+    cleaned_trace = BacktraceCleanerUtil.clean(exception.backtrace)
+    Rails.logger.error cleaned_trace.join("\n")
 
     render json: {
       success: false,
       error: "Internal Server Error",
       message: exception.message,
-      backtrace: Rails.env.development? ? exception.backtrace : nil
+      backtrace: Rails.env.development? ? cleaned_trace : nil
     }, status: :internal_server_error
   end
 end

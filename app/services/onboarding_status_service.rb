@@ -33,7 +33,8 @@ class OnboardingStatusService
 
       { success: true, data: user.onboarding_status.to_api_hash, message: "Step '#{step_name}' completed" }
     rescue => e
-      Rails.logger.error "❌ Failed to complete step '#{step_name}': #{e.message}\n#{e.backtrace.join("\n")}"
+      cleaned_trace = BacktraceCleanerUtil.clean(e.backtrace)
+      Rails.logger.error "❌ Failed to complete step '#{step_name}': #{e.message}\n#{cleaned_trace.join("\n")}"
       { success: false, message: "Unexpected error", errors: [e.message] }
     end
 
@@ -128,19 +129,31 @@ class OnboardingStatusService
 
       grades.each do |grade_name|
         begin
-          grade = Grade.where(name: grade_name, school_id: school_id).first_or_create!(
-            grade_level: grade_name.to_s,
-            description: "Auto-created during onboarding",
-            capacity: 30,
-            status: 0,
-            min_age: 5,
-            max_age: 18,
-            fees: 0.0,
-            academic_year_start: academic_year_start,
-            academic_year_end: academic_year_end,
-            curriculum_info: {},
-            schedule_info: {}
-          )
+          # Build attributes dynamically based on defined fields in Grade model to prevent schema/branch mismatches
+          grade_attrs = { description: "Auto-created during onboarding" }
+
+          if Grade.fields.key?("grade_level")
+            grade_attrs[:grade_level] = grade_name.to_s
+          elsif Grade.fields.key?("level")
+            grade_level_num = grade_name.to_s.gsub(/[^0-9]/, '').to_i
+            grade_attrs[:level] = grade_level_num if grade_level_num > 0
+          end
+
+          grade_attrs[:capacity] = 30 if Grade.fields.key?("capacity")
+          grade_attrs[:status] = 0 if Grade.fields.key?("status")
+          grade_attrs[:min_age] = 5 if Grade.fields.key?("min_age")
+          grade_attrs[:max_age] = 18 if Grade.fields.key?("max_age")
+          grade_attrs[:fees] = 0.0 if Grade.fields.key?("fees")
+          grade_attrs[:academic_year_start] = academic_year_start if Grade.fields.key?("academic_year_start")
+          grade_attrs[:academic_year_end] = academic_year_end if Grade.fields.key?("academic_year_end")
+          grade_attrs[:curriculum_info] = {} if Grade.fields.key?("curriculum_info")
+          grade_attrs[:schedule_info] = {} if Grade.fields.key?("schedule_info")
+          grade_attrs[:order] = 0 if Grade.fields.key?("order")
+
+          grade = Grade.where(name: grade_name, school_id: school_id).first_or_initialize
+          grade.assign_attributes(grade_attrs)
+          grade.save!
+
           Rails.logger.info "✅ Grade '#{grade_name}' ensured for school #{school_id} (id: #{grade.id})"
         rescue => e
           Rails.logger.error "🔥 Error creating grade '#{grade_name}' for school #{school_id}: #{e.message}"
