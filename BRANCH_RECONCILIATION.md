@@ -239,3 +239,285 @@ Please respect the following constraints and context:
 
 Please write clean React/Next.js components, hooks for API querying, and route managers. Avoid modifying backend API configuration.
 ```
+
+---
+
+## 5. Verification Evidence & Dead-Code Assessment
+
+This section compiles exact code-level and diff-level evidence supporting our findings, assesses the status of legacy invitation models, and maps out the real-time API call patterns of the Next.js frontend repository.
+
+### 5.1. Raw Git Diff Evidence for Critical / Risk Findings
+
+#### 5.1.1. `api/auth_controller.rb` — Skip Authenticity Token Callback Crash
+The unversioned `AuthController` was newly introduced in the local branch but fails to boot under Rails 8 API mode because `ActionController::API` lacks authenticity token filters:
+
+```ruby
+# app/controllers/api/auth_controller.rb
+module Api
+  class AuthController < ApplicationController
+    skip_before_action :verify_authenticity_token, only: [:login] # ❌ CRASH: Callback verify_authenticity_token not defined in API-only app.
+
+    def login
+      render json: { success: true, message: "Intercepted by Rails Auth Handler" }, status: :ok
+    end
+
+    def me
+      render json: { success: true, message: "Intercepted by Rails Session Handler" }, status: :ok
+    end
+  end
+end
+```
+
+---
+
+#### 5.1.2. `config/routes.rb` Path-Based Routing vs. `UsersController` Action Absence
+The local development branch keeps deprecated backward-compatibility path configurations in `config/routes.rb` mapping path lookups to deprecated controller actions:
+
+```ruby
+# config/routes.rb (Line 49-61 on local branch)
+# =========================================================
+# Support old path-based format during migration period
+get 'users/:auth0_id',
+    to: 'users#show_by_path',
+    constraints: { auth0_id: /[^\/]+/ }, as: :user_by_auth0_deprecated
+
+get 'users/:auth0_id/schools',
+    to: 'users#schools_by_path',
+    constraints: { auth0_id: /[^\/]+/ }, as: :user_schools_by_auth0_deprecated
+
+get 'users/:auth0_id/onboarding_status',
+    to: 'users#onboarding_status_by_path',
+    constraints: { auth0_id: /[^\/]+/ }, as: :user_onboarding_by_auth0_deprecated
+```
+
+However, the local `UsersController` has completely removed these methods, causing standard routing requests to crash with an immediate `AbstractController::ActionNotFound (404)` error.
+The original actions on the production branch were:
+
+```ruby
+# origin/parent-onboarding-complete-step:app/controllers/api/v1/usersController.rb
+before_action :load_user_by_path!, only: [:show_by_path, :schools_by_path, :onboarding_status_by_path]
+
+def show_by_path
+  log_deprecated("/api/v1/users/:auth0_id", params[:auth0_id])
+  render_success(message: "User retrieved", data: { user: serialize_user(@user) })
+end
+
+def schools_by_path
+  log_deprecated("/api/v1/users/:auth0_id/schools", params[:auth0_id])
+  fetch_schools_for(@user, deprecated_url: "/api/v1/users/schools?auth0_id=xxx")
+end
+
+def onboarding_status_by_path
+  log_deprecated("/api/v1/users/:auth0_id/onboarding_status", params[:auth0_id])
+  # ...
+end
+```
+
+On the local branch, running a search reveals these actions are **completely absent** from `app/controllers/api/v1/usersController.rb`, confirming this high-stakes bug:
+```bash
+$ git show silence-gem-backtraces-10625524574831857542:app/controllers/api/v1/usersController.rb | grep "by_path"
+# (Returns empty - verified genuinely absent!)
+```
+
+---
+
+#### 5.1.3. `learner.rb` — Gender / Status Integer to String Field Mismatches
+
+**Production Branch Field Mappings**:
+```ruby
+# origin/parent-onboarding-complete-step:app/models/learner.rb (Lines 10-11, 34-35)
+field :gender,           type: Integer, default: 0
+field :status,           type: Integer, default: 0
+
+GENDERS  = { 'male' => 0, 'female' => 1, 'other' => 2 }.freeze
+STATUSES = { 'active' => 0, 'inactive' => 1, 'graduated' => 2 }.freeze
+```
+
+**Local Branch Field Mappings**:
+```ruby
+# silence-gem-backtraces-10625524574831857542:app/models/learner.rb (Lines 14, 24, 46-47)
+field :gender,          type: String
+field :status,          type: String, default: "active"
+
+GENDERS  = %w[M F Other male female other].freeze
+STATUSES = %w[active inactive graduated].freeze
+```
+*Verification Check:* This mismatch poses an extreme risk. Existing production databases storing integers (e.g. `0` or `1`) will fail string validations or return inconsistent values on the simplified local branch.
+
+---
+
+#### 5.1.4. `user.rb` — Removal of `phone` and `phone_number` Fields on Local Branch
+
+**Production Branch Field Definitions**:
+```ruby
+# origin/parent-onboarding-complete-step:app/models/user.rb (Lines 17-18)
+field :phone,            type: String
+field :phone_number,     type: String
+```
+
+**Local Branch Field Definitions**:
+```bash
+$ git show silence-gem-backtraces-10625524574831857542:app/models/user.rb | grep "phone"
+# (Returns empty - verified fields have been entirely removed!)
+```
+
+---
+
+#### 5.1.5. `create_user_service.rb` — Robust Logic Lost in Simplification
+The git diff between the production branch and local branch highlights extensive loss of defensive registrations, multi-provider lookups, and immutability guards:
+
+```diff
+--- origin/parent-onboarding-complete-step:app/services/user_services/create_user_service.rb
++++ silence-gem-backtraces-10625524574831857542:app/services/user_services/create_user_service.rb
+-    PROVIDERS = %w[google-oauth2 auth0 facebook twitter].freeze
+-
+-    # ----------------------------
+-    # Entry point
+-    # ----------------------------
+-    def self.call(user_params:)
+-      new(user_params).call
+-    end
++    Result = Struct.new(:success?, :user, :errors, keyword_init: true)
+
+-    # ----------------------------
+-    # Initialize with normalized params
+-    # ----------------------------
+-    def initialize(user_params)
+-      @params = normalize_params(user_params)
+-      validate_params!
+-      freeze # Ensure immutability after initialization
++    def initialize(user_params:)
++      @user_params = user_params
+     end
+
+-    # ----------------------------
+-    # Main call
+-    # ----------------------------
+     def call
+-      user = find_user
+-      return update_user(user) if user
+-
+-      create_user
+-    rescue => e
+-      Rails.logger.error "💥 CreateUserService failed: #{e.message}"
+-      Result.failure(e.message)
+-    end
++      # 🔑 Check if user already exists → return it
++      user = User.find_or_initialize_by(auth0_id: @user_params[:auth0_id])
++      user.assign_attributes(@user_params)
+
+-    # ----------------------------
+-    # Find existing user
+-    # ----------------------------
+-    def find_user
+-      # First try by exact auth0_id
+-      find_by_auth0_id || find_by_prefixed_auth0_id || find_by_email
+-    end
+-
+-    def find_by_auth0_id
+-      return nil if params[:auth0_id].blank?
+-      User.where(auth0_id: params[:auth0_id]).first
+-    end
+-
+-    def find_by_prefixed_auth0_id
+-      return nil if params[:auth0_id].blank? || params[:auth0_id].include?('|')
+-
+-      PROVIDERS.each do |provider|
+-        user = User.where(auth0_id: "#{provider}|#{params[:auth0_id]}").first
+-        return user if user
+-      end
+-      nil
+-    end
+```
+
+---
+
+### 5.2. Dead-Code Check: `LearnerInvitation` / `TeacherInvitation`
+
+A rigorous grep-based analysis of the codebase on **both branches** reveals that **neither legacy model is dead-code**. They have not been fully replaced by the unified `Invitation` model yet, and remain active dependencies.
+
+#### 5.2.1. References on the Local Development Branch
+*   **Controllers (`api/v1/invitations_controller.rb`)**: Still queries both models for token validation and verification fallbacks:
+    ```ruby
+    # app/controllers/api/v1/invitations_controller.rb
+    LearnerInvitation.where(token: token, status: 'pending').first ||
+    TeacherInvitation.where(token: token, status: 'pending').first
+    ```
+*   **Services (`grade_services/invite_learner_service.rb` & `invite_teacher_service.rb`)**: Actively instantiates and saves them when sending invitations via email/phone:
+    ```ruby
+    # app/services/grade_services/invite_learner_service.rb
+    invitation = LearnerInvitation.new(learner_email: email, grade_id: grade.id, ...)
+    ```
+*   **Model Associations (`app/models/user.rb`)**: Still declares active associations referencing both classes:
+    ```ruby
+    has_many :learner_invitations_sent, class_name: 'LearnerInvitation', inverse_of: :invited_by
+    has_many :teacher_invitations_sent, class_name: 'TeacherInvitation', inverse_of: :invited_by
+    has_many :teacher_invitations_received, class_name: 'TeacherInvitation', inverse_of: :teacher
+    ```
+
+#### 5.2.2. References on the Production Branch
+*   Identical references are maintained across controllers and services.
+*   The production branch additionally declares nested route and namespace definitions tied directly to `/api/v1/learner_invitations` and `/api/v1/teacher_invitations`.
+
+#### 5.2.3. Safety Verdict
+**NO, they are NOT safe to delete.** They are live, load-bearing dependencies. Fully removing them would break legacy token lookups and the existing `InviteLearnerService`/`InviteTeacherService` systems. They must be maintained in coexistence with the new unified `Invitation` model until these services are fully refactored in Phase 2.
+
+---
+
+### 5.3. Frontend Repo: Read-Only Inspection of Current API Calls
+
+Inspection of the Next.js frontend repository (`kayjeee/SchoolHeadOfffice_invitations`, branch `feature/learner-invitation-crm-6860401472260020326`) reveals the exact network calls made against the backend:
+
+#### 5.3.1. User Profile and Authentication Endpoints
+The frontend uses a hybrid strategy of path-based lookups and query-parameter lookups:
+*   **New Parent Onboarding Profile Fetch**:
+    `GET /api/v1/users/show?auth0_id=auth0|xxx`
+    Defined in `lib/api/parent-api.ts` and called during parent dashboard loading:
+    ```typescript
+    apiClient.get(`/users/show?auth0_id=${encodeURIComponent(auth0Id)}`, responseSchema)
+    ```
+*   **Standard User Show (Legacy Fallback)**:
+    `GET /api/v1/users/auth0|xxx`
+    Defined in `pages/index.tsx` and context setups:
+    ```typescript
+    apiClient.get(`/users/${userId}`, UserSchema)
+    ```
+*   **Update Profile**:
+    `PATCH /api/v1/users/update_profile?auth0_id=auth0|xxx`
+    Payload structure is **snake_case** (permitted params are strictly filtered).
+
+---
+
+#### 5.3.2. Onboarding Status Endpoints
+*   **Retrieve Onboarding Status (Query Style)**:
+    `GET /api/v1/users/onboarding_status?auth0_id=auth0|xxx`
+    Called by parent onboarding hook (`lib/hooks/useParentOnboarding.ts` line 115).
+*   **Retrieve Onboarding Status (Path Style)**:
+    `GET /api/v1/users/auth0|xxx/onboarding_status`
+    Called by admin onboarding flow (`components/onboarding/onboarding/services/onboardingService.ts` line 34).
+*   **Complete Step**:
+    `POST /api/v1/users/auth0|xxx/onboarding_status/complete_step`
+    Sends a **snake_case** payload body containing `{ step_name: string, metadata: object }`.
+*   **Skip Step**:
+    `POST /api/v1/users/auth0|xxx/onboarding_status/skip_step`
+    Sends `{ step_name: string, reason: string }`.
+
+*Verification Gap Finding:* This proves the **"Missing Routing Compatibility" gap is 100% active and critical**. The Admin Onboarding flow in Next.js relies directly on path-based endpoints like `/api/v1/users/auth0|xxx/onboarding_status` which crash with a 404 in local development due to the missing actions in `UsersController`.
+
+---
+
+#### 5.3.3. Invitation & Acceptance Endpoints
+The frontend already has a heavily configured API client and CRM modules targeting invitation management:
+*   **Verify Invitation Token**:
+    Tries a fallback sequence of endpoints inside `InvitationAPI.verifyToken` (`lib/api/invitation-api.ts`), specifically starting with:
+    1.  `GET /api/v1/invitations/:token/verify_with_details` (Unified backend endpoint)
+    2.  `GET /api/v1/invitations/verify?token=:token`
+    3.  `GET /api/v1/learner_invitations/verify?token=:token` (Legacy fallback)
+*   **Accept Invitation**:
+    `POST /api/v1/invitations/verify`
+    Sends a **snake_case** body: `{ token: string, auth0_id: string }`.
+*   **Send Bulk Invitations**:
+    `POST /api/v1/invitations/bulk_create`
+    Sends a payload containing `{ invitations: Array<{ phone_number: string, parent_name: string, grade_id: string }> }` inside `lib/services/invitationService.ts`.
+*   **Manage/List Invitations**:
+    `GET /api/v1/learner_invitations` (Lists pending invitations under the school CRM page).
