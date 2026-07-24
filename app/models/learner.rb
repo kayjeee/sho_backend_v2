@@ -11,7 +11,7 @@ class Learner
 
   field :firstName,       as: :first_name, type: String
   field :lastName,        as: :last_name, type: String
-  field :gender,          type: String
+  field :gender,          type: Integer, default: 0
   field :accessionNumber, as: :accession_number, type: String
   field :schoolName,      as: :school_name_denormalized, type: String
   field :schoolEmail,     type: String
@@ -21,7 +21,7 @@ class Learner
   field :userAuth0Id,     type: String
   field :gradeId,         as: :grade_id, type: String
   field :school_id,       type: String
-  field :status,          type: String, default: "active"
+  field :status,          type: Integer, default: 0
 
   field :phone,            type: String
   field :telEmergency,     as: :tel_emergency, type: String
@@ -43,11 +43,11 @@ class Learner
   validates :first_name, :last_name, presence: true
   validates :accession_number, uniqueness: { scope: :school_id }, allow_blank: true
 
-  GENDERS  = %w[M F Other male female other].freeze
-  STATUSES = %w[active inactive graduated].freeze
+  GENDERS  = { 'male' => 0, 'female' => 1, 'other' => 2 }.freeze
+  STATUSES = { 'active' => 0, 'inactive' => 1, 'graduated' => 2 }.freeze
 
-  validates :gender, inclusion: { in: GENDERS }, allow_nil: true
-  validates :status, inclusion: { in: STATUSES }, allow_nil: true
+  validates :gender, inclusion: { in: GENDERS.values }, allow_nil: true
+  validates :status, inclusion: { in: STATUSES.values }, allow_nil: true
 
   # ===================== ASSOCIATIONS =====================
   # Use explicit foreign keys to match the physical database field 'gradeId'
@@ -78,25 +78,46 @@ class Learner
   # ======================== METHODS =========================
 
   # Gender helpers
-  def male?         = %w[M male].include?(gender)
-  def female?       = %w[F female].include?(gender)
-  def other_gender? = %w[Other other].include?(gender)
+  def male?         = gender == GENDERS['male']
+  def female?       = gender == GENDERS['female']
+  def other_gender? = gender == GENDERS['other']
 
   def gender_text
-    gender&.capitalize || 'Unknown'
+    GENDERS.key(gender)&.capitalize || 'Unknown'
   end
 
   # Status helpers
-  def active?    = status == "active"
-  def inactive?  = status == "inactive"
-  def graduated? = status == "graduated"
+  def active?    = status == STATUSES['active']
+  def inactive?  = status == STATUSES['inactive']
+  def graduated? = status == STATUSES['graduated']
 
   def status_text
-    status&.capitalize || 'Unknown'
+    STATUSES.key(status)&.capitalize || 'Unknown'
   end
 
   def parents
     User.where(:id.in => parent_ids, roles: "parent")
+  end
+
+  def add_parent(parent_or_id)
+    parent_id = if parent_or_id.is_a?(User)
+                  parent_or_id.id
+                elsif BSON::ObjectId.legal?(parent_or_id)
+                  BSON::ObjectId.from_string(parent_or_id.to_s)
+                else
+                  user = User.find_by(auth0_id: parent_or_id)
+                  user&.id
+                end
+
+    return false if parent_id.blank?
+
+    self.parent_ids ||= []
+    unless self.parent_ids.include?(parent_id)
+      new_parent_ids = self.parent_ids.dup
+      new_parent_ids << parent_id
+      self.parent_ids = new_parent_ids
+    end
+    save
   end
 
   # Concatenate full name
