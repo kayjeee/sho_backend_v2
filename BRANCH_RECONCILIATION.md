@@ -521,3 +521,97 @@ The frontend already has a heavily configured API client and CRM modules targeti
     Sends a payload containing `{ invitations: Array<{ phone_number: string, parent_name: string, grade_id: string }> }` inside `lib/services/invitationService.ts`.
 *   **Manage/List Invitations**:
     `GET /api/v1/learner_invitations` (Lists pending invitations under the school CRM page).
+
+---
+
+### 5.4. Raw Frontend Evidence Verification & Phase 2 Alignment Confirmation
+
+This sub-section provides raw command-line evidence extracted directly from the checked-out frontend Next.js repository (`kayjeee/SchoolHeadOfffice_invitations` on branch `feature/learner-invitation-crm-6860401472260020326`), confirming the validity of the call inventory.
+
+#### 5.4.1. Verification of `bulk_create` in `invitationService.ts`
+Running a raw file inspection verifies the `POST /api/v1/invitations/bulk_create` call and its exact payload:
+
+```bash
+$ grep -rn "bulk_create" lib/services/invitationService.ts
+51:      const response = await fetch(`${this.invitationsURL}/bulk_create`, {
+```
+
+```typescript
+// lib/services/invitationService.ts (Lines 40-75)
+    const payload = {
+      invitations: validInvitations,
+      school_id,
+      sender_id,
+      sender: userEmail,
+      role: 'parent',
+      invited_via: invitedVia || 'whatsapp',
+      country_code: countryCode,
+    };
+
+    try {
+      const response = await fetch(`${this.invitationsURL}/bulk_create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Email': userEmail || 'system@schoolheadoffice.com',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || 'Bulk invitation failed');
+      }
+
+      return data;
+    } catch (error) {
+      console.error('Error creating bulk invitations', error);
+      throw error;
+    }
+```
+
+---
+
+#### 5.4.2. Verification of `verify_with_details` in `invitation-api.ts`
+Running a raw file inspection verifies the token lookup fallbacks inside `verifyToken`:
+
+```bash
+$ grep -n "verify_with_details" lib/api/invitation-api.ts
+60:      `/invitations/${token}/verify_with_details`,
+```
+
+```typescript
+// lib/api/invitation-api.ts (Lines 55-83)
+  static async verifyToken(token: string): Promise<InvitationData> {
+    console.log(`🔍 [InvitationAPI.verifyToken] Triggered for token: ${token.substring(0, 10)}...`);
+
+    const endpoints = [
+      `/invitations/${token}/verify_with_details`,
+      `/invitations/verify?token=${token}`,
+      `/invitations/${token}`,
+      `/teacher_invitations/${token}`,
+      `/teacher_invitations/verify?token=${token}`,
+      `/invitations/verify_teacher?token=${token}`,
+      `/learner_invitations/verify?token=${token}`,
+      `/invitations/${token}/verify`
+    ];
+
+    let lastError: any = null;
+
+    for (const endpoint of endpoints) {
+      try {
+        console.log(`📡 [InvitationAPI.verifyToken] Trying endpoint: ${endpoint}`);
+        const response = await apiClient.get(endpoint, VerifyWithDetailsSchema);
+
+        // Handle both wrapped and unwrapped response formats
+        const invitation = response.data?.invitation || response.invitation;
+```
+
+---
+
+#### 5.4.3. Phase 2 Scope & Target Branch Confirmation
+We explicitly acknowledge and confirm the following constraints for Phase 2:
+1.  **Target Branch Only**: All development, reconciliation, and integration work in Phase 2 will happen **exclusively on the local development branch `silence-gem-backtraces-10625524574831857542`**.
+2.  **Production is Off-Limits**: The production branch `parent-onboarding-complete-step` is strictly off-limits. It will **not be touched, modified, or merged into** during Phase 2. It serves as a read-only reference to compare behavior.
+3.  **Model Coexistence**: In alignment with the dead-code analysis in Section 5.2, legacy models `LearnerInvitation` and `TeacherInvitation` will be **kept intact** alongside the new unified `Invitation` model. No legacy model files will be deleted or broken during Phase 2 to ensure backward-compatibility with pending tokens and existing service integrations.
