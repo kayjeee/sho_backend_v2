@@ -90,6 +90,10 @@ The backend has inherited or developed a list of load-bearing system constraints
 *   **The Issue**: Calling `.compact` directly on a `Mongoid::Criteria` object immediately executes the underlying MongoDB query and returns a Ruby `Array`, destroying the ability to chain standard lazy querying methods like `.skip` or `.limit`.
 *   **The Rule**: Handle optional parameters by filtering a criteria array and splatting it into `any_of` (e.g., `any_of(*criteria_array.compact)`).
 
+### 2.7. ActionController::ParamsWrapper Silent Drop Trap
+*   **The Issue**: Rails API controllers include `ActionController::ParamsWrapper` by default. When an Active Record or Mongoid model exists matching the controller name (e.g. `Invitation` model for `InvitationsController`), Rails automatically intercepts incoming parameters and wraps them under a nested key matching the model name (e.g. `params[:invitation]`). Crucially, the wrapper **only** includes keys that literally match the model's physical field names, silently dropping all other client parameters (such as `phone_number` and `sender` when the model fields are `recipient_phone_number` and `sender_id`). Fallback routing checks like `raw_params = params[:invitation] || params` resolve to the incomplete wrapped parameters hash, ignoring the complete top-level payload.
+*   **The Rule**: Disable parameter wrapping globally inside API-only apps by adding `wrap_parameters false` inside `ApplicationController`, and always read from the top-level parameters hash (`params.to_unsafe_h`) directly.
+
 ---
 
 ## 3. Existing Auth / Onboarding Flow

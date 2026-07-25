@@ -58,9 +58,10 @@ class Api::V1::InvitationsController < ApplicationController
   def create
     Rails.logger.info "📥 [InvitationsController] Creating invitation"
     
-    # Extract, normalize, and validate parameters
-    raw_params = params[:invitation] || params
-    raw_hash = raw_params.respond_to?(:to_unsafe_h) ? raw_params.to_unsafe_h : raw_params.to_h
+    # Don't use params[:invitation] — ParamsWrapper only auto-includes keys that
+    # literally match the Invitation model's field names (recipient_phone_number,
+    # sender_id), so it silently drops phone_number/sender since those don't match.
+    raw_hash = params.to_unsafe_h
     service_params = normalize_hash_keys(raw_hash)
 
     # Accept both sender_id (backend standard) and sender (NextJS client contract)

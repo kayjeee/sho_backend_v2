@@ -27,6 +27,7 @@ This document records the exact changes, bug fixes, and feature reconciliations 
     *   Restored `field :phone, type: String` and `field :phone_number, type: String` on `app/models/user.rb` to support SMS/WhatsApp invitation paths.
     *   Merged the production branch's robust `CreateUserService` logic (handling alternative Auth0 prefixes and email-based matching) with the local branch's correct modern BSON error rescues (`BSON::Error::InvalidObjectId`, `Mongoid::Errors::DocumentNotFound`, and `Mongoid::Errors::InvalidFind`).
     *   Refactored dirty-tracking callbacks on `User` to use ActiveModel-compliant `changes['school_ids']` instead of the ActiveRecord-specific `changes_to_save`.
+    *   Implemented `full_name` inside `User` (`name.presence || display_name`) to prevent missing-method crashes on serialized invitation sender records.
 
 ---
 
@@ -41,7 +42,11 @@ This document records the exact changes, bug fixes, and feature reconciliations 
 
 ---
 
-## 5. Aligned Invitation Endpoints to Frontend Contracts
+## 5. Aligned Invitation Endpoints & Disabled ParamsWrapper Globally
+*   **The Issue**: Under Rails API mode, `ActionController::ParamsWrapper` wraps incoming requests inside `params[:invitation]` based on matching model attributes. Since the frontend passes different parameter names (e.g. `phone_number` and `sender`) than the physical database field names (`recipient_phone_number` and `sender_id`), Rails' automatic parameter wrapping silently discarded `phone_number` and `sender` from the wrapped hash. This resulted in false validation errors ("Phone number is required", "Sender is required").
+*   **The Fix**:
+    *   Added `wrap_parameters false` inside `ApplicationController` (`app/controllers/application_controller.rb`) to disable parameter wrapping globally for all single-object endpoints.
+    *   Updated `InvitationsController#create` to bypass the wrapped fallback entirely and unpack request parameters directly using `params.to_unsafe_h`.
 *   **Bulk Create**: Integrated `POST /api/v1/invitations/bulk_create` to accept bulk array payloads. Restored the missing `BulkInvitationService` and updated it to dynamically resolve whether the target model class uses `token` or `invitation_token`, and correctly map status types (Integer vs String) and missing validations (`invited_by_id`, `expires_at`, `learner_phone`).
 *   **Accept Invitation**: Implemented `POST /api/v1/invitations/verify` (accept) with snake_case parameter mapping `{ token, auth0_id }`, which delegates to the newly built `UserServices::AcceptInvitationService`.
 *   **Token Verification**: Aligned `GET /api/v1/invitations/:token/verify_with_details` to return unified detail response hashes, incorporating defensive standardizations to convert `DateTime` and `TimeWithZone` timestamps into `Time` values before subtracting (avoiding the `TypeError: expected numeric` crash when subtracting timestamps on different formats).
@@ -61,6 +66,6 @@ Following standard engineering conventions, created `UserServices::AcceptInvitat
 ---
 
 ## 7. Test Verification
-Wrote 6 new comprehensive tests under `test/controllers/invitations_controller_test.rb` verifying auth boot checks, path-based fallback routing, unified verification lookups, bulk creations, and transactional accepting.
+Wrote 7 new comprehensive tests under `test/controllers/invitations_controller_test.rb` verifying auth boot checks, path-based fallback routing, unified verification lookups, bulk creations, unnested create requests, and transactional accepting.
 
-All 12 tests in the suite pass with **100% success** (0 failures, 0 errors, 0 skips).
+All 13 tests in the suite pass with **100% success** (0 failures, 0 errors, 0 skips).
