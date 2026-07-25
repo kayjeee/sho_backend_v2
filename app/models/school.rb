@@ -34,6 +34,10 @@ class School
   field :cash_account, type: Float, default: 0.0
   field :payment_history, type: Array, default: []
   
+  # Users & Invitations
+  field :adminUsers, type: Array, default: []
+  field :invites, type: Array, default: []
+
   # User association fields
   field :user_id, type: String
   field :user_email, type: String

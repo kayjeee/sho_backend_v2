@@ -1,7 +1,7 @@
 class Api::V1::UsersController < ApplicationController
   # Added :update_profile to the set_user filter array
   before_action :set_user, only: [:show, :update_roles, :schools, :add_school, :update_profile]
-  before_action :set_user_by_path, only: [:show_by_path, :schools_by_path, :onboarding_status_by_path]
+  before_action :set_user_by_path, only: [:show_by_path, :schools_by_path, :onboarding_status_by_path, :onboarding_status]
 
   # POST /api/v1/users
   def create
@@ -101,6 +101,10 @@ class Api::V1::UsersController < ApplicationController
 
   def schools_by_path
     schools
+  end
+
+  def onboarding_status
+    onboarding_status_by_path
   end
 
   def onboarding_status_by_path
