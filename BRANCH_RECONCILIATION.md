@@ -615,3 +615,67 @@ We explicitly acknowledge and confirm the following constraints for Phase 2:
 1.  **Target Branch Only**: All development, reconciliation, and integration work in Phase 2 will happen **exclusively on the local development branch `silence-gem-backtraces-10625524574831857542`**.
 2.  **Production is Off-Limits**: The production branch `parent-onboarding-complete-step` is strictly off-limits. It will **not be touched, modified, or merged into** during Phase 2. It serves as a read-only reference to compare behavior.
 3.  **Model Coexistence**: In alignment with the dead-code analysis in Section 5.2, legacy models `LearnerInvitation` and `TeacherInvitation` will be **kept intact** alongside the new unified `Invitation` model. No legacy model files will be deleted or broken during Phase 2 to ensure backward-compatibility with pending tokens and existing service integrations.
+
+---
+
+### 5.5. Verified POST /api/v1/invitations Key Mismatch & Resolution
+
+This sub-section documents the newly found parameter mismatch, the fix applied to reconcile it, and un-nested payloads used for invitation creation.
+
+#### 5.5.1. The Mismatch (Frontend Key vs. Backend Key)
+*   **The Bug**: Standard requests to `POST /api/v1/invitations` failed with `"Phone number is required", "Sender is required"` errors even though both parameters were present in the payload body.
+*   **Root Cause**:
+    1.  **Sender Lookup**: The frontend sends the Auth0 ID under the key `"sender"` directly at the root payload (e.g. `"sender": "auth0|..."`). However, the backend was only checking the key `"sender_id"`.
+    2.  **Parameters Unpacking**: The controller did not call `.to_unsafe_h` on the Rails `ActionController::Parameters` object. In Rails 8, iterating or doing deep mappings on raw parameter structures directly without explicitly transforming them to unsafe hashes caused unpermitted or raw properties to be silently filtered out or ignored.
+
+#### 5.5.2. Raw Frontend Call Evidence
+The plain single-invitation creation originates from `lib/services/SmsService.ts` and `WhatsAppBusinessService.ts`:
+
+```typescript
+// lib/services/SmsService.ts (Lines 74-84)
+      const payload = {
+        phone_number: phoneNumber,
+        school_id: schoolId,
+        learner_numbers: learnerNumbers ?? [],
+        role: 'parent',
+        parent_name: parentName ?? null,
+        grade_id: gradeId ?? null,
+        invited_via: 'sms',
+        sender,
+      };
+```
+
+#### 5.5.3. Raw Backend Permitted Params & Code
+```ruby
+# app/controllers/api/v1/invitations_controller.rb
+  def create
+    Rails.logger.info "📥 [InvitationsController] Creating invitation"
+
+    # Extract, normalize, and validate parameters
+    raw_params = params[:invitation] || params
+    raw_hash = raw_params.respond_to?(:to_unsafe_h) ? raw_params.to_unsafe_h : raw_params.to_h
+    service_params = normalize_hash_keys(raw_hash)
+
+    # Accept both sender_id (backend standard) and sender (NextJS client contract)
+    sender = find_sender(service_params[:sender_id] || service_params[:sender])
+
+    # Build service parameters
+    service_params = build_service_params(service_params, sender)
+    ...
+```
+
+---
+
+#### 5.5.4. Additional Un-Inventoried Invitation Endpoints
+A broader search of the frontend codebase turned up another invitation path:
+*   **Email Invitation creation**:
+    Located in `components/onboarding/onboarding/OnboardingFlow/Step3SendInvites/components/ChannelSelection/services/EmailService.ts` (Line 59), this endpoint also targets `POST /api/v1/invitations` but passes `email` instead of `phone_number`:
+    ```typescript
+    // EmailService.ts
+    const payload = {
+      email: email,
+      school_id: schoolId,
+      role: 'parent',
+    };
+    ```
+    *This endpoint is currently reported as an un-inventoried contract variant to be noted for potential future support.*

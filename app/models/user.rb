@@ -571,6 +571,10 @@ class User
     name.presence || email.split('@').first
   end
 
+  def full_name
+    name.presence || display_name
+  end
+
   private
 
   def log_school_id_changes

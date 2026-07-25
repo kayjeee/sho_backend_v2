@@ -169,4 +169,27 @@ class InvitationsControllerTest < ActionDispatch::IntegrationTest
     assert json_response['success']
     assert_equal false, json_response['data']['onboardingCompleted']
   end
+
+  test "POST create (plain invitations endpoint) handles un-nested payload and maps sender key" do
+    payload = {
+      phone_number: "27814296653",
+      school_id: @school.id.to_s,
+      learner_numbers: ["56565"],
+      role: "parent",
+      parent_name: "kg",
+      grade_id: @grade.id.to_s,
+      invited_via: "whatsapp",
+      sender: @sender.auth0_id,
+      country_code: "27",
+      country_name: "South Africa"
+    }
+
+    post "/api/v1/invitations", params: payload
+    assert_response :created
+    json_response = JSON.parse(response.body)
+
+    assert json_response['success']
+    assert_not_nil json_response['invitation']['token']
+    assert_equal "kg", json_response['invitation']['parent_name']
+  end
 end

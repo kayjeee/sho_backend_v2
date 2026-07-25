@@ -60,8 +60,11 @@ class Api::V1::InvitationsController < ApplicationController
     
     # Extract, normalize, and validate parameters
     raw_params = params[:invitation] || params
-    service_params = normalize_hash_keys(raw_params)
-    sender = find_sender(service_params[:sender_id])
+    raw_hash = raw_params.respond_to?(:to_unsafe_h) ? raw_params.to_unsafe_h : raw_params.to_h
+    service_params = normalize_hash_keys(raw_hash)
+
+    # Accept both sender_id (backend standard) and sender (NextJS client contract)
+    sender = find_sender(service_params[:sender_id] || service_params[:sender])
     
     # Build service parameters
     service_params = build_service_params(service_params, sender)
