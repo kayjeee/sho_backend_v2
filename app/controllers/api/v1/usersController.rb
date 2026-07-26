@@ -137,7 +137,8 @@ class Api::V1::UsersController < ApplicationController
 
   def user_params
     Rails.logger.debug "🔒 Permitting user fields: name, email, auth0_id, roles"
-    params.require(:user).permit(:name, :email, :auth0_id, roles: [])
+    source = params[:user].presence || params
+    source.permit(:name, :email, :auth0_id, roles: [])
   end
 
   def set_user

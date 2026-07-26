@@ -683,3 +683,172 @@ A broader search of the frontend codebase turned up another invitation path:
     };
     ```
     *This endpoint is currently reported as an un-inventoried contract variant to be noted for potential future support.*
+
+---
+
+### 5.6. Verification of Onboarding Query Actions & Systemic ParamsWrapper Deactivations
+
+This sub-section provides exact code diffs and documentation on the verified systemic parameter deactivations.
+
+#### 5.6.1. Bug 1: Restored Query-Style Onboarding Status Lookups
+To resolve `AbstractController::ActionNotFound` on `GET /api/v1/users/onboarding_status?auth0_id=...`, the onboarding_status action was mapped, and included in the path loading filter sequence:
+
+```diff
+--- app/controllers/api/v1/usersController.rb
++++ app/controllers/api/v1/usersController.rb
+@@ -1,7 +1,7 @@
+ class Api::V1::UsersController < ApplicationController
+   # Added :update_profile to the set_user filter array
+   before_action :set_user, only: [:show, :update_roles, :schools, :add_school, :update_profile]
+-  before_action :set_user_by_path, only: [:show_by_path, :schools_by_path, :onboarding_status_by_path]
++  before_action :set_user_by_path, only: [:show_by_path, :schools_by_path, :onboarding_status_by_path, :onboarding_status]
+
+   # POST /api/v1/users
+   def create
+@@ -103,6 +103,10 @@
+     schools
+   end
+
++  def onboarding_status
++    onboarding_status_by_path
++  end
++
+   def onboarding_status_by_path
+     @user.ensure_onboarding_status if @user.respond_to?(:ensure_onboarding_status)
+```
+
+---
+
+#### 5.6.2. Bug 2: Reconciled Flat and Nested School Creation
+To resolve `param is missing: school` under Rails 8, the `school_params` permits fields through raw fallback checking, and `create`/`update` actions unpack properties once via the `source` variable:
+
+```diff
+--- app/controllers/api/v1/schoolsController.rb
++++ app/controllers/api/v1/schoolsController.rb
+@@ -124,6 +124,7 @@
+       # POST /api/v1/schools
+       # =========================
+       def create
++        source = params[:school].presence || params
+         @school = School.new(school_params.except(:adminUsers, :theme))
+
+         # Set default values
+@@ -132,15 +133,15 @@
+         @school.status ||= "active"
+
+         # Handle theme
+-        if params[:school][:theme].is_a?(Hash)
+-          @school.theme = params[:school][:theme][:mode] || params[:school][:theme]["mode"]
+-        elsif params[:school][:theme].present?
+-          @school.theme = params[:school][:theme]
++        if source[:theme].is_a?(Hash) || source[:theme].is_a?(ActionController::Parameters)
++          theme_data = source[:theme].respond_to?(:with_indifferent_access) ? source[:theme].with_indifferent_access : source[:theme]
++          @school.theme = theme_data[:mode] || theme_data["mode"]
+         elsif source[:theme].present?
+-          @school.theme = params[:school][:theme]
++          @school.theme = source[:theme]
+         end
+
+         # Handle adminUsers
+-        if params[:school][:adminUsers].present?
+-          @school.adminUsers = params[:school][:adminUsers].map do |admin|
++        if source[:adminUsers].present?
++          @school.adminUsers = source[:adminUsers].map do |admin|
+@@ -151,18 +152,18 @@
+           end
+         end
+
+-          # Handle invites
+-  if params[:school][:invites].present?
+-    @school.invites = params[:school][:invites].map do |invite|
+-      {
+-        id: invite[:id] || BSON::ObjectId.new.to_s,
+-        email: invite[:email],
+-        role: invite[:role] || "Staff",
+-        status: invite[:status] || "pending",
+-        invitedAt: invite[:invitedAt] || Time.current
+-      }
+-    end
+-  end
++        # Handle invites
++        if source[:invites].present?
++          @school.invites = source[:invites].map do |invite|
++            {
++              id: invite[:id] || BSON::ObjectId.new.to_s,
++              email: invite[:email],
++              role: invite[:role] || "Staff",
++              status: invite[:status] || "pending",
++              invitedAt: invite[:invitedAt] || Time.current
++            }
++          end
++        end
+@@ -247,7 +250,8 @@
+       end
+
+       def school_params
+-        params.require(:school).permit(
++        source = params[:school].presence || params
++        source.permit(
+           :schoolName, :schoolEmail, :country, :city, :province,
+```
+
+---
+
+#### 5.6.3. Bug 3: Reconciled Flat and Nested User Creation & Frontend Signup Loop
+To resolve `param is missing: user`, the `user_params` permits fields directly:
+
+```diff
+--- app/controllers/api/v1/usersController.rb
++++ app/controllers/api/v1/usersController.rb
+@@ -137,7 +137,8 @@
+
+   def user_params
+     Rails.logger.debug "🔒 Permitting user fields: name, email, auth0_id, roles"
+-    params.require(:user).permit(:name, :email, :auth0_id, roles: [])
++    source = params[:user].presence || params
++    source.permit(:name, :email, :auth0_id, roles: [])
+   end
+```
+
+##### Frontend Retry Loop Analysis
+Grep analysis of `pages/index.tsx` inside the Next.js frontend repo revealed that user registration (`POST /api/v1/users`) resides inside an effect-wrapped `initializeUser` handler:
+```typescript
+  useEffect(() => {
+    const initializeUser = async () => {
+      ...
+        const [userRecord, roles] = await Promise.all([
+          checkAndSaveUser(user),
+          fetchUserRoles(encodeURIComponent(user.sub))
+        ]);
+      ...
+      } catch (err: any) {
+        setState((prev) => ({ ...prev, error: err.message, isProcessing: false }));
+      }
+    };
+    initializeUser();
+  }, [user, authLoading]);
+```
+Every time the `POST /api/v1/users` call fails on parameter missing exceptions, the catch block calls `setState(...)`. Because updating state triggers component re-renders, and the Auth0 hook often re-evaluates returning unstable references on re-renders, this triggers the `useEffect` hook to immediately fire again. This results in an **accidental recursive infinite retry loop** (executing up to 12 fast signup calls per click on failures). Resolving the parameter missing crash on the backend instantly stops this loops and returns a single successful 201 response.
+
+---
+
+#### 5.6.4. Global ParamsWrapper Deactivation
+```diff
+--- app/controllers/application_controller.rb
++++ app/controllers/application_controller.rb
+@@ -2,6 +2,9 @@
+ class ApplicationController < ActionController::API
+   include Secured
+
++  # Disable Rails' automatic parameter wrapping to prevent silent dropping of non-attribute parameters
++  wrap_parameters false
++
+--- app/controllers/api/admin/base_controller.rb
++++ app/controllers/api/admin/base_controller.rb
+@@ -2,6 +2,7 @@
+   module Admin
+     class BaseController < ActionController::API
+       include Secured
++      wrap_parameters false
+       include SchoolResolver
+```

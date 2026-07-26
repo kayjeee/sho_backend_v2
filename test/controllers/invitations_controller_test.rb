@@ -192,4 +192,30 @@ class InvitationsControllerTest < ActionDispatch::IntegrationTest
     assert_not_nil json_response['invitation']['token']
     assert_equal "kg", json_response['invitation']['parent_name']
   end
+
+  test "POST create on users endpoint handles flat (non-wrapped) JSON payload successfully" do
+    payload = {
+      name: "New Flat User",
+      email: "flat_user@test.com",
+      auth0_id: "auth0|flat_user_unique_123",
+      roles: ["parent"]
+    }
+
+    post "/api/v1/users", params: payload
+    assert_response :created
+    json_response = JSON.parse(response.body)
+
+    assert json_response['success']
+    assert_equal "New Flat User", json_response['data']['user']['name']
+    assert_equal "flat_user@test.com", json_response['data']['user']['email']
+  end
+
+  test "GET onboarding_status with query string handles lookup successfully" do
+    get "/api/v1/users/onboarding_status", params: { auth0_id: @parent.auth0_id }
+    assert_response :success
+    json_response = JSON.parse(response.body)
+
+    assert json_response['success']
+    assert_equal false, json_response['data']['onboardingCompleted']
+  end
 end
