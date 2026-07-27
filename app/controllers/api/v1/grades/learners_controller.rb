@@ -16,8 +16,8 @@ module Api
             return render json: { success: false, error: "Grade not found." }, status: :not_found
           end
 
-          # The production database collection strictly stores relation values as 'gradeId' (camelCase string)
-          query = { "gradeId" => @grade.id.to_s }
+          # The production database collection strictly stores relation values as 'gradeId' (camelCase string or BSON::ObjectId)
+          query = { "gradeId" => { "$in" => [@grade.id.to_s, @grade.id] } }
 
           # Query school_id as a string if provided
           if school_id.present?
@@ -37,7 +37,8 @@ module Api
                 firstName: learner.try(:firstName) || learner.try(:first_name),
                 lastName: learner.try(:lastName) || learner.try(:last_name),
                 gender: learner.gender,
-                accessionNumber: learner.try(:accessionNumber) || learner.try(:accession_number),
+                accessionNumber: learner.accession_number,
+                accession_number: learner.accession_number,
                 gradeId: @grade.id.to_s,
                 school_id: learner.school_id.to_s,
                 parent_id: learner.try(:parent_id)&.to_s || nil,

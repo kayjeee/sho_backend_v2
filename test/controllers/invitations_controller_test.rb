@@ -218,4 +218,18 @@ class InvitationsControllerTest < ActionDispatch::IntegrationTest
     assert json_response['success']
     assert_equal false, json_response['data']['onboardingCompleted']
   end
+
+  test "GET /api/v1/grades/:grade_id/learners returns accession_number and accessionNumber" do
+    get "/api/v1/grades/#{@grade.id}/learners"
+    assert_response :success
+    json_response = JSON.parse(response.body)
+
+    assert json_response['success']
+    assert_equal 1, json_response['total']
+
+    learner_json = json_response['learners'].first
+    assert_equal "John Doe", "#{learner_json['firstName']} #{learner_json['lastName']}"
+    assert_equal "ACC123", learner_json['accession_number']
+    assert_equal "ACC123", learner_json['accessionNumber']
+  end
 end

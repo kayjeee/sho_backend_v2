@@ -168,6 +168,14 @@ class Learner
     tel_emergency.presence || primary_contact
   end
 
+  def accession_number
+    read_attribute(:accessionNumber) || read_attribute(:accession_number) || self[:accessionNumber] || self[:accession_number]
+  end
+
+  def accessionNumber
+    accession_number
+  end
+
   # Serialize to API hash
   def to_api_hash
     {
