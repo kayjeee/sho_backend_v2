@@ -42,7 +42,14 @@ module Api
                 gradeId: @grade.id.to_s,
                 school_id: learner.school_id.to_s,
                 parent_id: learner.try(:parent_id)&.to_s || nil,
-                status: learner.try(:status) || "active"
+                status: learner.try(:status) || "active",
+                contact: {
+                  phone: learner.try(:phone),
+                  whatsapp: learner.try(:whatsapp),
+                  tel_home: learner.try(:tel_home) || learner.try(:telHome) || learner.read_attribute(:telHome) || learner.read_attribute(:tel_home),
+                  tel_emergency: learner.try(:tel_emergency) || learner.try(:telEmergency) || learner.read_attribute(:telEmergency) || learner.read_attribute(:tel_emergency),
+                  telegram: learner.try(:telegram)
+                }
               }
             }
           }, status: :ok

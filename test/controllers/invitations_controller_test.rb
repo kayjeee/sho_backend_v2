@@ -26,7 +26,10 @@ class InvitationsControllerTest < ActionDispatch::IntegrationTest
       school_id: @school.id.to_s,
       grade_id: @grade.id.to_s,
       status: 0, # active (Integer)
-      gender: 0  # male (Integer)
+      gender: 0, # male (Integer)
+      phone: "+27814296653",
+      whatsapp: "+27814296653",
+      telEmergency: "+27814296654"
     )
 
     # Create Parent User (the one accepting invitation)
@@ -219,7 +222,7 @@ class InvitationsControllerTest < ActionDispatch::IntegrationTest
     assert_equal false, json_response['data']['onboardingCompleted']
   end
 
-  test "GET /api/v1/grades/:grade_id/learners returns accession_number and accessionNumber" do
+  test "GET /api/v1/grades/:grade_id/learners returns accession_number, accessionNumber, and nested contact info" do
     get "/api/v1/grades/#{@grade.id}/learners"
     assert_response :success
     json_response = JSON.parse(response.body)
@@ -231,5 +234,11 @@ class InvitationsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "John Doe", "#{learner_json['firstName']} #{learner_json['lastName']}"
     assert_equal "ACC123", learner_json['accession_number']
     assert_equal "ACC123", learner_json['accessionNumber']
+
+    # Check contact fields are present with correct nested structure
+    assert_not_nil learner_json['contact']
+    assert_equal "+27814296653", learner_json['contact']['phone']
+    assert_equal "+27814296653", learner_json['contact']['whatsapp']
+    assert_equal "+27814296654", learner_json['contact']['tel_emergency']
   end
 end
