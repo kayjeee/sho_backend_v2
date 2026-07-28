@@ -12,6 +12,7 @@ class LearnerInvitation
   field :invited_at,            type: DateTime
   field :expires_at,            type: DateTime
   field :accepted_at,           type: DateTime
+  field :school_id,             type: String
 
   # ===================== CONSTANTS =======================
   STATUSES = {
@@ -37,6 +38,7 @@ class LearnerInvitation
   belongs_to :grade,            class_name: 'Grade'
   belongs_to :invited_by,       class_name: 'User'
   belongs_to :learner,          class_name: 'Learner', optional: true
+  belongs_to :school,           class_name: 'School', foreign_key: :school_id, optional: true
 
   # ======================== INDEXES =======================
   index({ invitation_token: 1 }, { unique: true })
@@ -76,7 +78,7 @@ class LearnerInvitation
   end
 
   def expired?
-    status == 3 || expires_at < Time.current
+    status == 3 || (expires_at.present? && expires_at.to_time < Time.current)
   end
 
   def cancelled?
@@ -145,7 +147,9 @@ class LearnerInvitation
   # Utility methods
   def days_until_expiry
     return 0 if expired?
-    ((expires_at - Time.current) / 1.day).ceil
+    return 0 if expires_at.blank?
+    exp_time = expires_at.respond_to?(:to_time) ? expires_at.to_time : expires_at
+    ((exp_time - Time.current.to_time) / 1.day).ceil
   end
 
   def contact_info
@@ -166,10 +170,12 @@ class LearnerInvitation
     {
       id: id.to_s,
       invitation_token: invitation_token,
+      token: invitation_token,
       learner_email: learner_email,
       learner_phone: learner_phone,
       status: status,
       status_text: status_text,
+      school_id: school_id&.to_s || grade&.school_id&.to_s,
       grade: {
         id: grade_id.to_s,
         name: grade&.name,
