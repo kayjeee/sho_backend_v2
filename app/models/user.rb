@@ -12,6 +12,8 @@ class User
   field :payment_history,      type: Array,  default: []
   field :status,               type: String, default: 'active'
   field :last_login,           type: Time
+  field :phone,                type: String
+  field :phone_number,         type: String
   field :onboarding_completed, type: Boolean, default: false
   field :onboarding_progress,  type: Float,   default: 0.0
 
@@ -569,10 +571,14 @@ class User
     name.presence || email.split('@').first
   end
 
+  def full_name
+    name.presence || display_name
+  end
+
   private
 
   def log_school_id_changes
-    old_school_ids, new_school_ids = changes_to_save['school_ids']
+    old_school_ids, new_school_ids = (changes['school_ids'] || [school_ids_was, school_ids])
 
     old_school_ids = old_school_ids || []
     new_school_ids = new_school_ids || []

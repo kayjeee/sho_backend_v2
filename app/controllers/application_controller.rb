@@ -2,6 +2,9 @@
 class ApplicationController < ActionController::API
   include Secured
 
+  # Disable Rails' automatic parameter wrapping to prevent silent dropping of non-attribute parameters
+  wrap_parameters false
+
   # Health check endpoint
   def health
     render json: {

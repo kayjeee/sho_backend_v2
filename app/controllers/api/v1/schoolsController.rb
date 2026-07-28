@@ -124,6 +124,7 @@ module Api
       # POST /api/v1/schools
       # =========================
       def create
+        source = params[:school].presence || params
         @school = School.new(school_params.except(:adminUsers, :theme))
 
         # Set default values
@@ -132,15 +133,16 @@ module Api
         @school.status ||= "active"
 
         # Handle theme
-        if params[:school][:theme].is_a?(Hash)
-          @school.theme = params[:school][:theme][:mode] || params[:school][:theme]["mode"]
-        elsif params[:school][:theme].present?
-          @school.theme = params[:school][:theme]
+        if source[:theme].is_a?(Hash) || source[:theme].is_a?(ActionController::Parameters)
+          theme_data = source[:theme].respond_to?(:with_indifferent_access) ? source[:theme].with_indifferent_access : source[:theme]
+          @school.theme = theme_data[:mode] || theme_data["mode"]
+        elsif source[:theme].present?
+          @school.theme = source[:theme]
         end
 
         # Handle adminUsers
-        if params[:school][:adminUsers].present?
-          @school.adminUsers = params[:school][:adminUsers].map do |admin|
+        if source[:adminUsers].present?
+          @school.adminUsers = source[:adminUsers].map do |admin|
             {
               id: admin[:id] || BSON::ObjectId.new.to_s,
               name: admin[:name],
@@ -151,18 +153,18 @@ module Api
           end
         end
 
-          # Handle invites
-  if params[:school][:invites].present?
-    @school.invites = params[:school][:invites].map do |invite|
-      {
-        id: invite[:id] || BSON::ObjectId.new.to_s,
-        email: invite[:email],
-        role: invite[:role] || "Staff",
-        status: invite[:status] || "pending",
-        invitedAt: invite[:invitedAt] || Time.current
-      }
-    end
-  end
+        # Handle invites
+        if source[:invites].present?
+          @school.invites = source[:invites].map do |invite|
+            {
+              id: invite[:id] || BSON::ObjectId.new.to_s,
+              email: invite[:email],
+              role: invite[:role] || "Staff",
+              status: invite[:status] || "pending",
+              invitedAt: invite[:invitedAt] || Time.current
+            }
+          end
+        end
 
         if @school.save
           # Associate user with school if user_id provided
@@ -190,16 +192,19 @@ module Api
       # PATCH/PUT /api/v1/schools/:id
       # =========================
       def update
+        source = params[:school].presence || params
+
         # Handle theme
-        if params[:school] && params[:school][:theme].is_a?(Hash)
-          @school.theme = params[:school][:theme][:mode] || params[:school][:theme]["mode"]
-        elsif params[:school] && params[:school][:theme].present?
-          @school.theme = params[:school][:theme]
+        if source[:theme].is_a?(Hash) || source[:theme].is_a?(ActionController::Parameters)
+          theme_data = source[:theme].respond_to?(:with_indifferent_access) ? source[:theme].with_indifferent_access : source[:theme]
+          @school.theme = theme_data[:mode] || theme_data["mode"]
+        elsif source[:theme].present?
+          @school.theme = source[:theme]
         end
 
         # Handle adminUsers
-        if params[:school] && params[:school][:adminUsers].present?
-          @school.adminUsers = params[:school][:adminUsers].map do |admin|
+        if source[:adminUsers].present?
+          @school.adminUsers = source[:adminUsers].map do |admin|
             {
               id: admin[:id] || BSON::ObjectId.new.to_s,
               name: admin[:name],
@@ -247,7 +252,8 @@ module Api
       end
 
       def school_params
-        params.require(:school).permit(
+        source = params[:school].presence || params
+        source.permit(
           :schoolName, :schoolEmail, :country, :city, :province,
           :latitude, :longitude, :facebook, :linkedin, :tiktok,
           :website, :logo, :status, :line1, :line2, :postalCode,

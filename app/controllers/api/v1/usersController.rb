@@ -1,6 +1,7 @@
 class Api::V1::UsersController < ApplicationController
   # Added :update_profile to the set_user filter array
   before_action :set_user, only: [:show, :update_roles, :schools, :add_school, :update_profile]
+  before_action :set_user_by_path, only: [:show_by_path, :schools_by_path, :onboarding_status_by_path, :onboarding_status]
 
   # POST /api/v1/users
   def create
@@ -93,11 +94,51 @@ class Api::V1::UsersController < ApplicationController
     end
   end
 
+  # Deprecated path compatibility routes
+  def show_by_path
+    show
+  end
+
+  def schools_by_path
+    schools
+  end
+
+  def onboarding_status
+    onboarding_status_by_path
+  end
+
+  def onboarding_status_by_path
+    @user.ensure_onboarding_status if @user.respond_to?(:ensure_onboarding_status)
+    status = @user.onboarding_status
+
+    if status
+      data = status.as_json
+      data['onboarding_completed'] = @user.onboarding_completed
+      data['onboardingCompleted'] = @user.onboarding_completed
+
+      primary_school = UserServices::FetchSchoolsService.new(user: @user).call.first
+      primary_school_name = primary_school&.schoolName || primary_school&.[](:schoolName)
+      data['primary_school_name'] = primary_school_name
+      data['primarySchoolName'] = primary_school_name
+      data['school_name'] = primary_school_name
+      data['schoolName'] = primary_school_name
+    else
+      data = { completed: false, onboardingCompleted: false, onboarding_completed: false }
+    end
+
+    render json: {
+      success: true,
+      data: data,
+      message: "Fetched onboarding status"
+    }
+  end
+
   private
 
   def user_params
     Rails.logger.debug "🔒 Permitting user fields: name, email, auth0_id, roles"
-    params.require(:user).permit(:name, :email, :auth0_id, roles: [])
+    source = params[:user].presence || params
+    source.permit(:name, :email, :auth0_id, roles: [])
   end
 
   def set_user
@@ -137,6 +178,27 @@ class Api::V1::UsersController < ApplicationController
     render json: { success: false, error: "User not found" }, status: :not_found
   rescue StandardError => e
     Rails.logger.error "🔥 Unexpected error in set_user: #{e.message}"
+    render json: { success: false, error: "User not found" }, status: :not_found
+  end
+
+  def set_user_by_path
+    lookup_id = params[:auth0_id]
+    if lookup_id.blank?
+      render json: { success: false, error: "User not found", message: "User identifier is required" }, status: :not_found
+      return
+    end
+
+    Rails.logger.debug "🔍 Looking up user by path-based auth0_id: #{lookup_id}"
+    @user = User.find_by(auth0_id: lookup_id)
+
+    unless @user
+      Rails.logger.warn "❌ User not found with auth0_id: #{lookup_id}"
+      render json: { success: false, error: "User not found" }, status: :not_found
+    end
+  rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId, Mongoid::Errors::InvalidFind
+    render json: { success: false, error: "User not found" }, status: :not_found
+  rescue StandardError => e
+    Rails.logger.error "🔥 Unexpected error in set_user_by_path: #{e.message}"
     render json: { success: false, error: "User not found" }, status: :not_found
   end
 end

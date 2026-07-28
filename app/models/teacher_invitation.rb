@@ -76,7 +76,7 @@ class TeacherInvitation
   end
 
   def expired?
-    status == 3 || expires_at < Time.current
+    status == 3 || (expires_at.present? && expires_at.to_time < Time.current)
   end
 
   def cancelled?
@@ -177,7 +177,9 @@ class TeacherInvitation
 
   def days_until_expiry
     return 0 if expired?
-    ((expires_at - Time.current) / 1.day).ceil
+    return 0 if expires_at.blank?
+    exp_time = expires_at.respond_to?(:to_time) ? expires_at.to_time : expires_at
+    ((exp_time - Time.current.to_time) / 1.day).ceil
   end
 
   def invitation_url
@@ -193,6 +195,7 @@ class TeacherInvitation
     {
       id: id.to_s,
       invitation_token: invitation_token,
+      token: invitation_token,
       teacher_email: teacher_email,
       status: status,
       status_text: status_text,
