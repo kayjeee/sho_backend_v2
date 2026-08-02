@@ -132,6 +132,8 @@ class Api::V1::InvitationsController < ApplicationController
     ).call
 
     if result.success?
+      link_parent_to_learners(result.learners, result.invitation)
+
       render json: {
         success: true,
         message: 'Invitation accepted successfully',
@@ -202,6 +204,142 @@ class Api::V1::InvitationsController < ApplicationController
       error: Rails.env.development? ? e.message : nil,
       invitations: []
     }, status: :unprocessable_entity
+  end
+
+  # ------------------------------------------------------------
+  # GET /api/v1/invitations
+  # List invitations for a school
+  # ------------------------------------------------------------
+  def index
+    school_id = params[:school_id] || params[:schoolId]
+    if school_id.blank?
+      return render json: { success: false, message: 'Missing required parameter: school_id' }, status: :bad_request
+    end
+
+    invitations_scope = Invitation.by_school(school_id)
+
+    status_param = params[:status] || params[:statusId]
+    if status_param.present? && status_param != 'all'
+      status_str = status_param.to_s.downcase
+      if %w[pending accepted expired rejected cancelled].include?(status_str)
+        invitations_scope = invitations_scope.send(status_str)
+      else
+        invitations_scope = invitations_scope.where(status: status_str)
+      end
+    end
+
+    invitations_scope = invitations_scope.recent
+    total_count = invitations_scope.count
+    serialized_invitations = invitations_scope.map { |inv| safe_invitation_hash(inv) }
+
+    render json: {
+      success: true,
+      invitations: serialized_invitations,
+      total: total_count
+    }, status: :ok
+  rescue StandardError => e
+    log_error("Failed to list invitations", e)
+    render json: { success: false, message: "Failed to fetch invitations: #{e.message}" }, status: :internal_server_error
+  end
+
+  # ------------------------------------------------------------
+  # POST /api/v1/invitations/:token/resend
+  # Resend invitation by regenerating token & resetting status/expiry
+  # ------------------------------------------------------------
+  def resend
+    token = params[:token] || params[:id]
+    invitation = Invitation.find_by_token(token)
+
+    if invitation.nil?
+      return render json: { success: false, message: "Invitation not found" }, status: :not_found
+    end
+
+    if invitation.resend!
+      render json: { success: true, invitation: safe_invitation_hash(invitation) }, status: :ok
+    else
+      render json: { success: false, message: "Failed to resend invitation" }, status: :unprocessable_entity
+    end
+  rescue StandardError => e
+    log_error("Failed to resend invitation", e)
+    render json: { success: false, message: "An error occurred: #{e.message}" }, status: :internal_server_error
+  end
+
+  # ------------------------------------------------------------
+  # POST /api/v1/invitations/:token/cancel
+  # Cancel invitation by token
+  # ------------------------------------------------------------
+  def cancel
+    token = params[:token] || params[:id]
+    invitation = Invitation.find_by_token(token)
+
+    if invitation.nil?
+      return render json: { success: false, message: "Invitation not found" }, status: :not_found
+    end
+
+    if invitation.cancel!
+      render json: { success: true, invitation: safe_invitation_hash(invitation) }, status: :ok
+    else
+      render json: { success: false, message: "Failed to cancel invitation" }, status: :unprocessable_entity
+    end
+  rescue StandardError => e
+    log_error("Failed to cancel invitation", e)
+    render json: { success: false, message: "An error occurred: #{e.message}" }, status: :internal_server_error
+  end
+
+  # ------------------------------------------------------------
+  # POST /api/v1/invitations/:token/admin_accept
+  # Admin-triggered accept action without parent auth0_id
+  # ------------------------------------------------------------
+  def admin_accept
+    token = params[:token] || params[:id]
+    invitation = Invitation.find_by_token(token)
+
+    if invitation.nil?
+      return render json: { success: false, message: "Invitation not found" }, status: :not_found
+    end
+
+    phone = invitation.recipient_phone_number.to_s.strip
+    variations = [phone]
+    if phone.start_with?('27')
+      variations << "0#{phone[2..]}"
+    elsif phone.start_with?('0')
+      variations << "27#{phone[1..]}"
+    end
+
+    parent_user = User.where(:phone_number.in => variations).first ||
+                  User.where(:phone.in => variations).first
+
+    if parent_user.blank?
+      return render json: {
+        success: false,
+        message: "No parent account found for this phone number yet — the parent must sign up first before this invitation can be linked."
+      }, status: :unprocessable_entity
+    end
+
+    # Delegate the heavy lifting to AcceptInvitationService
+    result = UserServices::AcceptInvitationService.new(
+      token: invitation.token,
+      auth0_id: parent_user.auth0_id
+    ).call
+
+    if result.success?
+      link_parent_to_learners(result.learners, result.invitation)
+
+      render json: {
+        success: true,
+        invitation: safe_invitation_hash(result.invitation),
+        learners: result.learners.map { |l| safe_learner_hash(l) }
+      }, status: :ok
+    else
+      render json: {
+        success: false,
+        errors: result.errors,
+        message: result.errors.join(", ")
+      }, status: :unprocessable_entity
+    end
+  rescue StandardError => e
+    log_error("Admin acceptance failed", e)
+    render json: { success: false, message: "An error occurred: #{e.message}" }, status: :internal_server_error
   end
 
   # ============================================================
@@ -487,5 +625,21 @@ class Api::V1::InvitationsController < ApplicationController
       stats: result.stats,
       errors: result.errors
     }, status: status_code
+  end
+
+  # Shared private method to apply grade-force-set logic for a list of learners and an invitation
+  def link_parent_to_learners(learners, invitation)
+    return if learners.blank? || invitation.blank?
+
+    if invitation.grade_id.present?
+      learners.each do |learner|
+        begin
+          learner.force_grade_id!(invitation.grade_id)
+          Rails.logger.info "🏫 [link_parent_to_learners] Force-set learner #{learner.id} grade to #{invitation.grade_id}"
+        rescue => e
+          Rails.logger.error "❌ [link_parent_to_learners] Failed to force-set learner #{learner.id} grade: #{e.message}"
+        end
+      end
+    end
   end
 end

@@ -99,10 +99,15 @@ Rails.application.routes.draw do
       end
 
       # Invitations Routes (NEW - for POST /api/v1/invitations)
-      resources :invitations, param: :token, only: [:create] do
+      resources :invitations, param: :token, only: [:create, :index] do
         collection do
           post :verify
           post :bulk_create
+        end
+        member do
+          post :resend
+          post :cancel
+          post :admin_accept
         end
       end
 

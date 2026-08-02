@@ -241,4 +241,180 @@ class InvitationsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "+27814296653", learner_json['contact']['whatsapp']
     assert_equal "+27814296654", learner_json['contact']['tel_emergency']
   end
+
+  test "GET /api/v1/invitations index returns invitations for school and supports status filtering" do
+    # Clear and create two invitations with different statuses
+    Invitation.delete_all
+    inv1 = Invitation.create!(
+      token: "index_test_token_1",
+      recipient_phone_number: "27712345678",
+      school_id: @school.id.to_s,
+      grade_id: @grade.id.to_s,
+      role: "parent",
+      status: "pending"
+    )
+    inv2 = Invitation.create!(
+      token: "index_test_token_2",
+      recipient_phone_number: "27712345679",
+      school_id: @school.id.to_s,
+      grade_id: @grade.id.to_s,
+      role: "parent",
+      status: "cancelled"
+    )
+
+    # Fails without school_id
+    get "/api/v1/invitations"
+    assert_response :bad_request
+
+    # Lists both for school_id
+    get "/api/v1/invitations", params: { school_id: @school.id.to_s }
+    assert_response :success
+    json_response = JSON.parse(response.body)
+    assert json_response['success']
+    assert_equal 2, json_response['total']
+
+    # Filter by pending
+    get "/api/v1/invitations", params: { school_id: @school.id.to_s, status: "pending" }
+    assert_response :success
+    json_response = JSON.parse(response.body)
+    assert_equal 1, json_response['total']
+    assert_equal "index_test_token_1", json_response['invitations'].first['token']
+
+    # Filter by cancelled
+    get "/api/v1/invitations", params: { school_id: @school.id.to_s, status: "cancelled" }
+    assert_response :success
+    json_response = JSON.parse(response.body)
+    assert_equal 1, json_response['total']
+    assert_equal "index_test_token_2", json_response['invitations'].first['token']
+  end
+
+  test "POST /api/v1/invitations/:token/resend works successfully" do
+    invitation = Invitation.create!(
+      token: "resend_test_token",
+      recipient_phone_number: "27712345678",
+      school_id: @school.id.to_s,
+      grade_id: @grade.id.to_s,
+      role: "parent",
+      status: "cancelled"
+    )
+
+    post "/api/v1/invitations/#{invitation.token}/resend"
+    assert_response :success
+    json_response = JSON.parse(response.body)
+    assert json_response['success']
+
+    # It generates a new token
+    refute_equal "resend_test_token", json_response['invitation']['token']
+    assert_equal "pending", json_response['invitation']['status']
+
+    # Returns 404 for non-existent token
+    post "/api/v1/invitations/invalid_token/resend"
+    assert_response :not_found
+  end
+
+  test "POST /api/v1/invitations/:token/cancel works successfully" do
+    invitation = Invitation.create!(
+      token: "cancel_test_token",
+      recipient_phone_number: "27712345678",
+      school_id: @school.id.to_s,
+      grade_id: @grade.id.to_s,
+      role: "parent",
+      status: "pending"
+    )
+
+    post "/api/v1/invitations/#{invitation.token}/cancel"
+    assert_response :success
+    json_response = JSON.parse(response.body)
+    assert json_response['success']
+    assert_equal "cancelled", json_response['invitation']['status']
+  end
+
+  test "POST /api/v1/invitations/:token/admin_accept links and force-sets grade when matching parent exists" do
+    another_grade = Grade.create!(
+      name: "Grade 10",
+      level: 10,
+      school: @school
+    )
+
+    invitation = Invitation.create!(
+      token: "admin_accept_test_token",
+      recipient_phone_number: "27712345688",
+      school_id: @school.id.to_s,
+      grade_id: another_grade.id.to_s,
+      role: "parent",
+      status: "pending",
+      learner_ids: [@learner.id.to_s],
+      learner_numbers: [@learner.accessionNumber],
+      learner_names: [@learner.full_name]
+    )
+
+    # 1. No parent exists with that phone number yet -> 422
+    post "/api/v1/invitations/#{invitation.token}/admin_accept"
+    assert_response :unprocessable_entity
+    json_response = JSON.parse(response.body)
+    assert_equal false, json_response['success']
+    assert_match /No parent account found/, json_response['message']
+
+    # 2. Create parent with matching phone number
+    parent_user = User.create!(
+      name: "Admin Accepted Parent",
+      email: "admin_accept@test.com",
+      auth0_id: "auth0|admin_accept_parent_unique",
+      roles: ["guest"],
+      phone_number: "27712345688"
+    )
+
+    # Now run admin_accept -> should succeed, link parent, mark accepted, and force-set learner's grade
+    post "/api/v1/invitations/#{invitation.token}/admin_accept"
+    assert_response :success
+    json_response = JSON.parse(response.body)
+    assert json_response['success']
+    assert_equal "accepted", json_response['invitation']['status']
+
+    # Verify parent linked to learner
+    @learner.reload
+    assert_includes @learner.parent_ids, parent_user.id
+
+    # Verify learner grade force-set to another_grade in physical database
+    raw_learner = Learner.collection.find(_id: @learner.id).first
+    assert_equal another_grade.id.to_s, raw_learner['gradeId']
+    assert_equal another_grade.id.to_s, @learner.grade_id
+  end
+
+  test "POST /api/v1/invitations/verify sets the learner's grade to the invitation's grade" do
+    another_grade = Grade.create!(
+      name: "Grade 11",
+      level: 11,
+      school: @school
+    )
+
+    inv_token = "verify_grade_test_token"
+    invitation = Invitation.create!(
+      token: inv_token,
+      recipient_phone_number: "27712345699",
+      school_id: @school.id.to_s,
+      grade_id: another_grade.id.to_s,
+      role: "parent",
+      status: "pending",
+      learner_ids: [@learner.id.to_s],
+      learner_numbers: [@learner.accessionNumber],
+      learner_names: [@learner.full_name]
+    )
+
+    payload = {
+      token: inv_token,
+      auth0Id: @parent.auth0_id
+    }
+
+    post "/api/v1/invitations/verify", params: payload
+    assert_response :success
+    json_response = JSON.parse(response.body)
+    assert json_response['success']
+
+    # Reload and assert that learner grade has been updated in Mongo and the loaded model
+    @learner.reload
+    raw_learner = Learner.collection.find(_id: @learner.id).first
+    assert_equal another_grade.id.to_s, raw_learner['gradeId']
+    assert_equal another_grade.id.to_s, @learner.grade_id
+  end
 end

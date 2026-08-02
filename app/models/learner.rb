@@ -153,6 +153,19 @@ class Learner
     school&.schoolName || school&.name || school_name_denormalized
   end
 
+  # Force-sets the learner's grade ID in the raw MongoDB collection to bypass Mongoid association casting/no-op issues
+  def force_grade_id!(new_grade_id)
+    return if new_grade_id.blank?
+
+    # Update the document in MongoDB collection directly to guarantee write
+    Learner.collection.find(_id: id).update_one(
+      { "$set" => { "gradeId" => new_grade_id.to_s } }
+    )
+
+    # Reload the document/Mongoid fields to keep instance in-sync
+    reload
+  end
+
   # Helper for grade name for API or UI
   def grade_name
     grade&.name
