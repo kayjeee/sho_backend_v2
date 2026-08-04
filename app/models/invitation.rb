@@ -6,9 +6,10 @@ class Invitation
 
   # ===================== ASSOCIATIONS =====================
   belongs_to :sender, class_name: 'User', optional: true
-  belongs_to :school, optional: true
+  belongs_to :school, foreign_key: :school_id, optional: true
 
   # ===================== CORE INVITATION FIELDS =====================
+  field :school_id, type: String
   field :token, type: String
   field :status, type: String, default: 'pending'
   field :recipient_phone_number, type: String
@@ -79,7 +80,18 @@ class Invitation
   scope :active, -> { pending.where(:expires_at.gt => Time.current) }
   scope :inactive, -> { where(:status.in => ['accepted', 'rejected', 'cancelled', 'expired']) }
   
-  scope :by_school, ->(school_id) { where(school_id: school_id) }
+  scope :by_school, ->(school_id) {
+    if school_id.present?
+      resolved_str = school_id.to_s
+      if BSON::ObjectId.legal?(resolved_str)
+        any_of({ school_id: resolved_str }, { school_id: BSON::ObjectId.from_string(resolved_str) })
+      else
+        where(school_id: resolved_str)
+      end
+    else
+      all
+    end
+  }
   scope :by_sender, ->(sender_id) { where(sender_id: sender_id) }
   scope :by_recipient_phone, ->(phone) { where(recipient_phone_number: phone) }
   scope :by_learner_id, ->(learner_id) { where(learner_ids: learner_id) }
