@@ -417,4 +417,149 @@ class InvitationsControllerTest < ActionDispatch::IntegrationTest
     assert_equal another_grade.id.to_s, raw_learner['gradeId']
     assert_equal another_grade.id.to_s, @learner.grade_id
   end
+
+  test "POST /api/v1/invitations/match_by_phone returns 400 when missing parameters" do
+    post "/api/v1/invitations/match_by_phone", params: { phone_number: "27620670152" }
+    assert_response :bad_request
+    json_response = JSON.parse(response.body)
+    assert_equal false, json_response['success']
+    assert_match /Missing required parameters/, json_response['message']
+  end
+
+  test "POST /api/v1/invitations/match_by_phone returns 404 when parent user doesn't exist" do
+    post "/api/v1/invitations/match_by_phone", params: {
+      phone_number: "27620670152",
+      auth0_id: "auth0|non_existent_parent",
+      school_id: @school.id.to_s
+    }
+    assert_response :not_found
+    json_response = JSON.parse(response.body)
+    assert_equal false, json_response['success']
+    assert_match /No User found/, json_response['message']
+  end
+
+  test "POST /api/v1/invitations/match_by_phone successfully matches, links parent, and force-sets grade" do
+    another_grade = Grade.create!(
+      name: "Grade 12",
+      level: 12,
+      school: @school
+    )
+
+    # Create pending invitation with recipient_phone_number "0620670152" bypassing validation
+    invitation = Invitation.new(
+      token: "match_by_phone_single_token",
+      recipient_phone_number: "0620670152",
+      school_id: @school.id.to_s,
+      grade_id: another_grade.id.to_s,
+      role: "parent",
+      status: "pending",
+      learner_ids: [@learner.id.to_s],
+      learner_numbers: [@learner.accessionNumber],
+      learner_names: [@learner.full_name]
+    )
+    invitation.save!(validate: false)
+
+    # Call with a different country code and prefix representation "+27620670152"
+    post "/api/v1/invitations/match_by_phone", params: {
+      phone_number: "+27620670152",
+      auth0_id: @parent.auth0_id,
+      school_id: @school.id.to_s
+    }
+
+    assert_response :success
+    json_response = JSON.parse(response.body)
+    assert json_response['success']
+    assert_equal 1, json_response['matched_count']
+    assert_equal "accepted", json_response['invitations'].first['status']
+
+    # Verify parent linked to learner
+    @learner.reload
+    assert_includes @learner.parent_ids, @parent.id
+
+    # Verify learner grade force-set in the database
+    raw_learner = Learner.collection.find(_id: @learner.id).first
+    assert_equal another_grade.id.to_s, raw_learner['gradeId']
+    assert_equal another_grade.id.to_s, @learner.grade_id
+  end
+
+  test "POST /api/v1/invitations/match_by_phone successfully matches multiple children in one call" do
+    another_grade = Grade.create!(
+      name: "Grade 12",
+      level: 12,
+      school: @school
+    )
+
+    # Create a second learner for the school
+    learner2 = Learner.create!(
+      firstName: "Jane",
+      lastName: "Doe",
+      accessionNumber: "ACC456",
+      school_id: @school.id.to_s,
+      grade_id: @grade.id.to_s,
+      status: 0,
+      gender: 1
+    )
+
+    # Create 2 pending invitations for different learners but same phone "0620670152" bypassing validation
+    inv1 = Invitation.new(
+      token: "match_by_phone_multi_token_1",
+      recipient_phone_number: "0620670152",
+      school_id: @school.id.to_s,
+      grade_id: another_grade.id.to_s,
+      role: "parent",
+      status: "pending",
+      learner_ids: [@learner.id.to_s],
+      learner_numbers: [@learner.accessionNumber],
+      learner_names: [@learner.full_name]
+    )
+    inv1.save!(validate: false)
+
+    inv2 = Invitation.new(
+      token: "match_by_phone_multi_token_2",
+      recipient_phone_number: "0620670152",
+      school_id: @school.id.to_s,
+      grade_id: another_grade.id.to_s,
+      role: "parent",
+      status: "pending",
+      learner_ids: [learner2.id.to_s],
+      learner_numbers: [learner2.accessionNumber],
+      learner_names: [learner2.full_name]
+    )
+    inv2.save!(validate: false)
+
+    post "/api/v1/invitations/match_by_phone", params: {
+      phone_number: "27620670152",
+      auth0_id: @parent.auth0_id,
+      school_id: @school.id.to_s
+    }
+
+    assert_response :success
+    json_response = JSON.parse(response.body)
+    assert json_response['success']
+    assert_equal 2, json_response['matched_count']
+
+    # Verify both invitations are accepted
+    assert_equal "accepted", json_response['invitations'][0]['status']
+    assert_equal "accepted", json_response['invitations'][1]['status']
+
+    # Verify parent linked to both learners
+    @learner.reload
+    learner2.reload
+    assert_includes @learner.parent_ids, @parent.id
+    assert_includes learner2.parent_ids, @parent.id
+  end
+
+  test "POST /api/v1/invitations/match_by_phone returns success: true and matched_count: 0 when no match is found" do
+    post "/api/v1/invitations/match_by_phone", params: {
+      phone_number: "+27888888888",
+      auth0_id: @parent.auth0_id,
+      school_id: @school.id.to_s
+    }
+
+    assert_response :success
+    json_response = JSON.parse(response.body)
+    assert json_response['success']
+    assert_equal 0, json_response['matched_count']
+    assert_empty json_response['invitations']
+  end
 end

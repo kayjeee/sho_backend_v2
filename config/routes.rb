@@ -103,6 +103,7 @@ Rails.application.routes.draw do
         collection do
           post :verify
           post :bulk_create
+          post :match_by_phone
         end
         member do
           post :resend
