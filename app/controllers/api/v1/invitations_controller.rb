@@ -155,6 +155,80 @@ class Api::V1::InvitationsController < ApplicationController
   end
 
   # ------------------------------------------------------------
+  # POST /api/v1/invitations/match_by_phone
+  # Match and accept invitations by phone number for parent setup
+  # ------------------------------------------------------------
+  def match_by_phone
+    Rails.logger.info "📞 [InvitationsController] match_by_phone called"
+
+    phone_number = params[:phone_number].presence || params[:phoneNumber]
+    auth0_id = params[:auth0_id].presence || params[:auth0Id]
+    school_id = params[:school_id].presence || params[:schoolId]
+
+    if phone_number.blank? || auth0_id.blank? || school_id.blank?
+      return render json: {
+        success: false,
+        message: "Missing required parameters. phone_number, auth0_id, and school_id are required."
+      }, status: :bad_request
+    end
+
+    parent_user = begin
+      User.where(auth0_id: auth0_id).first
+    rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId, Mongoid::Errors::InvalidFind
+      nil
+    end
+
+    if parent_user.nil?
+      return render json: {
+        success: false,
+        message: "No User found for the given auth0_id: #{auth0_id}"
+      }, status: :not_found
+    end
+
+    input_norm = normalize_phone_to_last_9(phone_number)
+    if input_norm.blank?
+      return render json: {
+        success: false,
+        message: "Invalid phone number format."
+      }, status: :unprocessable_entity
+    end
+
+    pending_invitations = Invitation.by_school(school_id).pending.to_a
+
+    matching_invitations = pending_invitations.select do |inv|
+      normalize_phone_to_last_9(inv.recipient_phone_number) == input_norm
+    end
+
+    matched_invitations_serialized = []
+
+    matching_invitations.each do |invitation|
+      result = UserServices::AcceptInvitationService.new(
+        token: invitation.token,
+        auth0_id: auth0_id
+      ).call
+
+      if result.success?
+        link_parent_to_learners(result.learners, result.invitation)
+        matched_invitations_serialized << safe_invitation_hash(result.invitation)
+      else
+        Rails.logger.warn "⚠️ Failed to process invitation #{invitation.id} in match_by_phone: #{result.errors}"
+      end
+    end
+
+    render json: {
+      success: true,
+      matched_count: matching_invitations.size,
+      invitations: matched_invitations_serialized
+    }, status: :ok
+  rescue StandardError => e
+    log_error("Failed to match invitations by phone", e)
+    render json: {
+      success: false,
+      message: "An error occurred: #{e.message}"
+    }, status: :internal_server_error
+  end
+
+  # ------------------------------------------------------------
   # POST /api/v1/invitations/bulk_create
   # Create multiple invitations at once
   # ------------------------------------------------------------
@@ -641,5 +715,11 @@ class Api::V1::InvitationsController < ApplicationController
         end
       end
     end
+  end
+
+  def normalize_phone_to_last_9(phone)
+    return nil if phone.blank?
+    digits = phone.to_s.gsub(/\D/, '')
+    digits.length >= 9 ? digits[-9..] : digits
   end
 end
