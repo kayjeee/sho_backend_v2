@@ -161,7 +161,7 @@ Rails.application.routes.draw do
         end
 
         collection do
-          get :search
+          get :search # Handles both query-based validation and autocomplete parent search
         end
 
         # Nested resources for school-specific operations
