@@ -1,6 +1,8 @@
 module Api
   module V1
     class SchoolsController < ApplicationController
+      include SchoolResolver
+
       before_action :set_school, only: [:show, :update, :destroy, :admins, :teachers, :parents, :global_search]
 
       # =========================
@@ -233,7 +235,17 @@ module Api
       private
 
       def set_school
-        @school = School.find(params[:id])
+        @school = find_school_by_id_or_slug(params[:id])
+        if @school.nil?
+          return render json: { success: false, message: "School not found" }, status: :not_found
+        end
+      rescue SchoolResolver::AmbiguousSchoolError => e
+        schools_info = e.matching_schools.map { |s| { id: s.id.to_s, name: s.schoolName } }
+        render json: {
+          success: false,
+          message: "Multiple schools match this name — a specific school id is required.",
+          schools: schools_info
+        }, status: :conflict
       rescue BSON::Error::InvalidObjectId, Mongoid::Errors::DocumentNotFound
         render json: { success: false, message: "School not found" }, status: :not_found
       end
