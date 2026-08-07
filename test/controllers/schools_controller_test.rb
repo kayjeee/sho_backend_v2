@@ -116,4 +116,43 @@ class SchoolsControllerTest < ActionDispatch::IntegrationTest
     assert_equal false, json_response['success']
     assert_equal "School not found", json_response['message']
   end
+
+  test "GET /api/v1/schools/search?q=kagiso returns only id and name of matching schools" do
+    school = School.create!(
+      schoolName: "Kagiso High School",
+      schoolEmail: "kagiso@school.com",
+      cash_account: 5000.0,
+      adminUsers: [{ name: "Some Admin", email: "admin@k.com" }]
+    )
+
+    get "/api/v1/schools/search", params: { q: "kagiso" }
+    assert_response :success
+    json_response = JSON.parse(response.body)
+    assert json_response['success']
+
+    assert_equal 1, json_response['schools'].size
+    matched_school = json_response['schools'].first
+
+    # Assert only id and name are exposed
+    assert_equal school.id.to_s, matched_school['id']
+    assert_equal "Kagiso High School", matched_school['name']
+
+    # Ensure sensitive fields do NOT exist
+    refute_includes matched_school.keys, "cash_account"
+    refute_includes matched_school.keys, "payment_history"
+    refute_includes matched_school.keys, "adminUsers"
+    refute_includes matched_school.keys, "schoolEmail"
+  end
+
+  test "GET /api/v1/schools/search?q= returns 400 when query is missing or too short" do
+    # Too short
+    get "/api/v1/schools/search", params: { q: "k" }
+    assert_response :bad_request
+    json_response = JSON.parse(response.body)
+    assert_equal false, json_response['success']
+
+    # Empty
+    get "/api/v1/schools/search", params: { q: "" }
+    assert_response :bad_request
+  end
 end

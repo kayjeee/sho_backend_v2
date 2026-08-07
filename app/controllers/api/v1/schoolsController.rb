@@ -106,9 +106,29 @@ module Api
       end
 
       # =========================
-      # GET /api/v1/schools/search?query=Name
+      # GET /api/v1/schools/search
+      # Handles both:
+      # 1. q=<partial name> for parent-facing autocomplete search
+      # 2. query=Name for original school availability check
       # =========================
       def search
+        if params[:q].present? || params.key?(:q)
+          q = params[:q]
+          if q.blank? || q.to_s.strip.length < 2
+            return render json: { success: false, message: "Query parameter 'q' must be at least 2 characters long." }, status: :bad_request
+          end
+
+          schools = School.where(schoolName: /#{Regexp.escape(q.to_s.strip)}/i).limit(10)
+          serialized_schools = schools.map do |school|
+            { id: school.id.to_s, name: school.schoolName }
+          end
+
+          return render json: {
+            success: true,
+            schools: serialized_schools
+          }, status: :ok
+        end
+
         query = params[:query]
         return render json: { success: false, message: "Query parameter is missing." }, status: :bad_request if query.blank?
 
