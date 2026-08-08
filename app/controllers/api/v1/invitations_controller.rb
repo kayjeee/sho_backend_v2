@@ -212,6 +212,14 @@ class Api::V1::InvitationsController < ApplicationController
         matched_invitations_serialized << safe_invitation_hash(result.invitation)
       else
         Rails.logger.warn "⚠️ Failed to process invitation #{invitation.id} in match_by_phone: #{result.errors}"
+        matched_invitations_serialized << {
+          id: invitation.id.to_s,
+          success: false,
+          error: result.errors.join(", "),
+          errors: result.errors,
+          token: invitation.token,
+          status: invitation.status
+        }
       end
     end
 

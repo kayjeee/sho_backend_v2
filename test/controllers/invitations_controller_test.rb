@@ -562,4 +562,79 @@ class InvitationsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 0, json_response['matched_count']
     assert_empty json_response['invitations']
   end
+
+  test "POST /api/v1/invitations/match_by_phone survives plain string school_id casting bug" do
+    string_school_id = "6a767790a999fb1c3bfb1580"
+
+    # Create learner with school_id as string
+    learner = Learner.create!(
+      firstName: "TestString",
+      lastName: "Learner",
+      accessionNumber: "STRACC999",
+      school_id: string_school_id,
+      grade_id: @grade.id.to_s,
+      status: 0,
+      gender: 0,
+      phone: "+27814296653",
+      telEmergency: "+27814296654"
+    )
+
+    # Create invitation with school_id as string and phone matching the learner
+    invitation = Invitation.new(
+      token: "string_school_id_test_token",
+      recipient_phone_number: "27814296653",
+      school_id: string_school_id,
+      grade_id: @grade.id.to_s,
+      role: "parent",
+      status: "pending",
+      learner_numbers: ["STRACC999"]
+    )
+    invitation.save!(validate: false)
+
+    post "/api/v1/invitations/match_by_phone", params: {
+      phone_number: "0814296653",
+      auth0_id: @parent.auth0_id,
+      school_id: string_school_id
+    }
+
+    assert_response :success
+    json_response = JSON.parse(response.body)
+    assert json_response['success']
+    assert_equal 1, json_response['matched_count']
+    assert_equal "accepted", json_response['invitations'].first['status']
+
+    # Verify parent linked to learner
+    learner.reload
+    assert_includes learner.parent_ids, @parent.id
+  end
+
+  test "POST /api/v1/invitations/match_by_phone includes failure reasons in response when link fails" do
+    # Create invitation with matching phone but NO valid learner numbers or ids
+    invitation = Invitation.new(
+      token: "failing_accept_test_token",
+      recipient_phone_number: "0620670152",
+      school_id: @school.id.to_s,
+      grade_id: @grade.id.to_s,
+      role: "parent",
+      status: "pending",
+      learner_numbers: ["NONEXISTENT_ACC"]
+    )
+    invitation.save!(validate: false)
+
+    post "/api/v1/invitations/match_by_phone", params: {
+      phone_number: "0620670152",
+      auth0_id: @parent.auth0_id,
+      school_id: @school.id.to_s
+    }
+
+    assert_response :success
+    json_response = JSON.parse(response.body)
+    assert json_response['success']
+    assert_equal 1, json_response['matched_count']
+
+    # Response should contain the invitation with error details
+    failing_inv = json_response['invitations'].first
+    assert_equal false, failing_inv['success']
+    assert_equal "No learners found for this invitation", failing_inv['error']
+  end
 end
