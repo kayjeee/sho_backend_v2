@@ -242,6 +242,29 @@ class InvitationsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "+27814296654", learner_json['contact']['tel_emergency']
   end
 
+  test "GET /api/v1/schools/:school_id/grades/:grade_id/learners returns learners successfully via nested route" do
+    get "/api/v1/schools/#{@school.id}/grades/#{@grade.id}/learners"
+    assert_response :success
+    json_response = JSON.parse(response.body)
+
+    assert json_response['success']
+    assert_equal 1, json_response['total']
+    assert_equal "John Doe", "#{json_response['learners'].first['first_name']} #{json_response['learners'].first['last_name']}"
+  end
+
+  test "GET nested grade learners returns 404 when grade belongs to a different school" do
+    other_school = School.create!(
+      schoolName: "Other High School",
+      schoolEmail: "other@school.com"
+    )
+
+    get "/api/v1/schools/#{other_school.id}/grades/#{@grade.id}/learners"
+    assert_response :not_found
+    json_response = JSON.parse(response.body)
+    assert_equal false, json_response['success']
+    assert_equal "Grade not found", json_response['error']
+  end
+
   test "GET /api/v1/invitations index returns invitations for school and supports status filtering" do
     # Clear and create two invitations with different statuses
     Invitation.delete_all
