@@ -13,9 +13,9 @@ class Api::V1::InvitationsController < ApplicationController
   # ------------------------------------------------------------
   def verify_with_details
     Rails.logger.info "🔍 [InvitationsController] verify_with_details called for token: #{params[:token]}"
-    
+
     invitation = find_invitation_by_token(params[:token])
-    
+
     if invitation.nil?
       Rails.logger.warn "❌ No invitation found for token: #{params[:token]}"
       return render json: {
@@ -23,18 +23,18 @@ class Api::V1::InvitationsController < ApplicationController
         message: 'Invalid or expired invitation link.'
       }, status: :not_found
     end
-    
+
     Rails.logger.info "✅ Found invitation: #{invitation.class.name}##{invitation.id}"
-    
+
     # Validate invitation status
     validation_result = validate_invitation_status(invitation)
     return validation_result if validation_result
-    
+
     # Get expiration info
     expiration_date = extract_expiration_date(invitation)
     is_expired = check_if_expired(invitation, expiration_date)
     expires_in = calculate_expires_in(expiration_date)
-    
+
     # Generate response
     render json: {
       success: true,
@@ -42,7 +42,7 @@ class Api::V1::InvitationsController < ApplicationController
       expires_in: expires_in,
       is_expired: is_expired
     }, status: :ok
-    
+
   rescue StandardError => e
     log_error("Invitation verification failed", e)
     render json: {
@@ -57,7 +57,7 @@ class Api::V1::InvitationsController < ApplicationController
   # ------------------------------------------------------------
   def create
     Rails.logger.info "📥 [InvitationsController] Creating invitation"
-    
+
     # Don't use params[:invitation] — ParamsWrapper only auto-includes keys that
     # literally match the Invitation model's field names (recipient_phone_number,
     # sender_id), so it silently drops phone_number/sender since those don't match.
@@ -66,12 +66,12 @@ class Api::V1::InvitationsController < ApplicationController
 
     # Accept both sender_id (backend standard) and sender (NextJS client contract)
     sender = find_sender(service_params[:sender_id] || service_params[:sender])
-    
+
     # Build service parameters
     service_params = build_service_params(service_params, sender)
-    
+
     Rails.logger.info "🔧 Service params: #{service_params.except(:phone_number)}"
-    
+
     # Call invitation service
     result = UserServices::InvitationService.new(service_params).call
 
@@ -80,9 +80,9 @@ class Api::V1::InvitationsController < ApplicationController
     if result.success
       invitation = result.invitation
       magic_link = generate_magic_link(invitation)
-      
+
       log_invitation_created(invitation, magic_link)
-      
+
       render json: {
         success: true,
         message: 'Invitation sent successfully.',
@@ -97,7 +97,7 @@ class Api::V1::InvitationsController < ApplicationController
         message: format_errors_for_user(result.errors)
       }, status: :unprocessable_entity
     end
-    
+
   rescue StandardError => e
     log_error("Invitation creation failed", e)
     render json: {
@@ -113,14 +113,14 @@ class Api::V1::InvitationsController < ApplicationController
   # ------------------------------------------------------------
   def verify
     Rails.logger.info "🔍 [InvitationsController] Verifying/Accepting invitation"
-    
+
     # Normalize keys in parameters
     norm_params = normalize_hash_keys(params)
     token = norm_params[:token]
     auth0_id = norm_params[:auth0_id]
 
     Rails.logger.info "   Token: #{token}, Auth0 ID: #{auth0_id}"
-    
+
     # Validate required parameters
     return render_error('Missing auth0_id') if auth0_id.blank?
     return render_error('Missing token') if token.blank?
@@ -148,7 +148,7 @@ class Api::V1::InvitationsController < ApplicationController
         message: result.errors.join(", ")
       }, status: :unprocessable_entity
     end
-    
+
   rescue StandardError => e
     log_error("Invitation acceptance transaction failed", e)
     render_error("Failed to accept invitation: #{e.message}")
@@ -259,7 +259,7 @@ class Api::V1::InvitationsController < ApplicationController
 
     # Find sender user
     sender = find_sender(norm_params[:sender_id])
-    
+
     Rails.logger.info "   Sender: #{sender&.auth0_id || 'nil'}"
 
     # Process bulk invitations
@@ -277,7 +277,7 @@ class Api::V1::InvitationsController < ApplicationController
     else
       handle_bulk_partial_failure(result)
     end
-    
+
   rescue StandardError => e
     log_error("Bulk invitation creation failed", e)
     render json: {
@@ -473,19 +473,19 @@ class Api::V1::InvitationsController < ApplicationController
   # ------------------------------------------------------------
   def find_invitation_by_token(token)
     return nil if token.blank?
-    
+
     Rails.logger.debug "🔍 Searching for token in all invitation collections: #{token}"
-    
+
     # Search in order of likelihood (with status filter)
     invitation = Invitation.where(token: token, status: 'pending').first ||
                  LearnerInvitation.where(token: token, status: 'pending').first ||
                  TeacherInvitation.where(token: token, status: 'pending').first
-    
+
     # Fallback: search without status filter
     invitation ||= Invitation.where(token: token).first ||
                    LearnerInvitation.where(token: token).first ||
                    TeacherInvitation.where(token: token).first
-    
+
     invitation
   end
 
@@ -495,7 +495,7 @@ class Api::V1::InvitationsController < ApplicationController
   def validate_invitation_status(invitation)
     expiration_date = extract_expiration_date(invitation)
     is_expired = check_if_expired(invitation, expiration_date)
-    
+
     if is_expired
       Rails.logger.warn "⚠️ Invitation expired: #{invitation.id}"
       return render json: {
@@ -503,7 +503,7 @@ class Api::V1::InvitationsController < ApplicationController
         message: 'Invitation has expired.'
       }, status: :gone
     end
-    
+
     # Resilient check for pending status across all invitation models
     is_pending = invitation.respond_to?(:pending?) ? invitation.pending? : (invitation.status == 'pending' || invitation.status == 0)
     unless is_pending
@@ -513,7 +513,7 @@ class Api::V1::InvitationsController < ApplicationController
         message: "Invitation has already been processed."
       }, status: :conflict
     end
-    
+
     nil
   end
 
@@ -551,7 +551,7 @@ class Api::V1::InvitationsController < ApplicationController
   # ------------------------------------------------------------
   def find_sender(sender_id)
     return nil unless sender_id.present?
-    
+
     user = User.find_by(auth0_id: sender_id)
     if user.nil?
       # Try lookup by ObjectId string
@@ -568,12 +568,12 @@ class Api::V1::InvitationsController < ApplicationController
   def generate_magic_link(invitation)
     school_name = safe_school_name(invitation)
     token = invitation.is_a?(Hash) ? invitation[:token] : (invitation.respond_to?(:token) ? invitation.token : invitation.invitation_token)
-    
+
     if token.blank?
       Rails.logger.error "❌ Cannot generate magic link: token is blank"
       return nil
     end
-    
+
     "https://www.schoolheadoffice.com/parent?token=#{token}&school=#{URI.encode_www_form_component(school_name)}"
   end
 

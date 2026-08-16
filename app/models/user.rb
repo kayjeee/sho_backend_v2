@@ -49,7 +49,7 @@ class User
   index({ roles: 1 })
   index({ status: 1 })
   index({ last_login: 1 })
-  
+
   # Onboarding-related indexes
   index({ 'onboarding_status.completed' => 1 })
   index({ 'onboarding_status.current_step' => 1 })
@@ -57,7 +57,7 @@ class User
 
   # ======================== CALLBACKS =======================
   before_save :log_school_id_changes, if: :school_ids_changed?
-  
+
   # Onboarding callbacks
   after_initialize :ensure_onboarding_status
   after_create :initialize_onboarding_status
@@ -88,7 +88,7 @@ class User
     return true if roles.include?('Admin')
     return true if created_grades.include?(grade)
     return true if teaching_grades.include?(grade)
-    
+
     # Check if user is admin in the grade's school
     user_school_roles.find_by(
       school: grade.school,
@@ -99,11 +99,11 @@ class User
 
   def grades_in_school(school)
     return school.grades if roles.include?('Admin')
-    
+
     # Return grades user created or teaches in this school
     created_in_school = created_grades.where(school: school)
     teaching_in_school = teaching_grades.where(school: school)
-    
+
     Grade.where(:_id.in => (created_in_school.pluck(:id) + teaching_in_school.pluck(:id)).uniq)
   end
 
@@ -197,12 +197,12 @@ class User
   # Initialize onboarding status for new users
   def initialize_onboarding_status
     return if onboarding_status&.persisted?
-    
+
     ensure_onboarding_status
-    
+
     # Set initial configuration based on user roles
     configure_initial_onboarding_state
-    
+
     onboarding_status.save!
     Rails.logger.info "🆕 Initialized onboarding status for new user #{auth0_id}"
   end
@@ -211,7 +211,7 @@ class User
   def configure_initial_onboarding_state
     user_roles = roles || []
     onboarding = onboarding_status
-    
+
     # Set current step based on primary role
     case
     when user_roles.include?('admin')
@@ -227,7 +227,7 @@ class User
       onboarding.current_step = 'create_grades'
       onboarding.total_steps_count = 3 # Default steps without role-specific
     end
-    
+
     # Set client metadata for tracking
     onboarding.client_metadata = {
       'initialized_at' => Time.current.iso8601,
@@ -250,7 +250,7 @@ class User
   # Convenience method to update onboarding status with error handling
   def update_onboarding_status!(attrs = {})
     ensure_onboarding_status
-    
+
     begin
       if attrs.is_a?(Hash) && attrs.keys.any? { |k| k.to_s.include?('_') }
         # Handle snake_case input
@@ -259,13 +259,13 @@ class User
         # Handle camelCase input from API
         onboarding_status.assign_attributes_from_api(attrs)
       end
-      
+
       onboarding_status.auto_complete_if_ready!
       onboarding_status.save!
-      
+
       Rails.logger.info "🔄 Updated onboarding status for user #{auth0_id}"
       onboarding_status
-      
+
     rescue => e
       Rails.logger.error "❌ Failed to update onboarding status for user #{auth0_id}: #{e.message}"
       raise e
@@ -287,16 +287,16 @@ class User
   # Check if user can access main application features
   def can_access_main_features?
     return true unless needs_onboarding?
-    
+
     # Allow access if user has completed critical steps
     ensure_onboarding_status
     critical_steps_completed = onboarding_status.create_grades && onboarding_status.upload_learners
-    
+
     # Or if user has role-specific onboarding completed
     role_onboarding_completed = onboarding_status.admin_onboarding_completed ||
                                onboarding_status.parent_onboarding_completed ||
                                onboarding_status.guest_onboarding_completed
-    
+
     critical_steps_completed || role_onboarding_completed
   end
 
@@ -309,21 +309,21 @@ class User
   # Complete a specific onboarding step with comprehensive error handling
   def complete_onboarding_step!(step_name, metadata: {})
     ensure_onboarding_status
-    
+
     begin
       # Store completion metadata
       meta = (onboarding_status.client_metadata || {}).dup
       meta["#{step_name}_completed_at"] = Time.current.iso8601
       meta["#{step_name}_metadata"] = metadata if metadata.any?
       onboarding_status.client_metadata = meta
-      
+
       onboarding_status.complete_step!(step_name)
-      
+
       # Trigger any post-completion actions
       handle_step_completion(step_name, metadata)
-      
+
       Rails.logger.info "✅ User #{auth0_id} completed onboarding step: #{step_name}"
-      
+
     rescue => e
       Rails.logger.error "❌ Failed to complete step #{step_name} for user #{auth0_id}: #{e.message}"
       raise e
@@ -333,7 +333,7 @@ class User
   # Skip an onboarding step with reason tracking
   def skip_onboarding_step!(step_name, reason: nil, metadata: {})
     ensure_onboarding_status
-    
+
     begin
       # Store skip metadata
       skip_data = {
@@ -341,15 +341,15 @@ class User
         'skipped_at' => Time.current.iso8601,
         'metadata' => metadata
       }
-      
+
       meta = (onboarding_status.client_metadata || {}).dup
       meta["#{step_name}_skipped"] = skip_data
       onboarding_status.client_metadata = meta
 
       onboarding_status.skip_step!(step_name, reason: reason)
-      
+
       Rails.logger.info "⏭️ User #{auth0_id} skipped onboarding step: #{step_name} (#{reason})"
-      
+
     rescue => e
       Rails.logger.error "❌ Failed to skip step #{step_name} for user #{auth0_id}: #{e.message}"
       raise e
@@ -359,7 +359,7 @@ class User
   # Reset onboarding status with audit trail
   def reset_onboarding!(reset_by: nil, reason: nil)
     ensure_onboarding_status
-    
+
     begin
       # Store reset metadata
       meta = (onboarding_status.client_metadata || {}).dup
@@ -367,11 +367,11 @@ class User
       meta['reset_reason'] = reason
       meta['reset_at'] = Time.current.iso8601
       onboarding_status.client_metadata = meta
-      
+
       onboarding_status.reset!
-      
+
       Rails.logger.info "🔄 Onboarding reset for user #{auth0_id} by #{reset_by || 'system'}"
-      
+
     rescue => e
       Rails.logger.error "❌ Failed to reset onboarding for user #{auth0_id}: #{e.message}"
       raise e
@@ -381,7 +381,7 @@ class User
   # Get onboarding analytics data
   def onboarding_analytics
     ensure_onboarding_status
-    
+
     {
       user_id: auth0_id,
       completion_percentage: onboarding_status.completion_percentage,
@@ -402,16 +402,16 @@ class User
   # Calculate time taken to complete onboarding
   def calculate_time_to_complete
     return nil unless onboarding_status&.started_at && onboarding_status&.completed_at
-    
+
     duration_seconds = onboarding_status.completed_at - onboarding_status.started_at
-    
+
     {
       seconds: duration_seconds.to_i,
       minutes: (duration_seconds / 60).to_i,
       hours: (duration_seconds / 3600).to_i,
       days: (duration_seconds / 86400).to_i,
       human_readable: ActionController::Base.helpers.distance_of_time_in_words(
-        onboarding_status.started_at, 
+        onboarding_status.started_at,
         onboarding_status.completed_at
       )
     }
@@ -430,18 +430,18 @@ class User
       created_at: created_at&.iso8601,
       updated_at: updated_at&.iso8601
     }
-    
+
     # Include onboarding status
     ensure_onboarding_status
     base_hash[:onboardingStatus] = onboarding_status.to_api_hash
-    
+
     # Include onboarding-related flags
     base_hash[:needsOnboarding] = needs_onboarding?
     base_hash[:canAccessMainFeatures] = can_access_main_features?
     base_hash[:onboardingProgress] = onboarding_progress
     base_hash[:onboarding_completed] = onboarding_completed
     base_hash[:onboardingCompleted] = onboarding_completed
-    
+
     base_hash
   end
 
@@ -476,7 +476,7 @@ class User
   # Bulk onboarding operations for admin users
   def self.bulk_update_onboarding_status(user_ids, updates)
     results = { success: [], failed: [] }
-    
+
     User.in(id: user_ids).each do |user|
       begin
         user.update_onboarding_status!(updates)
@@ -485,7 +485,7 @@ class User
         results[:failed] << { user_id: user.auth0_id, error: e.message }
       end
     end
-    
+
     results
   end
 
@@ -519,7 +519,7 @@ class User
       'onboarding_status.started_at'.ne => nil
     ).count
     not_started_users = where('onboarding_status.started_at' => nil).count
-    
+
     {
       total_users: total_users,
       completed_users: completed_users,
@@ -533,7 +533,7 @@ class User
   def self.calculate_average_completion_percentage
     users_with_onboarding = where('onboarding_status.completion_percentage'.exists => true)
     return 0 if users_with_onboarding.count == 0
-    
+
     total_percentage = users_with_onboarding.sum('onboarding_status.completion_percentage')
     (total_percentage / users_with_onboarding.count).round(2)
   end
