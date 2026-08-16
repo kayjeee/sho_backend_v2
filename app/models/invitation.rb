@@ -28,7 +28,7 @@ class Invitation
   # ===================== TIMESTAMP FIELDS =====================
   field :accepted_at, type: Time
   field :expires_at, type: Time
-  
+
   # ===================== ADDITIONAL DATA =====================
   field :metadata, type: Hash, default: {}
   field :notes, type: String
@@ -55,7 +55,7 @@ class Invitation
   index({ expires_at: 1 })
   index({ accepted_at: 1 })
   index({ magic_link_sent_at: 1 }) # ✅ ADDED
-  
+
   # Multi-field indexes
   index({ status: 1, expires_at: 1 })
   index({ school_id: 1, status: 1 })
@@ -79,7 +79,7 @@ class Invitation
   scope :cancelled, -> { where(status: 'cancelled') }
   scope :active, -> { pending.where(:expires_at.gt => Time.current) }
   scope :inactive, -> { where(:status.in => ['accepted', 'rejected', 'cancelled', 'expired']) }
-  
+
   scope :by_school, ->(school_id) {
     if school_id.present?
       resolved_str = school_id.to_s
@@ -97,16 +97,16 @@ class Invitation
   scope :by_learner_id, ->(learner_id) { where(learner_ids: learner_id) }
   scope :by_learner_number, ->(number) { where(learner_numbers: number) }
   scope :with_token, ->(token) { where(token: token) } # ✅ CHANGED: Use exact match
-  
+
   scope :recent, -> { order(created_at: :desc) }
-  scope :expiring_soon, ->(hours = 24) { 
-    pending.where(:expires_at.lte => hours.hours.from_now, :expires_at.gt => Time.current) 
+  scope :expiring_soon, ->(hours = 24) {
+    pending.where(:expires_at.lte => hours.hours.from_now, :expires_at.gt => Time.current)
   }
   scope :expired_auto, -> { pending.where(:expires_at.lte => Time.current) }
   scope :not_sent, -> { where(magic_link_sent_at: nil) } # ✅ ADDED
 
   # ===================== CLASS METHODS =====================
-  
+
   def self.generate_token
     # More secure token for magic links
     SecureRandom.urlsafe_base64(32)
@@ -119,7 +119,7 @@ class Invitation
 
   def self.create_for_learners(learners_data, invitation_params)
     invitations = []
-    
+
     learners_data.each_slice(50) do |batch|
       batch.each do |learner_data|
         invitation = new(invitation_params.merge(
@@ -128,18 +128,18 @@ class Invitation
           learner_names: [learner_data[:name]],
           learner_number: learner_data[:accession_number]
         ))
-        
+
         invitations << invitation if invitation.save
       end
     end
-    
+
     invitations
   end
 
   def self.build_magic_link(token, school_name)
     # ✅ CRITICAL FIX: Builds the proper magic link query string
     return nil unless token.present? && school_name.present?
-    
+
     encoded_school = URI.encode_www_form_component(school_name.to_s.strip)
     "?token=#{token}&school=#{encoded_school}"
   end
@@ -212,7 +212,7 @@ class Invitation
 
   def learner_names_display
     return 'No learners' if learner_names.blank?
-    
+
     case learner_names.size
     when 1
       learner_names.first
@@ -235,28 +235,28 @@ class Invitation
     self.learner_ids ||= []
     self.learner_numbers ||= []
     self.learner_names ||= []
-    
+
     unless learner_ids.include?(learner_id)
       self.learner_ids << learner_id
       self.learner_numbers << learner_number
       self.learner_names << learner_name
-      
+
       self.learner_number = learner_number if self.learner_number.blank?
     end
-    
+
     save
   end
 
   def remove_learner(learner_id)
     return false unless learner_ids.include?(learner_id)
-    
+
     index = learner_ids.index(learner_id)
     self.learner_ids.delete_at(index)
     self.learner_numbers.delete_at(index)
     self.learner_names.delete_at(index)
-    
+
     self.learner_number = learner_numbers.first if learner_number == learner_id.to_s
-    
+
     save
   end
 
@@ -292,11 +292,11 @@ class Invitation
       created_at: created_at&.iso8601,
       updated_at: updated_at&.iso8601
     }
-    
+
     # Build magic link for convenience
     hash[:magic_link_query] = self.class.build_magic_link(token, school_name)
     hash[:full_magic_link] = "https://www.schoolheadoffice.com/parent#{hash[:magic_link_query]}"
-    
+
     hash
   end
 
@@ -339,7 +339,7 @@ class Invitation
     if learner_number.blank? && learner_numbers.present?
       self.learner_number = learner_numbers.first
     end
-    
+
     if learner_number.present? && learner_ids.blank?
       self.learner_ids = [learner_number]
       self.learner_numbers = [learner_number]
@@ -349,12 +349,12 @@ class Invitation
 
   def validate_learner_data_consistency
     return if learner_ids.blank? && learner_number.blank?
-    
+
     if learner_ids.present?
       if learner_numbers.present? && learner_ids.length != learner_numbers.length
         errors.add(:learner_numbers, "must have same count as learner_ids")
       end
-      
+
       if learner_names.present? && learner_ids.length != learner_names.length
         errors.add(:learner_names, "must have same count as learner_ids")
       end
@@ -363,7 +363,7 @@ class Invitation
 
   def validate_phone_number_format
     return if recipient_phone_number.blank?
-    
+
     # South African phone number validation
     unless recipient_phone_number.match?(/\A27\d{9}\z/) # 27 + 9 digits
       errors.add(:recipient_phone_number, "must be a valid South African number (27XXXXXXXXX)")

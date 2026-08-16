@@ -48,16 +48,16 @@ Rails.application.routes.draw do
       # USERS - Backward Compatibility (DEPRECATED)
       # =========================================================
       # Support old path-based format during migration period
-      get 'users/:auth0_id', 
-          to: 'users#show_by_path', 
+      get 'users/:auth0_id',
+          to: 'users#show_by_path',
           constraints: { auth0_id: /[^\/]+/ }, as: :user_by_auth0_deprecated
 
-      get 'users/:auth0_id/schools', 
-          to: 'users#schools_by_path', 
+      get 'users/:auth0_id/schools',
+          to: 'users#schools_by_path',
           constraints: { auth0_id: /[^\/]+/ }, as: :user_schools_by_auth0_deprecated
 
-      get 'users/:auth0_id/onboarding_status', 
-          to: 'users#onboarding_status_by_path', 
+      get 'users/:auth0_id/onboarding_status',
+          to: 'users#onboarding_status_by_path',
           constraints: { auth0_id: /[^\/]+/ }, as: :user_onboarding_by_auth0_deprecated
 
       # =========================================================
@@ -69,7 +69,7 @@ Rails.application.routes.draw do
           get   :roles
           post  :add_role
           get   :onboarding_required
-          
+
           resource :onboarding_status, controller: :onboarding_statuses, only: [:show, :update] do
             post :complete_step
             post :skip_step
@@ -201,7 +201,7 @@ Rails.application.routes.draw do
       resources :grades, only: [:index, :show, :update, :destroy] do
         resources :classes, only: [:index, :create], controller: 'classes'
         resources :learners, only: [:index], controller: 'grades/learners'
-        
+
         member do
           get :learners
           get :teachers
@@ -347,7 +347,7 @@ Rails.application.routes.draw do
       # =========================================================
       # SYSTEM & UTILITIES
       # =========================================================
-      
+
       # PR Code validation and usage endpoints
       post 'pr_codes/validate', to: 'pr_codes#validate'
       post 'pr_codes/use', to: 'pr_codes#use'
@@ -442,17 +442,17 @@ Rails.application.routes.draw do
   # =========================================================
   # GLOBAL ROUTES
   # =========================================================
-  
+
   # Root route
   root 'api/v1/home#index'
-  
+
   # Global health
   get 'up', to: 'api/v1/home#health'
   get 'health', to: 'api/v1/home#health'
 
   # API docs
   get 'api/docs', to: 'api/v1/documentation#index'
-  
+
   # Invitation verification with details (unauthenticated)
   get 'invitations/:token/verify_with_details', to: 'api/v1/invitations#verify_with_details'
 end

@@ -270,7 +270,7 @@ module Api
           skippedSteps: []
         )
       end
-      
+
       def requires_skip_reason?(step_name)
         # Define which steps require a skip reason
         ["create_grades", "upload_learners", "send_invites"].include?(step_name.to_s.underscore)
