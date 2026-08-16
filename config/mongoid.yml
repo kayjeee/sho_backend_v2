@@ -8,7 +8,7 @@ development:
 test:
   clients:
     default:
-      uri: <%= ENV['MONGODB_URI'] || 'mongodb+srv://kayjee:ilovegodandmygranny@cluster0.68wmv.mongodb.net/tracker?retryWrites=true&w=majority' %>
+      uri: <%= ENV['MONGODB_TEST_URI'] || (ENV['MONGODB_URI'] ? ENV['MONGODB_URI'].sub(/\/([^\/?]+)(\?|\z)/, '/\1_test\2') : 'mongodb+srv://kayjee:ilovegodandmygranny@cluster0.68wmv.mongodb.net/tracker_test?retryWrites=true&w=majority') %>
       options:
         server_selection_timeout: 5
 
