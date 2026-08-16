@@ -202,6 +202,60 @@ class Invitation
     school&.schoolName || school&.name || 'Unknown School'
   end
 
+  def grade_name
+    return nil if grade_id.blank?
+
+    gid_str = grade_id.to_s
+    gid_bson = BSON::ObjectId.legal?(gid_str) ? BSON::ObjectId.from_string(gid_str) : nil
+
+    Grade.where(:id.in => [gid_str, gid_bson].compact).first&.name
+  rescue => e
+    Rails.logger.error "❌ Error resolving grade_name for invitation #{id}: #{e.message}"
+    nil
+  end
+
+  def resolved_learner_names
+    # 1. If learner_names stored on document is present and has non-blank entries, prefer/return it
+    stored_names = Array(learner_names).map(&:to_s).map(&:strip).reject(&:blank?)
+    return stored_names if stored_names.present?
+
+    # 2. Look up by learner_ids first if present
+    if learner_ids.present? && learner_ids.any?
+      lid_strings = learner_ids.map(&:to_s)
+      lid_bsons = lid_strings.map { |s| BSON::ObjectId.legal?(s) ? BSON::ObjectId.from_string(s) : nil }.compact
+
+      found_learners = Learner.where(:id.in => (lid_strings + lid_bsons)).to_a
+      names = found_learners.map(&:full_name).reject(&:blank?)
+      return names if names.present?
+    end
+
+    # 3. Look up by learner_numbers / learner_number
+    numbers = (Array(learner_numbers) + [learner_number]).map(&:to_s).map(&:strip).reject(&:blank?).uniq
+    if numbers.present?
+      school_id_str = school_id.to_s
+      school_id_bson = BSON::ObjectId.legal?(school_id_str) ? BSON::ObjectId.from_string(school_id_str) : nil
+      school_ids = [school_id_str, school_id_bson].compact
+
+      query = {
+        "$or" => [
+          { "accessionNumber" => { "$in" => numbers } },
+          { "accession_number" => { "$in" => numbers } }
+        ]
+      }
+      query["school_id"] = { "$in" => school_ids } if school_ids.present?
+
+      docs = Learner.collection.find(query).to_a
+      found_learners = docs.map { |doc| Learner.instantiate(doc) }
+      names = found_learners.map(&:full_name).reject(&:blank?)
+      return names if names.present?
+    end
+
+    []
+  rescue => e
+    Rails.logger.error "❌ Error resolving resolved_learner_names for invitation #{id}: #{e.message}"
+    []
+  end
+
   def multiple_learners?
     learner_ids.present? && learner_ids.size > 1
   end
@@ -278,10 +332,11 @@ class Invitation
       learner_number: learner_number,
       learner_numbers: learner_numbers,
       learner_ids: learner_ids,
-      learner_names: learner_names,
+      learner_names: resolved_learner_names,
       learner_count: learner_count,
       multiple_learners: multiple_learners?,
       grade_id: grade_id,
+      grade_name: grade_name,
       accepted_at: accepted_at&.iso8601,
       expires_at: expires_at&.iso8601,
       expired: expired?,
