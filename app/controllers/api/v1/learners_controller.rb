@@ -103,10 +103,72 @@ module Api
       # GET /api/v1/learners/:id/history
       # ------------------------------
       def history
-        # Placeholder: no audit/history model wired up yet.
-        render_success(data: [], message: "History tracking not yet implemented")
+        render_success(data: @learner.academic_history || [], message: "Learner academic history retrieved")
       rescue => e
         render_exception("Learners#history", e)
+      end
+
+      # ------------------------------
+      # POST /api/v1/learners/promote
+      # POST /api/v1/schools/:school_id/learners/promote
+      # ------------------------------
+      def promote
+        raw = begin
+          params.to_unsafe_h
+        rescue
+          params.to_h
+        end
+
+        school_param = raw["school_id"] || raw[:school_id] || raw["schoolId"] || raw[:schoolId] || params[:school_id]
+        resolved_school = resolve_school_id(school_param)
+
+        service_params = {
+          school_id: resolved_school,
+          source_academic_year: raw["source_academic_year"] || raw[:source_academic_year] || raw["sourceAcademicYear"] || raw[:sourceAcademicYear],
+          destination_academic_year: raw["destination_academic_year"] || raw[:destination_academic_year] || raw["destinationAcademicYear"] || raw[:destinationAcademicYear],
+          source_grade_id: raw["source_grade_id"] || raw[:source_grade_id] || raw["sourceGradeId"] || raw[:sourceGradeId],
+          destination_grade_id: raw["destination_grade_id"] || raw[:destination_grade_id] || raw["destinationGradeId"] || raw[:destinationGradeId],
+          learner_ids: raw["learner_ids"] || raw[:learner_ids] || raw["learnerIds"] || raw[:learnerIds] || raw["learners"] || raw[:learners],
+          user_id: raw["user_id"] || raw[:user_id] || raw["userId"] || raw[:userId]
+        }
+
+        result = LearnerServices::PromoteLearnersService.new(**service_params).call
+
+        if result.success
+          render json: {
+            status: "success",
+            success: true,
+            message: result.message,
+            stats: result.stats,
+            promoted: result.promoted,
+            skipped: result.skipped,
+            failed: result.failed
+          }, status: :ok
+        elsif result.errors.include?("School not found")
+          render json: {
+            status: "error",
+            success: false,
+            message: result.message,
+            errors: result.errors,
+            stats: result.stats,
+            promoted: result.promoted,
+            skipped: result.skipped,
+            failed: result.failed
+          }, status: :not_found
+        else
+          render json: {
+            status: "error",
+            success: false,
+            message: result.message,
+            errors: result.errors,
+            stats: result.stats,
+            promoted: result.promoted,
+            skipped: result.skipped,
+            failed: result.failed
+          }, status: :unprocessable_entity
+        end
+      rescue => e
+        render_exception("Learners#promote", e)
       end
 
       # ------------------------------
