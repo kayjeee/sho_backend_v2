@@ -134,38 +134,21 @@ module Api
 
         result = LearnerServices::PromoteLearnersService.new(**service_params).call
 
+        response_body = {
+          success: result.success,
+          promoted: result.promoted,
+          already_promoted: result.already_promoted,
+          wrong_grade: result.wrong_grade,
+          not_found_or_unauthorized: result.not_found_or_unauthorized,
+          summary: result.summary
+        }
+
         if result.success
-          render json: {
-            status: "success",
-            success: true,
-            message: result.message,
-            stats: result.stats,
-            promoted: result.promoted,
-            skipped: result.skipped,
-            failed: result.failed
-          }, status: :ok
+          render json: response_body, status: :ok
         elsif result.errors.include?("School not found")
-          render json: {
-            status: "error",
-            success: false,
-            message: result.message,
-            errors: result.errors,
-            stats: result.stats,
-            promoted: result.promoted,
-            skipped: result.skipped,
-            failed: result.failed
-          }, status: :not_found
+          render json: response_body.merge(message: result.message, errors: result.errors), status: :not_found
         else
-          render json: {
-            status: "error",
-            success: false,
-            message: result.message,
-            errors: result.errors,
-            stats: result.stats,
-            promoted: result.promoted,
-            skipped: result.skipped,
-            failed: result.failed
-          }, status: :unprocessable_entity
+          render json: response_body.merge(message: result.message, errors: result.errors), status: :unprocessable_entity
         end
       rescue => e
         render_exception("Learners#promote", e)

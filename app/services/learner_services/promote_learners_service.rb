@@ -2,7 +2,8 @@
 module LearnerServices
   class PromoteLearnersService
     ServiceResult = Struct.new(
-      :success, :message, :stats, :promoted, :skipped, :failed, :errors,
+      :success, :message, :summary, :promoted, :already_promoted,
+      :wrong_grade, :not_found_or_unauthorized, :errors,
       keyword_init: true
     )
 
@@ -30,10 +31,11 @@ module LearnerServices
         return ServiceResult.new(
           success: false,
           message: "Validation failed: #{validation_errors.join(', ')}",
-          stats: { total: @learner_ids.size, promoted_count: 0, skipped_count: 0, failed_count: @learner_ids.size },
+          summary: { promoted_count: 0, already_promoted_count: 0, wrong_grade_count: 0, failed_count: @learner_ids.size },
           promoted: [],
-          skipped: [],
-          failed: [],
+          already_promoted: [],
+          wrong_grade: [],
+          not_found_or_unauthorized: @learner_ids,
           errors: validation_errors
         )
       end
@@ -44,10 +46,11 @@ module LearnerServices
         return ServiceResult.new(
           success: false,
           message: "School not found with ID #{@school_id}",
-          stats: { total: @learner_ids.size, promoted_count: 0, skipped_count: 0, failed_count: @learner_ids.size },
+          summary: { promoted_count: 0, already_promoted_count: 0, wrong_grade_count: 0, failed_count: @learner_ids.size },
           promoted: [],
-          skipped: [],
-          failed: [],
+          already_promoted: [],
+          wrong_grade: [],
+          not_found_or_unauthorized: @learner_ids,
           errors: ["School not found"]
         )
       end
@@ -61,56 +64,131 @@ module LearnerServices
         return ServiceResult.new(
           success: false,
           message: "Source or destination grade not found or does not belong to school",
-          stats: { total: @learner_ids.size, promoted_count: 0, skipped_count: 0, failed_count: @learner_ids.size },
+          summary: { promoted_count: 0, already_promoted_count: 0, wrong_grade_count: 0, failed_count: @learner_ids.size },
           promoted: [],
-          skipped: [],
-          failed: [],
+          already_promoted: [],
+          wrong_grade: [],
+          not_found_or_unauthorized: @learner_ids,
           errors: ["Invalid grade selections for this school"]
         )
       end
 
       promoted = []
-      skipped = []
-      failed = []
+      already_promoted = []
+      wrong_grade = []
+      not_found_or_unauthorized = []
+      bulk_ops = []
 
-      @learner_ids.each do |learner_id|
-        process_learner_promotion(
-          learner_id: learner_id,
-          school_id: resolved_school_id,
-          source_grade: source_grade,
-          destination_grade: destination_grade,
-          promoted: promoted,
-          skipped: skipped,
-          failed: failed
-        )
+      @learner_ids.each do |learner_id_str|
+        lid_bson = BSON::ObjectId.legal?(learner_id_str) ? BSON::ObjectId.from_string(learner_id_str) : nil
+
+        doc = Learner.collection.find("_id" => { "$in" => [learner_id_str, lid_bson].compact }).first
+
+        if doc.nil?
+          not_found_or_unauthorized << learner_id_str
+          next
+        end
+
+        # 1. School isolation check
+        doc_school_id = doc["school_id"].to_s
+        if doc_school_id != resolved_school_id
+          not_found_or_unauthorized << learner_id_str
+          next
+        end
+
+        # 2. Duplicate promotion protection
+        doc_grade_id = (doc["gradeId"] || doc["grade_id"]).to_s
+        doc_current_year = (doc["current_academic_year"] || doc["academic_year"]).to_s
+        history = doc["enrollment_history"] || doc["academic_history"] || []
+
+        is_already_promoted = (
+          doc_current_year == @destination_academic_year && doc_grade_id == destination_grade.id.to_s
+        ) || history.any? do |h|
+          h["academic_year"].to_s == @destination_academic_year ||
+            h["destination_academic_year"].to_s == @destination_academic_year
+        end
+
+        if is_already_promoted
+          already_promoted << learner_id_str
+          next
+        end
+
+        # 3. Source grade check
+        if doc_grade_id != source_grade.id.to_s
+          wrong_grade << learner_id_str
+          next
+        end
+
+        # 4. Eligible for promotion -> build snapshot and update
+        snapshot = {
+          "grade_id" => doc_grade_id,
+          "grade_name" => source_grade.name,
+          "academic_year" => doc_current_year.presence || @source_academic_year,
+          "source_academic_year" => @source_academic_year,
+          "destination_academic_year" => @destination_academic_year,
+          "promoted_at" => Time.current.utc.iso8601,
+          "promoted_by" => @user_id.to_s
+        }
+
+        bulk_ops << {
+          update_one: {
+            filter: { "_id" => doc["_id"] },
+            update: {
+              "$set" => {
+                "gradeId" => destination_grade.id.to_s,
+                "grade_id" => destination_grade.id.to_s,
+                "current_academic_year" => @destination_academic_year.to_i,
+                "academic_year" => @destination_academic_year,
+                "school_class_id" => nil
+              },
+              "$push" => {
+                "enrollment_history" => snapshot,
+                "academic_history" => snapshot
+              }
+            }
+          }
+        }
+        promoted << learner_id_str
       end
 
-      total_count = @learner_ids.size
-      overall_success = failed.empty? && (promoted.any? || skipped.any?)
+      # Execute bulk write if any eligible
+      if bulk_ops.any?
+        Learner.collection.bulk_write(bulk_ops, ordered: false)
+      end
+
+      promoted_count = promoted.size
+      already_promoted_count = already_promoted.size
+      wrong_grade_count = wrong_grade.size
+      failed_count = not_found_or_unauthorized.size
+      total_unsuccessful = already_promoted_count + wrong_grade_count + failed_count
+
+      overall_success = total_unsuccessful.zero? && promoted_count > 0
 
       ServiceResult.new(
         success: overall_success,
-        message: "Promotion completed. #{promoted.size} promoted, #{skipped.size} skipped, #{failed.size} failed.",
-        stats: {
-          total: total_count,
-          promoted_count: promoted.size,
-          skipped_count: skipped.size,
-          failed_count: failed.size
+        message: "Promotion completed. #{promoted_count} promoted, #{already_promoted_count} already promoted, #{wrong_grade_count} wrong grade, #{failed_count} failed.",
+        summary: {
+          promoted_count: promoted_count,
+          already_promoted_count: already_promoted_count,
+          wrong_grade_count: wrong_grade_count,
+          failed_count: failed_count
         },
         promoted: promoted,
-        skipped: skipped,
-        failed: failed,
-        errors: failed.map { |f| f[:reason] }
+        already_promoted: already_promoted,
+        wrong_grade: wrong_grade,
+        not_found_or_unauthorized: not_found_or_unauthorized,
+        errors: []
       )
     rescue => e
       Rails.logger.error "❌ [PromoteLearnersService] Error: #{e.message}\n#{e.backtrace&.first(5)&.join("\n")}"
       ServiceResult.new(
         success: false,
         message: "An unexpected error occurred during promotion: #{e.message}",
-        stats: { total: @learner_ids.size, promoted_count: 0, skipped_count: 0, failed_count: @learner_ids.size },
+        summary: { promoted_count: 0, already_promoted_count: 0, wrong_grade_count: 0, failed_count: @learner_ids.size },
         promoted: [],
-        skipped: [],
-        failed: [],
+        already_promoted: [],
+        wrong_grade: [],
+        not_found_or_unauthorized: @learner_ids,
         errors: [e.message]
       )
     end
@@ -164,86 +242,6 @@ module LearnerServices
       nil
     rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId
       nil
-    end
-
-    def process_learner_promotion(learner_id:, school_id:, source_grade:, destination_grade:, promoted:, skipped:, failed:)
-      lid_str = learner_id.to_s
-      lid_bson = BSON::ObjectId.legal?(lid_str) ? BSON::ObjectId.from_string(lid_str) : nil
-
-      learner = Learner.where(:id.in => [lid_str, lid_bson].compact).first
-
-      if learner.nil?
-        failed << { id: learner_id, reason: "Learner not found" }
-        return
-      end
-
-      # 1. School isolation check
-      if learner.school_id.to_s != school_id.to_s
-        failed << {
-          id: learner.id.to_s,
-          name: learner.full_name,
-          accession_number: learner.accession_number,
-          reason: "Learner does not belong to the specified school"
-        }
-        return
-      end
-
-      current_grade_id = (learner.try(:gradeId) || learner.try(:grade_id))&.to_s
-
-      # 2. Duplicate promotion protection
-      already_promoted = (
-        learner.academic_year == @destination_academic_year && current_grade_id == destination_grade.id.to_s
-      ) || (
-        Array(learner.academic_history).any? do |h|
-          h["destination_academic_year"].to_s == @destination_academic_year &&
-            h["destination_grade_id"].to_s == destination_grade.id.to_s
-        end
-      )
-
-      if already_promoted
-        skipped << {
-          id: learner.id.to_s,
-          name: learner.full_name,
-          accession_number: learner.accession_number,
-          reason: "Learner has already been promoted to '#{destination_grade.name}' for academic year #{@destination_academic_year}"
-        }
-        return
-      end
-
-      # 3. Source grade check
-      if current_grade_id != source_grade.id.to_s
-        failed << {
-          id: learner.id.to_s,
-          name: learner.full_name,
-          accession_number: learner.accession_number,
-          reason: "Learner is currently in grade '#{learner.grade_name || current_grade_id}', not source grade '#{source_grade.name}'"
-        }
-        return
-      end
-
-      # 4. Perform atomic promotion
-      learner.promote!(
-        to_academic_year: @destination_academic_year,
-        to_grade_id: destination_grade.id.to_s,
-        from_academic_year: @source_academic_year,
-        from_grade_id: source_grade.id.to_s,
-        promoted_by: @user_id
-      )
-
-      promoted << {
-        id: learner.id.to_s,
-        name: learner.full_name,
-        accession_number: learner.accession_number,
-        grade_id: destination_grade.id.to_s,
-        grade_name: destination_grade.name,
-        academic_year: @destination_academic_year
-      }
-    rescue => e
-      Rails.logger.error "❌ Error promoting learner #{learner_id}: #{e.message}"
-      failed << {
-        id: learner_id,
-        reason: "Failed to promote learner: #{e.message}"
-      }
     end
   end
 end
