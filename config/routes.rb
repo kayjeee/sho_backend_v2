@@ -183,7 +183,11 @@ Rails.application.routes.draw do
             get :stats
           end
         end
-        resources :learners, only: [:index]
+        resources :learners, only: [:index] do
+          collection do
+            post :promote
+          end
+        end
         resources :transactions, only: [:index, :show, :create, :update, :destroy] do
           collection do
             get :pending
@@ -249,6 +253,7 @@ Rails.application.routes.draw do
           get :search
           get :export
           get :statistics
+          post :promote
         end
 
         member do
