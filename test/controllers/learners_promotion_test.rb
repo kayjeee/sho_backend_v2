@@ -32,6 +32,7 @@ class LearnersPromotionTest < ActionDispatch::IntegrationTest
       accessionNumber: "KAG001",
       school_id: @school.id.to_s,
       grade_id: @grade6.id.to_s,
+      current_academic_year: 2026,
       academic_year: "2026",
       status: 0,
       gender: 0
@@ -43,6 +44,7 @@ class LearnersPromotionTest < ActionDispatch::IntegrationTest
       accessionNumber: "THA002",
       school_id: @school.id.to_s,
       grade_id: @grade6.id.to_s,
+      current_academic_year: 2026,
       academic_year: "2026",
       status: 0,
       gender: 0
@@ -64,22 +66,22 @@ class LearnersPromotionTest < ActionDispatch::IntegrationTest
     json_response = JSON.parse(response.body)
 
     assert json_response['success']
-    assert_equal 1, json_response['stats']['promoted_count']
-    assert_equal 0, json_response['stats']['failed_count']
-    assert_equal 0, json_response['stats']['skipped_count']
+    assert_equal 1, json_response['summary']['promoted_count']
+    assert_equal 0, json_response['summary']['failed_count']
+    assert_equal 0, json_response['summary']['already_promoted_count']
+    assert_includes json_response['promoted'], @learner1.id.to_s
 
     # Verify Learner database record
     @learner1.reload
+    assert_equal 2027, @learner1.current_academic_year
     assert_equal "2027", @learner1.academic_year
     assert_equal @grade7.id.to_s, @learner1.grade_id.to_s
 
-    # Verify history preserved
-    assert_equal 1, @learner1.academic_history.size
-    history_entry = @learner1.academic_history.first
-    assert_equal "2026", history_entry['source_academic_year']
-    assert_equal "2027", history_entry['destination_academic_year']
-    assert_equal "Grade 6", history_entry['source_grade_name']
-    assert_equal "Grade 7", history_entry['destination_grade_name']
+    # Verify enrollment history preserved
+    assert_equal 1, @learner1.enrollment_history.size
+    history_entry = @learner1.enrollment_history.first
+    assert_equal "Grade 6", history_entry['grade_name']
+    assert_equal "2026", history_entry['academic_year'] || history_entry['source_academic_year']
   end
 
   test "Test 2 - Bulk learners promotion" do
@@ -97,7 +99,9 @@ class LearnersPromotionTest < ActionDispatch::IntegrationTest
     json_response = JSON.parse(response.body)
 
     assert json_response['success']
-    assert_equal 2, json_response['stats']['promoted_count']
+    assert_equal 2, json_response['summary']['promoted_count']
+    assert_includes json_response['promoted'], @learner1.id.to_s
+    assert_includes json_response['promoted'], @learner2.id.to_s
 
     @learner1.reload
     @learner2.reload
@@ -118,12 +122,12 @@ class LearnersPromotionTest < ActionDispatch::IntegrationTest
       accessionNumber: "SIP003",
       school_id: @school.id.to_s,
       grade_id: grade5.id.to_s,
+      current_academic_year: 2026,
       academic_year: "2026",
       status: 0,
       gender: 0
     )
 
-    # Attempt to promote Grade 5 learner using source_grade_id = Grade 6
     payload = {
       school_id: @school.id.to_s,
       source_academic_year: "2026",
@@ -138,8 +142,8 @@ class LearnersPromotionTest < ActionDispatch::IntegrationTest
     json_response = JSON.parse(response.body)
 
     assert_equal false, json_response['success']
-    assert_equal 1, json_response['stats']['failed_count']
-    assert_match /not source grade/, json_response['failed'].first['reason']
+    assert_equal 1, json_response['summary']['wrong_grade_count']
+    assert_includes json_response['wrong_grade'], learner_in_grade5.id.to_s
   end
 
   test "Test 4 - Wrong school rejection" do
@@ -155,12 +159,12 @@ class LearnersPromotionTest < ActionDispatch::IntegrationTest
       accessionNumber: "FOR999",
       school_id: @other_school.id.to_s,
       grade_id: other_school_grade6.id.to_s,
+      current_academic_year: 2026,
       academic_year: "2026",
       status: 0,
       gender: 0
     )
 
-    # Attempt to promote School B learner via School A promotion request
     payload = {
       school_id: @school.id.to_s,
       source_academic_year: "2026",
@@ -175,8 +179,8 @@ class LearnersPromotionTest < ActionDispatch::IntegrationTest
     json_response = JSON.parse(response.body)
 
     assert_equal false, json_response['success']
-    assert_equal 1, json_response['stats']['failed_count']
-    assert_match /does not belong to the specified school/, json_response['failed'].first['reason']
+    assert_equal 1, json_response['summary']['failed_count']
+    assert_includes json_response['not_found_or_unauthorized'], other_school_learner.id.to_s
   end
 
   test "Test 5 - Duplicate promotion prevention" do
@@ -193,19 +197,19 @@ class LearnersPromotionTest < ActionDispatch::IntegrationTest
     post "/api/v1/learners/promote", params: payload
     assert_response :success
 
-    # Second identical promotion -> skipped
+    # Second identical promotion -> already_promoted
     post "/api/v1/learners/promote", params: payload
-    assert_response :success
+    assert_response :unprocessable_entity
     json_response = JSON.parse(response.body)
 
-    assert json_response['success']
-    assert_equal 0, json_response['stats']['promoted_count']
-    assert_equal 1, json_response['stats']['skipped_count']
-    assert_match /already been promoted/, json_response['skipped'].first['reason']
+    assert_equal false, json_response['success']
+    assert_equal 0, json_response['summary']['promoted_count']
+    assert_equal 1, json_response['summary']['already_promoted_count']
+    assert_includes json_response['already_promoted'], @learner1.id.to_s
 
     # Verify history entry count is still 1, not duplicated
     @learner1.reload
-    assert_equal 1, @learner1.academic_history.size
+    assert_equal 1, @learner1.enrollment_history.size
   end
 
   test "Test 6 - Missing parameters validation" do

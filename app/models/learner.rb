@@ -40,8 +40,10 @@ class Learner
   field :last_sync_at,    type: DateTime
 
   # ======================== ACADEMIC YEAR & HISTORY ========================
-  field :academic_year,    type: String, default: -> { Time.current.year.to_s }
-  field :academic_history, type: Array, default: []
+  field :current_academic_year, type: Integer, default: -> { Time.current.year }
+  field :academic_year,         type: String,  default: -> { Time.current.year.to_s }
+  field :enrollment_history,    type: Array,   default: []
+  field :academic_history,      type: Array,   default: []
 
   # ===================== VALIDATIONS ======================
   validates :first_name, :last_name, presence: true
@@ -242,8 +244,10 @@ class Learner
       school_name: school_name,
       grade_id: grade_id.to_s,
       grade_name: grade_name,
+      current_academic_year: current_academic_year || academic_year&.to_i || Time.current.year,
       academic_year: academic_year,
-      academic_history: academic_history || [],
+      enrollment_history: (enrollment_history.presence || academic_history || []),
+      academic_history: (enrollment_history.presence || academic_history || []),
       auth0Id: auth0Id,
       userAuth0Id: userAuth0Id,
       userEmail: userEmail,
