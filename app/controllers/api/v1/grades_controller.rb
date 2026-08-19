@@ -254,7 +254,16 @@ module Api
           last_name: learner.last_name,
           email: learner.try(:userEmail) || learner.try(:email),
           grade: learner.grade&.name,
-          class: learner.try(:school_class)&.try(:name)
+          class: learner.try(:school_class)&.try(:name),
+          accession_number: learner.accession_number,
+          accessionNumber: learner.accession_number,
+          contact: {
+            phone: learner.try(:phone),
+            whatsapp: learner.try(:whatsapp),
+            tel_home: learner.try(:tel_home) || learner.try(:telHome) || learner.read_attribute(:telHome) || learner.read_attribute(:tel_home),
+            tel_emergency: learner.try(:tel_emergency) || learner.try(:telEmergency) || learner.read_attribute(:telEmergency) || learner.read_attribute(:tel_emergency),
+            telegram: learner.try(:telegram)
+          }
         }
       end
 
