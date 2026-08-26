@@ -113,6 +113,25 @@ class SubjectsControllerTest < ActionDispatch::IntegrationTest
     assert_equal ["Grade 8", "Grade 9"], created["grade_names"]
   end
 
+  test "POST /api/v1/subjects creates subject with school_id nested inside subject payload" do
+    post "/api/v1/subjects", params: {
+      subject: {
+        name: "Life Sciences",
+        code: "LIFE",
+        description: "Biology and Life Sciences",
+        school_id: @school1.id.to_s,
+        grade_ids: [@grade1.id.to_s]
+      }
+    }, as: :json
+    assert_response :created
+    json = JSON.parse(response.body)
+    assert_equal true, json["success"]
+    created = json["subject"]
+    assert_equal "Life Sciences", created["name"]
+    assert_equal @school1.id.to_s, created["school_id"]
+    assert_equal ["Grade 8"], created["grade_names"]
+  end
+
   test "PATCH /api/v1/subjects/:id updates subject" do
     patch "/api/v1/subjects/#{@subject1.id}", params: {
       school_id: @school1.id.to_s,

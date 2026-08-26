@@ -119,9 +119,22 @@ module Api
       private
 
       def set_school
-        school_param = params[:school_id] || params[:schoolId]
-        if school_param.blank? && params[:subject].is_a?(Hash)
-          school_param = params[:subject][:school_id] || params[:subject][:schoolId]
+        raw_params = begin
+          params.to_unsafe_h
+        rescue
+          params.to_h
+        end
+
+        school_param = raw_params[:school_id] || raw_params["school_id"] || raw_params[:schoolId] || raw_params["schoolId"]
+
+        if school_param.blank? && raw_params[:subject].is_a?(Hash)
+          subj = raw_params[:subject]
+          school_param = subj[:school_id] || subj["school_id"] || subj[:schoolId] || subj["schoolId"]
+        end
+
+        if school_param.blank? && raw_params["subject"].is_a?(Hash)
+          subj = raw_params["subject"]
+          school_param = subj[:school_id] || subj["school_id"] || subj[:schoolId] || subj["schoolId"]
         end
 
         if school_param.blank?
