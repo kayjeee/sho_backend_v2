@@ -200,7 +200,10 @@ module Api
       end
 
       def set_grade
-        @grade ||= @school ? @school.grades.find(params[:id]) : Grade.find(params[:id])
+        @grade = Grade.find(params[:id])
+        if @school && @grade.school_id.to_s != @school.id.to_s
+          raise Mongoid::Errors::DocumentNotFound.new(Grade, { id: params[:id], school_id: @school.id })
+        end
       rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId
         render json: { success: false, error: "Grade not found" }, status: :not_found
       end
@@ -249,9 +252,18 @@ module Api
           id: learner.id.to_s,
           first_name: learner.first_name,
           last_name: learner.last_name,
-          email: learner.email,
+          email: learner.try(:userEmail) || learner.try(:email),
           grade: learner.grade&.name,
-          class: learner.try(:school_class)&.try(:name)
+          class: learner.try(:school_class)&.try(:name),
+          accession_number: learner.accession_number,
+          accessionNumber: learner.accession_number,
+          contact: {
+            phone: learner.try(:phone),
+            whatsapp: learner.try(:whatsapp),
+            tel_home: learner.try(:tel_home) || learner.try(:telHome) || learner.read_attribute(:telHome) || learner.read_attribute(:tel_home),
+            tel_emergency: learner.try(:tel_emergency) || learner.try(:telEmergency) || learner.read_attribute(:telEmergency) || learner.read_attribute(:tel_emergency),
+            telegram: learner.try(:telegram)
+          }
         }
       end
 

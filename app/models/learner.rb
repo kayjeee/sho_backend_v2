@@ -39,6 +39,12 @@ class Learner
   field :mobile_sync_id,  type: String
   field :last_sync_at,    type: DateTime
 
+  # ======================== ACADEMIC YEAR & HISTORY ========================
+  field :current_academic_year, type: Integer, default: -> { Time.current.year }
+  field :academic_year,         type: String,  default: -> { Time.current.year.to_s }
+  field :enrollment_history,    type: Array,   default: []
+  field :academic_history,      type: Array,   default: []
+
   # ===================== VALIDATIONS ======================
   validates :first_name, :last_name, presence: true
   validates :accession_number, uniqueness: { scope: :school_id }, allow_blank: true
@@ -153,6 +159,52 @@ class Learner
     school&.schoolName || school&.name || school_name_denormalized
   end
 
+  # Force-sets the learner's grade ID in the raw MongoDB collection to bypass Mongoid association casting/no-op issues
+  def force_grade_id!(new_grade_id)
+    return if new_grade_id.blank?
+
+    # Update the document in MongoDB collection directly to guarantee write
+    Learner.collection.find(_id: id).update_one(
+      { "$set" => { "gradeId" => new_grade_id.to_s } }
+    )
+
+    # Reload the document/Mongoid fields to keep instance in-sync
+    reload
+  end
+
+  # Promotes learner to destination academic year and grade while preserving history
+  def promote!(to_academic_year:, to_grade_id:, from_academic_year: nil, from_grade_id: nil, promoted_by: nil)
+    src_year = from_academic_year.presence || self.academic_year.presence || Time.current.year.to_s
+    src_grade_id = from_grade_id.presence || (self.try(:gradeId) || self.try(:grade_id))&.to_s
+
+    src_grade = src_grade_id.present? ? Grade.find_by(id: src_grade_id) : nil
+    dst_grade = to_grade_id.present? ? Grade.find_by(id: to_grade_id) : nil
+
+    history_entry = {
+      "source_academic_year" => src_year,
+      "destination_academic_year" => to_academic_year.to_s,
+      "source_grade_id" => src_grade_id,
+      "destination_grade_id" => to_grade_id.to_s,
+      "source_grade_name" => src_grade&.name,
+      "destination_grade_name" => dst_grade&.name,
+      "promoted_at" => Time.current.utc.iso8601,
+      "promoted_by" => promoted_by&.to_s
+    }
+
+    self.academic_history ||= []
+    self.academic_history << history_entry
+    self.academic_year = to_academic_year.to_s
+    self.school_class_id = nil # Reset class assignment for the new grade
+
+    # Persist updated fields
+    save!
+
+    # Update gradeId physically in raw collection to bypass Mongoid association/field casting bugs
+    force_grade_id!(to_grade_id)
+
+    reload
+  end
+
   # Helper for grade name for API or UI
   def grade_name
     grade&.name
@@ -192,6 +244,10 @@ class Learner
       school_name: school_name,
       grade_id: grade_id.to_s,
       grade_name: grade_name,
+      current_academic_year: current_academic_year || academic_year&.to_i || Time.current.year,
+      academic_year: academic_year,
+      enrollment_history: (enrollment_history.presence || academic_history || []),
+      academic_history: (enrollment_history.presence || academic_history || []),
       auth0Id: auth0Id,
       userAuth0Id: userAuth0Id,
       userEmail: userEmail,

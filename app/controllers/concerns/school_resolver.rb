@@ -1,6 +1,15 @@
 module SchoolResolver
   extend ActiveSupport::Concern
 
+  class AmbiguousSchoolError < StandardError
+    attr_reader :matching_schools
+
+    def initialize(matching_schools)
+      super("Multiple schools match this identifier")
+      @matching_schools = matching_schools
+    end
+  end
+
   def find_school_by_id_or_slug(school_identifier)
     return nil if school_identifier.blank?
 
@@ -11,12 +20,20 @@ module SchoolResolver
     else
       name_pattern = school_name_pattern(identifier)
 
-      School.any_of(
+      matches = School.any_of(
         { schoolName: name_pattern },
         { schoolEmail: /^#{Regexp.escape(identifier)}$/i },
         { user_email: /^#{Regexp.escape(identifier)}$/i },
         { user_id: identifier }
-      ).first
+      ).to_a
+
+      if matches.size == 0
+        nil
+      elsif matches.size == 1
+        matches.first
+      else
+        raise AmbiguousSchoolError.new(matches)
+      end
     end
   end
 

@@ -166,34 +166,29 @@ module UserServices
     # ------------------------------------------------------------
     def build_invitation_document(data)
       learner_numbers = data[:learner_numbers] || Array(data[:learner_number]).compact
-      klass = @role == 'parent' ? LearnerInvitation : TeacherInvitation
+      klass = Invitation
 
-      # Determine whether model uses invitation_token or token
-      token_key = klass.fields.key?('invitation_token') ? :invitation_token : :token
       token_val = SecureRandom.urlsafe_base64(32)
 
       doc = {
         school_id: @school_id,
         grade_id: data[:grade_id],
         sender_id: @sender&.id,
-        invited_by_id: @sender&.id, # For LearnerInvitation/TeacherInvitation validation
+        sender_email: @sender&.try(:email),
         recipient_phone_number: data[:phone_number],
-        phone_number: data[:phone_number],
-        learner_phone: data[:phone_number], # For LearnerInvitation
         learner_numbers: learner_numbers,
         learner_number: learner_numbers.first,
-        role: @role,
+        role: @role || 'parent',
         parent_name: data[:parent_name],
-        invited_via: @invited_via,
+        invited_via: @invited_via || 'whatsapp',
         country_code: data[:country_code],
         country_name: data[:country_name],
-        status: (klass.fields['status']&.type == Integer) ? 0 : 'pending', # Match status type (0 for Integer)
-        expires_at: 7.days.from_now, # For LearnerInvitation validation
-        invited_at: Time.current,
+        status: 'pending',
+        token: token_val,
+        expires_at: 7.days.from_now,
         created_at: Time.current,
         updated_at: Time.current
       }
-      doc[token_key] = token_val
       doc.compact
     end
 
@@ -201,7 +196,7 @@ module UserServices
     # DB INSERT
     # ------------------------------------------------------------
     def insert_batch(documents)
-      klass = @role == 'parent' ? LearnerInvitation : TeacherInvitation
+      klass = Invitation
 
       result = klass.collection.insert_many(documents, ordered: false)
 

@@ -160,9 +160,17 @@ module UserServices
     end
 
     def find_invitation_learners(invitation)
+      school_id_str = invitation.school_id.to_s
+      school_id_bson = BSON::ObjectId.legal?(school_id_str) ? BSON::ObjectId.from_string(school_id_str) : nil
+      school_ids = [school_id_str, school_id_bson].compact
+
+      Rails.logger.info "🔍 [AcceptInvitationService#find_invitation_learners] Finding learners for invitation: #{invitation.id}, school_id: #{school_id_str}"
+
       # Direct learner_ids (if present)
       if invitation.respond_to?(:learner_ids) && invitation.learner_ids.present? && invitation.learner_ids.any?
+        Rails.logger.info "   ↳ Attempting match by direct learner_ids: #{invitation.learner_ids}"
         learners = Learner.where(:id.in => invitation.learner_ids).to_a
+        Rails.logger.info "     ↳ Match count by learner_ids: #{learners.size}"
         return learners if learners.present?
       end
 
@@ -177,7 +185,17 @@ module UserServices
       numbers = numbers.compact.uniq
 
       if numbers.any?
-        learners = Learner.where(school_id: invitation.school_id.to_s, :accessionNumber.in => numbers).to_a
+        Rails.logger.info "   ↳ Attempting match by accession numbers: #{numbers}"
+        query = {
+          "school_id" => { "$in" => school_ids },
+          "$or" => [
+            { "accessionNumber" => { "$in" => numbers } },
+            { "accession_number" => { "$in" => numbers } }
+          ]
+        }
+        docs = Learner.collection.find(query).to_a
+        learners = docs.map { |doc| Learner.instantiate(doc) }
+        Rails.logger.info "     ↳ Match count by accession numbers: #{learners.size}"
         return learners if learners.present?
       end
 
@@ -191,14 +209,23 @@ module UserServices
 
       if phone.present?
         phone_variations = normalize_phone(phone)
-        learners = Learner.where(school_id: invitation.school_id.to_s).any_of(
-          { phone: { '$in' => phone_variations } },
-          { telHome: { '$in' => phone_variations } },
-          { telEmergency: { '$in' => phone_variations } }
-        ).to_a
+        Rails.logger.info "   ↳ Attempting match by phone variations: #{phone_variations}"
+        query = {
+          "school_id" => { "$in" => school_ids },
+          "$or" => [
+            { "phone" => { "$in" => phone_variations } },
+            { "telHome" => { "$in" => phone_variations } },
+            { "telEmergency" => { "$in" => phone_variations } },
+            { "whatsapp" => { "$in" => phone_variations } }
+          ]
+        }
+        docs = Learner.collection.find(query).to_a
+        learners = docs.map { |doc| Learner.instantiate(doc) }
+        Rails.logger.info "     ↳ Match count by phone: #{learners.size}"
         return learners if learners.present?
       end
 
+      Rails.logger.warn "⚠️ [AcceptInvitationService#find_invitation_learners] No learners matched for invitation #{invitation.id}"
       []
     end
 

@@ -1,6 +1,8 @@
 module Api
   module V1
     class SchoolsController < ApplicationController
+      include SchoolResolver
+
       before_action :set_school, only: [:show, :update, :destroy, :admins, :teachers, :parents, :global_search]
 
       # =========================
@@ -104,9 +106,29 @@ module Api
       end
 
       # =========================
-      # GET /api/v1/schools/search?query=Name
+      # GET /api/v1/schools/search
+      # Handles both:
+      # 1. q=<partial name> for parent-facing autocomplete search
+      # 2. query=Name for original school availability check
       # =========================
       def search
+        if params[:q].present? || params.key?(:q)
+          q = params[:q]
+          if q.blank? || q.to_s.strip.length < 2
+            return render json: { success: false, message: "Query parameter 'q' must be at least 2 characters long." }, status: :bad_request
+          end
+
+          schools = School.where(schoolName: /#{Regexp.escape(q.to_s.strip)}/i).limit(10)
+          serialized_schools = schools.map do |school|
+            { id: school.id.to_s, name: school.schoolName }
+          end
+
+          return render json: {
+            success: true,
+            schools: serialized_schools
+          }, status: :ok
+        end
+
         query = params[:query]
         return render json: { success: false, message: "Query parameter is missing." }, status: :bad_request if query.blank?
 
@@ -233,7 +255,17 @@ module Api
       private
 
       def set_school
-        @school = School.find(params[:id])
+        @school = find_school_by_id_or_slug(params[:id])
+        if @school.nil?
+          return render json: { success: false, message: "School not found" }, status: :not_found
+        end
+      rescue SchoolResolver::AmbiguousSchoolError => e
+        schools_info = e.matching_schools.map { |s| { id: s.id.to_s, name: s.schoolName } }
+        render json: {
+          success: false,
+          message: "Multiple schools match this name — a specific school id is required.",
+          schools: schools_info
+        }, status: :conflict
       rescue BSON::Error::InvalidObjectId, Mongoid::Errors::DocumentNotFound
         render json: { success: false, message: "School not found" }, status: :not_found
       end

@@ -13,9 +13,9 @@ class Api::V1::InvitationsController < ApplicationController
   # ------------------------------------------------------------
   def verify_with_details
     Rails.logger.info "🔍 [InvitationsController] verify_with_details called for token: #{params[:token]}"
-    
+
     invitation = find_invitation_by_token(params[:token])
-    
+
     if invitation.nil?
       Rails.logger.warn "❌ No invitation found for token: #{params[:token]}"
       return render json: {
@@ -23,18 +23,18 @@ class Api::V1::InvitationsController < ApplicationController
         message: 'Invalid or expired invitation link.'
       }, status: :not_found
     end
-    
+
     Rails.logger.info "✅ Found invitation: #{invitation.class.name}##{invitation.id}"
-    
+
     # Validate invitation status
     validation_result = validate_invitation_status(invitation)
     return validation_result if validation_result
-    
+
     # Get expiration info
     expiration_date = extract_expiration_date(invitation)
     is_expired = check_if_expired(invitation, expiration_date)
     expires_in = calculate_expires_in(expiration_date)
-    
+
     # Generate response
     render json: {
       success: true,
@@ -42,7 +42,7 @@ class Api::V1::InvitationsController < ApplicationController
       expires_in: expires_in,
       is_expired: is_expired
     }, status: :ok
-    
+
   rescue StandardError => e
     log_error("Invitation verification failed", e)
     render json: {
@@ -57,7 +57,7 @@ class Api::V1::InvitationsController < ApplicationController
   # ------------------------------------------------------------
   def create
     Rails.logger.info "📥 [InvitationsController] Creating invitation"
-    
+
     # Don't use params[:invitation] — ParamsWrapper only auto-includes keys that
     # literally match the Invitation model's field names (recipient_phone_number,
     # sender_id), so it silently drops phone_number/sender since those don't match.
@@ -66,12 +66,12 @@ class Api::V1::InvitationsController < ApplicationController
 
     # Accept both sender_id (backend standard) and sender (NextJS client contract)
     sender = find_sender(service_params[:sender_id] || service_params[:sender])
-    
+
     # Build service parameters
     service_params = build_service_params(service_params, sender)
-    
+
     Rails.logger.info "🔧 Service params: #{service_params.except(:phone_number)}"
-    
+
     # Call invitation service
     result = UserServices::InvitationService.new(service_params).call
 
@@ -80,9 +80,9 @@ class Api::V1::InvitationsController < ApplicationController
     if result.success
       invitation = result.invitation
       magic_link = generate_magic_link(invitation)
-      
+
       log_invitation_created(invitation, magic_link)
-      
+
       render json: {
         success: true,
         message: 'Invitation sent successfully.',
@@ -97,7 +97,7 @@ class Api::V1::InvitationsController < ApplicationController
         message: format_errors_for_user(result.errors)
       }, status: :unprocessable_entity
     end
-    
+
   rescue StandardError => e
     log_error("Invitation creation failed", e)
     render json: {
@@ -113,14 +113,14 @@ class Api::V1::InvitationsController < ApplicationController
   # ------------------------------------------------------------
   def verify
     Rails.logger.info "🔍 [InvitationsController] Verifying/Accepting invitation"
-    
+
     # Normalize keys in parameters
     norm_params = normalize_hash_keys(params)
     token = norm_params[:token]
     auth0_id = norm_params[:auth0_id]
 
     Rails.logger.info "   Token: #{token}, Auth0 ID: #{auth0_id}"
-    
+
     # Validate required parameters
     return render_error('Missing auth0_id') if auth0_id.blank?
     return render_error('Missing token') if token.blank?
@@ -132,6 +132,8 @@ class Api::V1::InvitationsController < ApplicationController
     ).call
 
     if result.success?
+      link_parent_to_learners(result.learners, result.invitation)
+
       render json: {
         success: true,
         message: 'Invitation accepted successfully',
@@ -146,10 +148,92 @@ class Api::V1::InvitationsController < ApplicationController
         message: result.errors.join(", ")
       }, status: :unprocessable_entity
     end
-    
+
   rescue StandardError => e
     log_error("Invitation acceptance transaction failed", e)
     render_error("Failed to accept invitation: #{e.message}")
+  end
+
+  # ------------------------------------------------------------
+  # POST /api/v1/invitations/match_by_phone
+  # Match and accept invitations by phone number for parent setup
+  # ------------------------------------------------------------
+  def match_by_phone
+    Rails.logger.info "📞 [InvitationsController] match_by_phone called"
+
+    phone_number = params[:phone_number].presence || params[:phoneNumber]
+    auth0_id = params[:auth0_id].presence || params[:auth0Id]
+    school_id = params[:school_id].presence || params[:schoolId]
+
+    if phone_number.blank? || auth0_id.blank? || school_id.blank?
+      return render json: {
+        success: false,
+        message: "Missing required parameters. phone_number, auth0_id, and school_id are required."
+      }, status: :bad_request
+    end
+
+    parent_user = begin
+      User.where(auth0_id: auth0_id).first
+    rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId, Mongoid::Errors::InvalidFind
+      nil
+    end
+
+    if parent_user.nil?
+      return render json: {
+        success: false,
+        message: "No User found for the given auth0_id: #{auth0_id}"
+      }, status: :not_found
+    end
+
+    input_norm = normalize_phone_to_last_9(phone_number)
+    if input_norm.blank?
+      return render json: {
+        success: false,
+        message: "Invalid phone number format."
+      }, status: :unprocessable_entity
+    end
+
+    pending_invitations = Invitation.by_school(school_id).pending.to_a
+
+    matching_invitations = pending_invitations.select do |inv|
+      normalize_phone_to_last_9(inv.recipient_phone_number) == input_norm
+    end
+
+    matched_invitations_serialized = []
+
+    matching_invitations.each do |invitation|
+      result = UserServices::AcceptInvitationService.new(
+        token: invitation.token,
+        auth0_id: auth0_id
+      ).call
+
+      if result.success?
+        link_parent_to_learners(result.learners, result.invitation)
+        matched_invitations_serialized << safe_invitation_hash(result.invitation)
+      else
+        Rails.logger.warn "⚠️ Failed to process invitation #{invitation.id} in match_by_phone: #{result.errors}"
+        matched_invitations_serialized << {
+          id: invitation.id.to_s,
+          success: false,
+          error: result.errors.join(", "),
+          errors: result.errors,
+          token: invitation.token,
+          status: invitation.status
+        }
+      end
+    end
+
+    render json: {
+      success: true,
+      matched_count: matching_invitations.size,
+      invitations: matched_invitations_serialized
+    }, status: :ok
+  rescue StandardError => e
+    log_error("Failed to match invitations by phone", e)
+    render json: {
+      success: false,
+      message: "An error occurred: #{e.message}"
+    }, status: :internal_server_error
   end
 
   # ------------------------------------------------------------
@@ -175,7 +259,7 @@ class Api::V1::InvitationsController < ApplicationController
 
     # Find sender user
     sender = find_sender(norm_params[:sender_id])
-    
+
     Rails.logger.info "   Sender: #{sender&.auth0_id || 'nil'}"
 
     # Process bulk invitations
@@ -193,7 +277,7 @@ class Api::V1::InvitationsController < ApplicationController
     else
       handle_bulk_partial_failure(result)
     end
-    
+
   rescue StandardError => e
     log_error("Bulk invitation creation failed", e)
     render json: {
@@ -202,6 +286,142 @@ class Api::V1::InvitationsController < ApplicationController
       error: Rails.env.development? ? e.message : nil,
       invitations: []
     }, status: :unprocessable_entity
+  end
+
+  # ------------------------------------------------------------
+  # GET /api/v1/invitations
+  # List invitations for a school
+  # ------------------------------------------------------------
+  def index
+    school_id = params[:school_id] || params[:schoolId]
+    if school_id.blank?
+      return render json: { success: false, message: 'Missing required parameter: school_id' }, status: :bad_request
+    end
+
+    invitations_scope = Invitation.by_school(school_id)
+
+    status_param = params[:status] || params[:statusId]
+    if status_param.present? && status_param != 'all'
+      status_str = status_param.to_s.downcase
+      if %w[pending accepted expired rejected cancelled].include?(status_str)
+        invitations_scope = invitations_scope.send(status_str)
+      else
+        invitations_scope = invitations_scope.where(status: status_str)
+      end
+    end
+
+    invitations_scope = invitations_scope.recent
+    total_count = invitations_scope.count
+    serialized_invitations = invitations_scope.map { |inv| safe_invitation_hash(inv) }
+
+    render json: {
+      success: true,
+      invitations: serialized_invitations,
+      total: total_count
+    }, status: :ok
+  rescue StandardError => e
+    log_error("Failed to list invitations", e)
+    render json: { success: false, message: "Failed to fetch invitations: #{e.message}" }, status: :internal_server_error
+  end
+
+  # ------------------------------------------------------------
+  # POST /api/v1/invitations/:token/resend
+  # Resend invitation by regenerating token & resetting status/expiry
+  # ------------------------------------------------------------
+  def resend
+    token = params[:token] || params[:id]
+    invitation = Invitation.find_by_token(token)
+
+    if invitation.nil?
+      return render json: { success: false, message: "Invitation not found" }, status: :not_found
+    end
+
+    if invitation.resend!
+      render json: { success: true, invitation: safe_invitation_hash(invitation) }, status: :ok
+    else
+      render json: { success: false, message: "Failed to resend invitation" }, status: :unprocessable_entity
+    end
+  rescue StandardError => e
+    log_error("Failed to resend invitation", e)
+    render json: { success: false, message: "An error occurred: #{e.message}" }, status: :internal_server_error
+  end
+
+  # ------------------------------------------------------------
+  # POST /api/v1/invitations/:token/cancel
+  # Cancel invitation by token
+  # ------------------------------------------------------------
+  def cancel
+    token = params[:token] || params[:id]
+    invitation = Invitation.find_by_token(token)
+
+    if invitation.nil?
+      return render json: { success: false, message: "Invitation not found" }, status: :not_found
+    end
+
+    if invitation.cancel!
+      render json: { success: true, invitation: safe_invitation_hash(invitation) }, status: :ok
+    else
+      render json: { success: false, message: "Failed to cancel invitation" }, status: :unprocessable_entity
+    end
+  rescue StandardError => e
+    log_error("Failed to cancel invitation", e)
+    render json: { success: false, message: "An error occurred: #{e.message}" }, status: :internal_server_error
+  end
+
+  # ------------------------------------------------------------
+  # POST /api/v1/invitations/:token/admin_accept
+  # Admin-triggered accept action without parent auth0_id
+  # ------------------------------------------------------------
+  def admin_accept
+    token = params[:token] || params[:id]
+    invitation = Invitation.find_by_token(token)
+
+    if invitation.nil?
+      return render json: { success: false, message: "Invitation not found" }, status: :not_found
+    end
+
+    phone = invitation.recipient_phone_number.to_s.strip
+    variations = [phone]
+    if phone.start_with?('27')
+      variations << "0#{phone[2..]}"
+    elsif phone.start_with?('0')
+      variations << "27#{phone[1..]}"
+    end
+
+    parent_user = User.where(:phone_number.in => variations).first ||
+                  User.where(:phone.in => variations).first
+
+    if parent_user.blank?
+      return render json: {
+        success: false,
+        message: "No parent account found for this phone number yet — the parent must sign up first before this invitation can be linked."
+      }, status: :unprocessable_entity
+    end
+
+    # Delegate the heavy lifting to AcceptInvitationService
+    result = UserServices::AcceptInvitationService.new(
+      token: invitation.token,
+      auth0_id: parent_user.auth0_id
+    ).call
+
+    if result.success?
+      link_parent_to_learners(result.learners, result.invitation)
+
+      render json: {
+        success: true,
+        invitation: safe_invitation_hash(result.invitation),
+        learners: result.learners.map { |l| safe_learner_hash(l) }
+      }, status: :ok
+    else
+      render json: {
+        success: false,
+        errors: result.errors,
+        message: result.errors.join(", ")
+      }, status: :unprocessable_entity
+    end
+  rescue StandardError => e
+    log_error("Admin acceptance failed", e)
+    render json: { success: false, message: "An error occurred: #{e.message}" }, status: :internal_server_error
   end
 
   # ============================================================
@@ -253,19 +473,19 @@ class Api::V1::InvitationsController < ApplicationController
   # ------------------------------------------------------------
   def find_invitation_by_token(token)
     return nil if token.blank?
-    
+
     Rails.logger.debug "🔍 Searching for token in all invitation collections: #{token}"
-    
+
     # Search in order of likelihood (with status filter)
     invitation = Invitation.where(token: token, status: 'pending').first ||
                  LearnerInvitation.where(token: token, status: 'pending').first ||
                  TeacherInvitation.where(token: token, status: 'pending').first
-    
+
     # Fallback: search without status filter
     invitation ||= Invitation.where(token: token).first ||
                    LearnerInvitation.where(token: token).first ||
                    TeacherInvitation.where(token: token).first
-    
+
     invitation
   end
 
@@ -275,7 +495,7 @@ class Api::V1::InvitationsController < ApplicationController
   def validate_invitation_status(invitation)
     expiration_date = extract_expiration_date(invitation)
     is_expired = check_if_expired(invitation, expiration_date)
-    
+
     if is_expired
       Rails.logger.warn "⚠️ Invitation expired: #{invitation.id}"
       return render json: {
@@ -283,7 +503,7 @@ class Api::V1::InvitationsController < ApplicationController
         message: 'Invitation has expired.'
       }, status: :gone
     end
-    
+
     # Resilient check for pending status across all invitation models
     is_pending = invitation.respond_to?(:pending?) ? invitation.pending? : (invitation.status == 'pending' || invitation.status == 0)
     unless is_pending
@@ -293,7 +513,7 @@ class Api::V1::InvitationsController < ApplicationController
         message: "Invitation has already been processed."
       }, status: :conflict
     end
-    
+
     nil
   end
 
@@ -331,7 +551,7 @@ class Api::V1::InvitationsController < ApplicationController
   # ------------------------------------------------------------
   def find_sender(sender_id)
     return nil unless sender_id.present?
-    
+
     user = User.find_by(auth0_id: sender_id)
     if user.nil?
       # Try lookup by ObjectId string
@@ -348,12 +568,12 @@ class Api::V1::InvitationsController < ApplicationController
   def generate_magic_link(invitation)
     school_name = safe_school_name(invitation)
     token = invitation.is_a?(Hash) ? invitation[:token] : (invitation.respond_to?(:token) ? invitation.token : invitation.invitation_token)
-    
+
     if token.blank?
       Rails.logger.error "❌ Cannot generate magic link: token is blank"
       return nil
     end
-    
+
     "https://www.schoolheadoffice.com/parent?token=#{token}&school=#{URI.encode_www_form_component(school_name)}"
   end
 
@@ -487,5 +707,27 @@ class Api::V1::InvitationsController < ApplicationController
       stats: result.stats,
       errors: result.errors
     }, status: status_code
+  end
+
+  # Shared private method to apply grade-force-set logic for a list of learners and an invitation
+  def link_parent_to_learners(learners, invitation)
+    return if learners.blank? || invitation.blank?
+
+    if invitation.grade_id.present?
+      learners.each do |learner|
+        begin
+          learner.force_grade_id!(invitation.grade_id)
+          Rails.logger.info "🏫 [link_parent_to_learners] Force-set learner #{learner.id} grade to #{invitation.grade_id}"
+        rescue => e
+          Rails.logger.error "❌ [link_parent_to_learners] Failed to force-set learner #{learner.id} grade: #{e.message}"
+        end
+      end
+    end
+  end
+
+  def normalize_phone_to_last_9(phone)
+    return nil if phone.blank?
+    digits = phone.to_s.gsub(/\D/, '')
+    digits.length >= 9 ? digits[-9..] : digits
   end
 end

@@ -24,14 +24,20 @@ class Grade
     # 2. Learners associated via classes
     ids = school_classes.flat_map(&:learner_ids).map(&:to_s)
 
-    # Support both String and BSON for the direct association lookup
-    Learner.or(
-      { gradeId: id.to_s },
-      { gradeId: id },
-      { grade_id: id.to_s },
-      { grade_id: id },
-      { :_id.in => ids }
-    )
+    gid_str = id.to_s
+    gid_bson = BSON::ObjectId.legal?(gid_str) ? BSON::ObjectId.from_string(gid_str) : nil
+    gid_array = [gid_str, gid_bson].compact
+
+    query = {
+      "$or" => [
+        { "gradeId" => { "$in" => gid_array } },
+        { "grade_id" => { "$in" => gid_array } },
+        { "_id" => { "$in" => ids.map { |i| BSON::ObjectId.legal?(i) ? BSON::ObjectId.from_string(i) : i } } }
+      ]
+    }
+
+    raw_docs = Learner.collection.find(query)
+    raw_docs.map { |doc| Learner.instantiate(doc) }
   end
 
   def all_teachers
