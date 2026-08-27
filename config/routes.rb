@@ -278,6 +278,14 @@ Rails.application.routes.draw do
         end
       end
 
+      resources :attendance, only: [] do
+        collection do
+          post :bulk_mark
+          get :register
+          get :summary
+        end
+      end
+
       resources :assessments, only: [:index, :show, :create, :update, :destroy] do
         collection do
           post :bulk_upload
