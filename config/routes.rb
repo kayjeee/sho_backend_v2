@@ -286,6 +286,8 @@ Rails.application.routes.draw do
         end
       end
 
+      resources :timetable_entries, only: [:index, :show, :create, :update, :destroy]
+
       resources :assessments, only: [:index, :show, :create, :update, :destroy] do
         collection do
           post :bulk_upload
