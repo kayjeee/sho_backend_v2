@@ -314,6 +314,8 @@ Rails.application.routes.draw do
 
       resources :results, only: [:index, :show, :create, :update, :destroy] do
         collection do
+          post :bulk_record
+          get :report_card
           post :bulk_upload
           get :search
           get :statistics
