@@ -146,7 +146,6 @@ module Api
                         status: :unprocessable_entity
         end
 
-        # Validate learner exists in source class (if source class is known)
         if source_class
           existing_ids = source_class.learner_ids.map(&:to_s)
           unless existing_ids.include?(learner_id_str)
@@ -160,7 +159,6 @@ module Api
                         status: :unprocessable_entity
         end
 
-        # Atomic move operation
         if source_class
           source_class.pull(learner_ids: bson_learner_id || learner_id_str)
           source_class.pull(learner_ids: learner_id_str)
@@ -266,6 +264,7 @@ module Api
         source = params[:class].presence || params
         source.permit(:name, :capacity, :class_teacher_id).tap do |p|
           p[:class_teacher_id] = nil if p[:class_teacher_id].blank?
+          p[:capacity] = 40 if p[:capacity].blank?
         end
       end
 
@@ -300,6 +299,7 @@ module Api
         json = {
           id: school_class.id.to_s,
           name: school_class.name,
+          grade_name: @grade&.name || school_class.grade&.name,
           capacity: school_class.capacity,
           current_learners: school_class.learner_ids.count,
           utilization: "#{school_class.learner_ids.count}/#{school_class.capacity}",
@@ -311,7 +311,6 @@ module Api
           json[:class_teacher_name] = resolve_teacher_name(school_class.class_teacher_id)
           json[:subject_teachers] = school_class.subject_teacher_ids
           json[:learner_ids] = school_class.learner_ids.map(&:to_s)
-          json[:grade_name] = @grade&.name
           json[:school_name] = @school&.schoolName
         end
 

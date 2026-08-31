@@ -29,15 +29,33 @@ class ClassesControllerTest < ActionDispatch::IntegrationTest
     @school_class.add_learner(@learner.id.to_s)
   end
 
-  test "GET /api/v1/schools/:school_id/grades/:grade_id/classes lists created classes" do
+  test "POST /api/v1/schools/:school_id/grades/:grade_id/classes with name-only payload succeeds and lists created class" do
+    post "/api/v1/schools/#{@school.id}/grades/#{@grade.id}/classes", params: {
+      name: "Sunshine Room"
+    }, as: :json
+
+    assert_response :created
+    json = JSON.parse(response.body)
+    assert_equal true, json["success"]
+    assert_equal "Sunshine Room", json["class"]["name"]
+    assert_equal "Grade 10", json["class"]["grade_name"]
+
+    get "/api/v1/schools/#{@school.id}/grades/#{@grade.id}/classes"
+    assert_response :success
+    index_json = JSON.parse(response.body)
+    assert_equal true, index_json["success"]
+    class_names = index_json["classes"].map { |c| c["name"] }
+    assert_includes class_names, "Sunshine Room"
+  end
+
+  test "GET /api/v1/schools/:school_id/grades/:grade_id/classes lists created classes with basic grade_name" do
     get "/api/v1/schools/#{@school.id}/grades/#{@grade.id}/classes"
     assert_response :success
     json = JSON.parse(response.body)
     assert_equal true, json["success"]
     assert_equal 2, json["classes"].size
-    class_names = json["classes"].map { |c| c["name"] }
-    assert_includes class_names, "10A"
-    assert_includes class_names, "10B"
+    class_entry = json["classes"].first
+    assert_equal "Grade 10", class_entry["grade_name"]
   end
 
   test "GET /api/v1/schools/:school_id/grades/:grade_id/classes/:id returns detailed class_json with class_teacher_name" do
