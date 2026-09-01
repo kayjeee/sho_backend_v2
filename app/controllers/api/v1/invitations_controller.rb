@@ -300,6 +300,11 @@ class Api::V1::InvitationsController < ApplicationController
 
     invitations_scope = Invitation.by_school(school_id)
 
+    role_param = params[:role] || params[:roleId]
+    if role_param.present? && role_param != 'all'
+      invitations_scope = invitations_scope.by_role(role_param)
+    end
+
     status_param = params[:status] || params[:statusId]
     if status_param.present? && status_param != 'all'
       status_str = status_param.to_s.downcase
@@ -462,6 +467,9 @@ class Api::V1::InvitationsController < ApplicationController
       role: params[:role],
       parent_name: params[:parent_name],
       grade_id: params[:grade_id],
+      assigned_grade_ids: params[:assigned_grade_ids] || params[:assigned_grades],
+      subject_ids: params[:subject_ids] || params[:subjects],
+      teacher_type: params[:teacher_type],
       invited_via: params[:invited_via],
       country_code: params[:country_code],
       country_name: params[:country_name]
