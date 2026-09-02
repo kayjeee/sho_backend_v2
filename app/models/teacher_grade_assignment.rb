@@ -7,6 +7,10 @@ class TeacherGradeAssignment
   field :role_type,             type: String, default: 'primary'
   field :status,                type: Integer, default: 0
   field :assigned_at,           type: DateTime
+  field :terminated_at,         type: DateTime
+  field :termination_reason,    type: String
+  field :suspended_at,          type: DateTime
+  field :suspension_reason,     type: String
 
   # ===================== CONSTANTS =======================
   ROLE_TYPES = %w[primary assistant substitute coordinator].freeze
@@ -170,7 +174,7 @@ class TeacherGradeAssignment
       grade: {
         id: grade_id.to_s,
         name: grade&.name,
-        grade_level: grade&.grade_level
+        grade_level: grade.try(:grade_level) || grade.try(:level)
       },
       school: {
         id: school_id.to_s,
