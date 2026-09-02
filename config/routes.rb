@@ -328,6 +328,18 @@ Rails.application.routes.draw do
         end
       end
 
+      resources :supply_requests, only: [:index, :create] do
+        collection do
+          get :summary
+        end
+
+        member do
+          patch :approve
+          patch :reject
+          patch :fulfill
+        end
+      end
+
       # =========================================================
       # TRANSACTIONS
       # =========================================================
