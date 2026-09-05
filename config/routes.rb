@@ -340,6 +340,12 @@ Rails.application.routes.draw do
         end
       end
 
+      resources :terms, only: [:index, :show, :create, :update, :destroy] do
+        collection do
+          get :current
+        end
+      end
+
       # =========================================================
       # TRANSACTIONS
       # =========================================================
