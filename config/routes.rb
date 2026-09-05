@@ -278,6 +278,16 @@ Rails.application.routes.draw do
         end
       end
 
+      resources :attendance, only: [] do
+        collection do
+          post :bulk_mark
+          get :register
+          get :summary
+        end
+      end
+
+      resources :timetable_entries, only: [:index, :show, :create, :update, :destroy]
+
       resources :assessments, only: [:index, :show, :create, :update, :destroy] do
         collection do
           post :bulk_upload
@@ -304,6 +314,8 @@ Rails.application.routes.draw do
 
       resources :results, only: [:index, :show, :create, :update, :destroy] do
         collection do
+          post :bulk_record
+          get :report_card
           post :bulk_upload
           get :search
           get :statistics
@@ -313,6 +325,24 @@ Rails.application.routes.draw do
         member do
           patch :approve
           patch :reject
+        end
+      end
+
+      resources :supply_requests, only: [:index, :create] do
+        collection do
+          get :summary
+        end
+
+        member do
+          patch :approve
+          patch :reject
+          patch :fulfill
+        end
+      end
+
+      resources :terms, only: [:index, :show, :create, :update, :destroy] do
+        collection do
+          get :current
         end
       end
 

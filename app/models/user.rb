@@ -14,6 +14,8 @@ class User
   field :last_login,           type: Time
   field :phone,                type: String
   field :phone_number,         type: String
+  field :department,           type: String
+  field :position,             type: String
   field :onboarding_completed, type: Boolean, default: false
   field :onboarding_progress,  type: Float,   default: 0.0
 
@@ -426,6 +428,8 @@ class User
       roles: roles,
       school_ids: school_ids&.map(&:to_s),
       status: status,
+      department: department,
+      position: position,
       last_login: last_login&.iso8601,
       created_at: created_at&.iso8601,
       updated_at: updated_at&.iso8601

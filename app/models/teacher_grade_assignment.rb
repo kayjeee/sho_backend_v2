@@ -7,6 +7,10 @@ class TeacherGradeAssignment
   field :role_type,             type: String, default: 'primary'
   field :status,                type: Integer, default: 0
   field :assigned_at,           type: DateTime
+  field :terminated_at,         type: DateTime
+  field :termination_reason,    type: String
+  field :suspended_at,          type: DateTime
+  field :suspension_reason,     type: String
 
   # ===================== CONSTANTS =======================
   ROLE_TYPES = %w[primary assistant substitute coordinator].freeze
@@ -31,10 +35,10 @@ class TeacherGradeAssignment
   validates :teacher_id, uniqueness: { scope: [:grade_id, :role_type], message: "already assigned to this grade with this role" }
 
   # ===================== ASSOCIATIONS =====================
-  belongs_to :teacher,          class_name: 'User'
+  belongs_to :teacher,          class_name: 'User', inverse_of: :teacher_grade_assignments
   belongs_to :grade,            class_name: 'Grade'
   belongs_to :school,           class_name: 'School'
-  belongs_to :assigned_by,      class_name: 'User'
+  belongs_to :assigned_by,      class_name: 'User', inverse_of: :assigned_teacher_roles
 
   # ======================== INDEXES =======================
   index({ teacher_id: 1, grade_id: 1, role_type: 1 }, { unique: true })
@@ -170,7 +174,7 @@ class TeacherGradeAssignment
       grade: {
         id: grade_id.to_s,
         name: grade&.name,
-        grade_level: grade&.grade_level
+        grade_level: grade.try(:grade_level) || grade.try(:level)
       },
       school: {
         id: school_id.to_s,
