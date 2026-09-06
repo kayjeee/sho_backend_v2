@@ -38,9 +38,20 @@ class Conversation
   scope :by_term_id,               ->(tid)  { where(term_id: tid.to_s) }
 
   # ========================= METHODS ========================
-  def self.find_or_create_by_school_and_user(school_id, user_id)
+  def self.find_or_create_by_school_and_user(school_id, user_id_or_auth0)
     s_bson = BSON::ObjectId.legal?(school_id.to_s) ? BSON::ObjectId.from_string(school_id.to_s) : school_id
-    u_bson = BSON::ObjectId.legal?(user_id.to_s) ? BSON::ObjectId.from_string(user_id.to_s) : user_id
+
+    user = if user_id_or_auth0.is_a?(User)
+             user_id_or_auth0
+           elsif BSON::ObjectId.legal?(user_id_or_auth0.to_s)
+             User.where(_id: BSON::ObjectId.from_string(user_id_or_auth0.to_s)).first
+           else
+             User.where(auth0_id: user_id_or_auth0.to_s).first
+           end
+
+    return nil unless user
+
+    u_bson = user.id
 
     conversation = where(school_id: s_bson, user_id: u_bson, scope_type: 'individual').first
     conversation || create(school_id: s_bson, user_id: u_bson, scope_type: 'individual', participant_ids: [u_bson.to_s])
@@ -57,13 +68,17 @@ class Conversation
   end
 
   def participant?(user_or_id)
-    uid_str = if user_or_id.is_a?(User)
-                user_or_id.id.to_s
-              elsif user_or_id.respond_to?(:auth0_id) && user_or_id.auth0_id.present?
-                user_or_id.id.to_s
-              else
-                user_or_id.to_s
-              end
+    return false if user_or_id.blank?
+
+    user = if user_or_id.is_a?(User)
+             user_or_id
+           elsif BSON::ObjectId.legal?(user_or_id.to_s)
+             User.where(_id: BSON::ObjectId.from_string(user_or_id.to_s)).first
+           else
+             User.where(auth0_id: user_or_id.to_s).first
+           end
+
+    uid_str = user ? user.id.to_s : user_or_id.to_s
 
     return true if scope_type == 'individual' && user_id.to_s == uid_str
     resolved_participant_ids.include?(uid_str)

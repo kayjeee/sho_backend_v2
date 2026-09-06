@@ -26,8 +26,10 @@ module Api
         end
 
         if user_id.present?
-          u_bson = BSON::ObjectId.legal?(user_id.to_s) ? BSON::ObjectId.from_string(user_id.to_s) : user_id
-          u_str = user_id.to_s
+          user_obj = find_user(user_id)
+          u_bson = user_obj ? user_obj.id : (BSON::ObjectId.legal?(user_id.to_s) ? BSON::ObjectId.from_string(user_id.to_s) : user_id)
+          u_str = user_obj ? user_obj.id.to_s : user_id.to_s
+
           scope = scope.any_of(
             { user_id: u_bson },
             { participant_ids: u_str }
@@ -53,8 +55,12 @@ module Api
       # GET /api/v1/conversations/:id
       def show
         requesting_user_id = params[:requesting_user_id] || params[:user_id] || params[:userId]
-        if requesting_user_id.present? && !@conversation.participant?(requesting_user_id)
-          return render json: { success: false, error: "Forbidden: Not a participant in this conversation" }, status: :forbidden
+        if requesting_user_id.present?
+          req_user = find_user(requesting_user_id)
+          req_uid = req_user ? req_user.id.to_s : requesting_user_id.to_s
+          unless @conversation.participant?(req_uid)
+            return render json: { success: false, error: "Forbidden: Not a participant in this conversation" }, status: :forbidden
+          end
         end
 
         render json: { success: true, data: @conversation.as_json }, status: :ok
@@ -88,12 +94,12 @@ module Api
           user = find_user(user_ident)
           return render json: { success: false, error: "User not found" }, status: :not_found unless user
 
-          conversation = Conversation.find_or_create_by_school_and_user(school_id, user.id)
+          conversation = Conversation.find_or_create_by_school_and_user(school_id, user)
 
-          if conversation.persisted?
+          if conversation&.persisted?
             render json: { success: true, data: conversation, message: "Conversation created or retrieved" }, status: :ok
           else
-            render json: { success: false, errors: conversation.errors.full_messages }, status: :unprocessable_entity
+            render json: { success: false, errors: conversation ? conversation.errors.full_messages : ["Failed to create conversation"] }, status: :unprocessable_entity
           end
         else
           requesting_user = find_user(user_ident)
@@ -105,7 +111,6 @@ module Api
             return render json: { success: false, error: "No eligible participants found for group conversation" }, status: :unprocessable_entity
           end
 
-          # Fetch current term info for school
           curr_term = Term.current_for_school(school_id)
           acad_year = curr_term ? curr_term.academic_year.to_s : Date.current.year.to_s
           term_id_str = curr_term ? curr_term.id.to_s : nil
@@ -155,14 +160,17 @@ module Api
 
       def find_user(identifier)
         return nil if identifier.blank?
-        user = User.find_by(id: identifier) if object_id?(identifier)
-        user || User.find_by(auth0_id: identifier)
-      rescue Mongoid::Errors::InvalidFind
-        User.find_by(auth0_id: identifier)
-      end
 
-      def object_id?(value)
-        value.to_s.match?(/\A[0-9a-f]{24}\z/i)
+        ident_str = identifier.to_s.strip
+
+        if BSON::ObjectId.legal?(ident_str)
+          u = User.where(_id: BSON::ObjectId.from_string(ident_str)).first
+          return u if u
+        end
+
+        User.where(auth0_id: ident_str).first
+      rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId, Mongoid::Errors::InvalidFind
+        User.where(auth0_id: identifier.to_s).first
       end
 
       def generate_group_title(scope_type, scope_id, term)
