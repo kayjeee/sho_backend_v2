@@ -10,8 +10,38 @@ module Api
           return render json: { success: false, error: "Forbidden: Not a participant in this conversation" }, status: :forbidden
         end
 
-        messages = @conversation.messages.order(created_at: :asc)
-        render json: { success: true, data: messages }, status: :ok
+        messages = @conversation.messages.order(created_at: :asc).to_a
+
+        # Batch lookup users for efficiency (no N+1)
+        user_ids = messages.map(&:user_id).compact.map(&:to_s).uniq
+        user_bsons = user_ids.map { |id| BSON::ObjectId.legal?(id) ? BSON::ObjectId.from_string(id) : nil }.compact
+        all_lookup_ids = (user_ids + user_bsons).uniq
+
+        users_map = if all_lookup_ids.any?
+                      User.where(:id.in => all_lookup_ids).each_with_object({}) do |user, hash|
+                        hash[user.id.to_s] = {
+                          email: user.email,
+                          name: user.full_name.presence || user.name.presence
+                        }.compact
+                      end
+                    else
+                      {}
+                    end
+
+        serialized_messages = messages.map do |msg|
+          u_id_str = msg.user_id&.to_s
+          sender_info = u_id_str.present? ? users_map[u_id_str] : nil
+
+          {
+            id: msg.id.to_s,
+            content: msg.content,
+            created_at: msg.created_at&.iso8601,
+            user_id: u_id_str,
+            sender: sender_info
+          }
+        end
+
+        render json: { success: true, data: serialized_messages }, status: :ok
       end
 
       # POST /api/v1/conversations/:conversation_id/messages
