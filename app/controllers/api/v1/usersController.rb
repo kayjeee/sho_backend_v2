@@ -1,6 +1,5 @@
 class Api::V1::UsersController < ApplicationController
-  # Added :update_profile to the set_user filter array
-  before_action :set_user, only: [:show, :update_roles, :schools, :add_school, :update_profile]
+  before_action :set_user, only: [:show, :update_roles, :schools, :add_school, :update_profile, :add_role]
   before_action :set_user_by_path, only: [:show_by_path, :schools_by_path, :onboarding_status_by_path, :onboarding_status]
 
   # POST /api/v1/users
@@ -79,6 +78,24 @@ class Api::V1::UsersController < ApplicationController
     end
   end
 
+  # POST /api/v1/users/:id/add_role
+  def add_role
+    role_to_add = (params[:role] || params[:role_name]).to_s.strip
+
+    if role_to_add.blank?
+      return render json: { success: false, error: "Role is required" }, status: :bad_request
+    end
+
+    @user.add_to_set(roles: role_to_add)
+
+    render json: {
+      success: true,
+      roles: @user.reload.roles
+    }, status: :ok
+  rescue => e
+    render_exception("UsersController#add_role", e)
+  end
+
   # POST /api/v1/users/:auth0_id/add_school
   def add_school
     result = UserServices::AddSchoolService.call(user: @user, school_id: params[:schoolId])
@@ -146,10 +163,8 @@ class Api::V1::UsersController < ApplicationController
 
     # If the URL was users/show (meaning Rails routed to show action and params[:auth0_id] is "show")
     if lookup_id == "show"
-      # Try to extract the real auth0_id from query params or headers
       lookup_id = params[:real_auth0_id] || request.query_parameters['auth0_id'] || params[:user_auth0_id]
 
-      # If still blank, fallback to token sub if present
       if lookup_id.blank? && request.headers['Authorization'].present?
         begin
           authorize
@@ -167,11 +182,18 @@ class Api::V1::UsersController < ApplicationController
       return
     end
 
-    Rails.logger.debug "🔍 Looking up user by auth0_id: #{lookup_id}"
-    @user = User.find_by(auth0_id: lookup_id)
+    Rails.logger.debug "🔍 Looking up user by identifier: #{lookup_id}"
+
+    # Try lookup by Mongo _id first if BSON ObjectId format
+    if BSON::ObjectId.legal?(lookup_id.to_s)
+      @user = User.where(_id: BSON::ObjectId.from_string(lookup_id.to_s)).first
+    end
+
+    # Fallback lookup by auth0_id
+    @user ||= User.find_by(auth0_id: lookup_id.to_s)
 
     unless @user
-      Rails.logger.warn "❌ User not found with auth0_id: #{lookup_id}"
+      Rails.logger.warn "❌ User not found with identifier: #{lookup_id}"
       render json: { success: false, error: "User not found" }, status: :not_found
     end
   rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId, Mongoid::Errors::InvalidFind
@@ -200,5 +222,11 @@ class Api::V1::UsersController < ApplicationController
   rescue StandardError => e
     Rails.logger.error "🔥 Unexpected error in set_user_by_path: #{e.message}"
     render json: { success: false, error: "User not found" }, status: :not_found
+  end
+
+  def render_exception(context, exception)
+    cleaned_trace = BacktraceCleanerUtil.clean(exception.backtrace)
+    Rails.logger.error "❌ #{context} error: #{exception.message}\n#{cleaned_trace.first(5).join("\n")}"
+    render json: { success: false, error: exception.message }, status: :internal_server_error
   end
 end
