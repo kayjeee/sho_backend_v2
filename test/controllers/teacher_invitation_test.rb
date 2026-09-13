@@ -75,8 +75,10 @@ class TeacherInvitationTest < ActionDispatch::IntegrationTest
     assert_includes assigned_grade_ids, @grade1.id.to_s
     assert_includes assigned_grade_ids, @grade2.id.to_s
 
-    # Verify user roles updated
-    assert_includes @teacher_user.reload.roles, "teacher"
+    # Verify user roles and school_ids updated
+    @teacher_user.reload
+    assert_includes @teacher_user.roles, "teacher"
+    assert_includes @teacher_user.school_ids.map(&:to_s), @school.id.to_s
   end
 
   test "GET /api/v1/invitations with role=teacher filters correctly" do

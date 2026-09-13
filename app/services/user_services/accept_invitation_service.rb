@@ -118,8 +118,10 @@ module UserServices
         teacher_user.roles |= ['teacher']
         teacher_user.roles.delete('guest')
 
-        teacher_user.school_ids ||= []
-        teacher_user.school_ids |= [invitation.school_id.to_s]
+        school_id_str = invitation.school_id.to_s
+        if school_id_str.present?
+          teacher_user.add_to_set(school_ids: school_id_str)
+        end
 
         if invitation.respond_to?(:recipient_phone_number) && invitation.recipient_phone_number.present?
           teacher_user.phone = invitation.recipient_phone_number if teacher_user.respond_to?(:phone=) && teacher_user.phone.blank?
