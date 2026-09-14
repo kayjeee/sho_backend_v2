@@ -16,11 +16,16 @@ class GroupConversationService
       school_class = SchoolClass.where(:id.in => [sc_str, sc_bson].compact).first
       return [] unless school_class
 
+      # Verify class belongs to requested school_id
+      sc_school_id = school_class.grade&.school_id.to_s
+      return [] unless sc_school_id.present? && sc_school_id == school_id_str
+
       raw_learner_ids = Array(school_class.learner_ids).map(&:to_s)
       learner_bsons = raw_learner_ids.map { |id| BSON::ObjectId.legal?(id) ? BSON::ObjectId.from_string(id) : nil }.compact
 
       docs = Learner.collection.find(
-        "_id" => { "$in" => (raw_learner_ids + learner_bsons).uniq }
+        "_id" => { "$in" => (raw_learner_ids + learner_bsons).uniq },
+        "school_id" => { "$in" => [school_id_str, school_id_bson].compact }
       ).to_a
 
       parent_bids = docs.flat_map { |d| Array(d["parent_ids"]) }.compact.uniq
@@ -36,7 +41,11 @@ class GroupConversationService
       g_str = scope_id.to_s
       g_bson = BSON::ObjectId.legal?(g_str) ? BSON::ObjectId.from_string(g_str) : nil
 
+      grade = Grade.where(:id.in => [g_str, g_bson].compact).first
+      return [] unless grade && grade.school_id.to_s == school_id_str
+
       docs = Learner.collection.find(
+        "school_id" => { "$in" => [school_id_str, school_id_bson].compact },
         "$or" => [
           { "gradeId" => { "$in" => [g_str, g_bson].compact } },
           { "grade_id" => { "$in" => [g_str, g_bson].compact } }

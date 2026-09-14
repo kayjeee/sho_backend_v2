@@ -10,6 +10,12 @@ class ConversationsSecurityTest < ActionDispatch::IntegrationTest
       user_email: "admin@sec.org"
     )
 
+    @school_b = School.create!(
+      schoolName: "Foreign School B",
+      schoolEmail: "info@schoolb.org",
+      user_email: "admin@schoolb.org"
+    )
+
     @admin = User.create!(
       name: "Admin User",
       email: "admin@sec.org",
@@ -187,5 +193,53 @@ class ConversationsSecurityTest < ActionDispatch::IntegrationTest
 
     post "/api/v1/conversations/#{@conv_b.id}/leave"
     assert_response :unauthorized
+  end
+
+  test "7. Cross-school class or grade conversation creation rejects entity from foreign school" do
+    # Create Grade and Class for foreign School B
+    grade_b = Grade.create!(name: "Grade 10 Foreign", level: 10, school: @school_b)
+    class_b = SchoolClass.create!(name: "10B Foreign", grade: grade_b)
+
+    learner_foreign = Learner.create!(
+      first_name: "Foreign",
+      last_name: "Learner",
+      school_id: @school_b.id.to_s,
+      grade_id: grade_b.id.to_s,
+      school_class_id: class_b.id.to_s,
+      parent_ids: [@parent_a.id]
+    )
+    class_b.add_learner(learner_foreign.id.to_s)
+
+    # Admin attempts to create group conversation for School A passing foreign class_b
+    post "/api/v1/conversations", params: {
+      conversation: {
+        school_id: @school.id.to_s,
+        scope_type: "class",
+        scope_id: class_b.id.to_s
+      }
+    }, headers: auth_headers_for(@admin), as: :json
+
+    assert_response :created
+    json = JSON.parse(response.body)
+    assert_equal true, json["success"]
+    # Because class_b belongs to School B, no learners from School A match -> only requesting admin is in participant_ids
+    assert_equal [@admin.id.to_s], json["data"]["participant_ids"]
+  end
+
+  test "8. Conversation response includes explicit serialized participants with resolved display names" do
+    get "/api/v1/conversations/#{@conv_b.id}", headers: auth_headers_for(@parent_b)
+
+    assert_response :success
+    json = JSON.parse(response.body)
+    assert_equal true, json["success"]
+    participants = json["data"]["participants"]
+    assert_not_nil participants
+    assert_equal 2, participants.size
+
+    p_b = participants.find { |p| p["id"] == @parent_b.id.to_s }
+    assert_not_nil p_b
+    assert_equal @parent_b.auth0_id, p_b["auth0_id"]
+    assert_equal "Parent B", p_b["name"]
+    assert_equal "parentb@sec.org", p_b["email"]
   end
 end
