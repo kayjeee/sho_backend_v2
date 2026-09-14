@@ -17,10 +17,15 @@ class Invitation
   field :invited_via, type: String, default: 'whatsapp'
   field :parent_name, type: String
   field :grade_id, type: String
-  field :sender_email, type: String # ✅ ADDED for WhatsApp service
+  field :sender_email, type: String
+
+  # ===================== TEACHER INVITATION FIELDS =====================
+  field :assigned_grade_ids, type: Array, default: []
+  field :subject_ids, type: Array, default: []
+  field :teacher_type, type: String, default: 'staff'
 
   # ===================== LEARNER INFORMATION =====================
-  field :learner_number, type: String # Legacy single learner
+  field :learner_number, type: String
   field :learner_numbers, type: Array, default: []
   field :learner_ids, type: Array, default: []
   field :learner_names, type: Array, default: []
@@ -33,7 +38,7 @@ class Invitation
   field :metadata, type: Hash, default: {}
   field :notes, type: String
   field :invitation_type, type: String, default: 'standard'
-  field :magic_link_sent_at, type: Time # ✅ ADDED for tracking
+  field :magic_link_sent_at, type: Time
 
   # ===================== VALIDATIONS =====================
   validates :token, presence: true, uniqueness: true
@@ -41,6 +46,7 @@ class Invitation
   validates :role, presence: true, inclusion: { in: %w[parent teacher admin student] }
   validates :status, inclusion: { in: %w[pending accepted expired rejected cancelled] }
   validates :invited_via, inclusion: { in: %w[whatsapp sms email direct link] }
+  validates :teacher_type, inclusion: { in: %w[staff community] }, allow_nil: true
   validate :validate_learner_data_consistency
   validate :validate_phone_number_format
 
@@ -54,7 +60,7 @@ class Invitation
   index({ created_at: -1 })
   index({ expires_at: 1 })
   index({ accepted_at: 1 })
-  index({ magic_link_sent_at: 1 }) # ✅ ADDED
+  index({ magic_link_sent_at: 1 })
 
   # Multi-field indexes
   index({ status: 1, expires_at: 1 })
@@ -63,7 +69,7 @@ class Invitation
   index({ learner_ids: 1 })
   index({ learner_numbers: 1 })
   index({ learner_ids: 1, status: 1 })
-  index({ token: 1, status: 1 }) # ✅ ADDED for faster lookup
+  index({ token: 1, status: 1 })
 
   # ===================== CALLBACKS =====================
   before_validation :generate_token, unless: :token?
@@ -96,23 +102,22 @@ class Invitation
   scope :by_recipient_phone, ->(phone) { where(recipient_phone_number: phone) }
   scope :by_learner_id, ->(learner_id) { where(learner_ids: learner_id) }
   scope :by_learner_number, ->(number) { where(learner_numbers: number) }
-  scope :with_token, ->(token) { where(token: token) } # ✅ CHANGED: Use exact match
+  scope :by_role, ->(role_name) { where(role: role_name.to_s.downcase) if role_name.present? }
+  scope :with_token, ->(token) { where(token: token) }
 
   scope :recent, -> { order(created_at: :desc) }
   scope :expiring_soon, ->(hours = 24) {
     pending.where(:expires_at.lte => hours.hours.from_now, :expires_at.gt => Time.current)
   }
   scope :expired_auto, -> { pending.where(:expires_at.lte => Time.current) }
-  scope :not_sent, -> { where(magic_link_sent_at: nil) } # ✅ ADDED
+  scope :not_sent, -> { where(magic_link_sent_at: nil) }
 
   # ===================== CLASS METHODS =====================
 
   def self.generate_token
-    # More secure token for magic links
     SecureRandom.urlsafe_base64(32)
   end
 
-  # ✅ CHANGED: Use exact match instead of regex to avoid issues
   def self.find_by_token(token)
     where(token: token).first
   end
@@ -137,14 +142,12 @@ class Invitation
   end
 
   def self.build_magic_link(token, school_name)
-    # ✅ CRITICAL FIX: Builds the proper magic link query string
     return nil unless token.present? && school_name.present?
 
     encoded_school = URI.encode_www_form_component(school_name.to_s.strip)
     "?token=#{token}&school=#{encoded_school}"
   end
 
-  # ✅ ADDED: Override Mongoid's find_by to not raise exceptions
   def self.find_by(conditions = {})
     where(conditions).first
   end
@@ -186,7 +189,7 @@ class Invitation
       status: 'pending',
       expires_at: 7.days.from_now,
       accepted_at: nil,
-      magic_link_sent_at: nil # Reset sent flag
+      magic_link_sent_at: nil
     )
   end
 
@@ -214,12 +217,50 @@ class Invitation
     nil
   end
 
+  def assigned_grade_names
+    return [] if assigned_grade_ids.blank?
+
+    gid_strings = Array(assigned_grade_ids).map(&:to_s).reject(&:blank?)
+    return [] if gid_strings.empty?
+
+    gid_bsons = gid_strings.map { |s| BSON::ObjectId.legal?(s) ? BSON::ObjectId.from_string(s) : nil }.compact
+    all_ids = (gid_strings + gid_bsons).uniq
+
+    found_grades = Grade.where(:id.in => all_ids).to_a
+    grade_map = found_grades.each_with_object({}) do |g, hash|
+      hash[g.id.to_s] = g.name
+    end
+
+    gid_strings.map { |gid| grade_map[gid] }.compact
+  rescue => e
+    Rails.logger.error "❌ Error resolving assigned_grade_names for invitation #{id}: #{e.message}"
+    []
+  end
+
+  def subject_names
+    return [] if subject_ids.blank?
+
+    sub_strings = Array(subject_ids).map(&:to_s).reject(&:blank?)
+    return [] if sub_strings.empty?
+
+    sub_bsons = sub_strings.map { |s| BSON::ObjectId.legal?(s) ? BSON::ObjectId.from_string(s) : nil }.compact
+    all_ids = (sub_strings + sub_bsons).uniq
+
+    found_subjects = Subject.where(:id.in => all_ids).to_a
+    sub_map = found_subjects.each_with_object({}) do |s, hash|
+      hash[s.id.to_s] = s.name
+    end
+
+    sub_strings.map { |sid| sub_map[sid] }.compact
+  rescue => e
+    Rails.logger.error "❌ Error resolving subject_names for invitation #{id}: #{e.message}"
+    []
+  end
+
   def resolved_learner_names
-    # 1. If learner_names stored on document is present and has non-blank entries, prefer/return it
     stored_names = Array(learner_names).map(&:to_s).map(&:strip).reject(&:blank?)
     return stored_names if stored_names.present?
 
-    # 2. Look up by learner_ids first if present
     if learner_ids.present? && learner_ids.any?
       lid_strings = learner_ids.map(&:to_s)
       lid_bsons = lid_strings.map { |s| BSON::ObjectId.legal?(s) ? BSON::ObjectId.from_string(s) : nil }.compact
@@ -229,7 +270,6 @@ class Invitation
       return names if names.present?
     end
 
-    # 3. Look up by learner_numbers / learner_number
     numbers = (Array(learner_numbers) + [learner_number]).map(&:to_s).map(&:strip).reject(&:blank?).uniq
     if numbers.present?
       school_id_str = school_id.to_s
@@ -314,11 +354,10 @@ class Invitation
     save
   end
 
-  # ✅ FIXED: Token is now ALWAYS included in API response
-  def to_api_hash(include_token: true) # Changed default to true
+  def to_api_hash(include_token: true)
     hash = {
       id: id.to_s,
-      token: token, # ✅ CRITICAL FIX: Always include token
+      token: token,
       recipient_phone_number: recipient_phone_number,
       role: role,
       status: status,
@@ -328,7 +367,7 @@ class Invitation
       school_name: school_name,
       sender_id: sender_id&.to_s,
       sender_name: sender_name,
-      sender_email: sender_email, # ✅ ADDED
+      sender_email: sender_email,
       learner_number: learner_number,
       learner_numbers: learner_numbers,
       learner_ids: learner_ids,
@@ -337,18 +376,22 @@ class Invitation
       multiple_learners: multiple_learners?,
       grade_id: grade_id,
       grade_name: grade_name,
+      assigned_grade_ids: Array(assigned_grade_ids).map(&:to_s),
+      assigned_grade_names: assigned_grade_names,
+      subject_ids: Array(subject_ids).map(&:to_s),
+      subject_names: subject_names,
+      teacher_type: teacher_type || 'staff',
       accepted_at: accepted_at&.iso8601,
       expires_at: expires_at&.iso8601,
       expired: expired?,
       valid: valid_invitation?,
       invitation_type: invitation_type,
       metadata: metadata,
-      magic_link_sent_at: magic_link_sent_at&.iso8601, # ✅ ADDED
+      magic_link_sent_at: magic_link_sent_at&.iso8601,
       created_at: created_at&.iso8601,
       updated_at: updated_at&.iso8601
     }
 
-    # Build magic link for convenience
     hash[:magic_link_query] = self.class.build_magic_link(token, school_name)
     hash[:full_magic_link] = "https://www.schoolheadoffice.com/parent#{hash[:magic_link_query]}"
 
@@ -358,7 +401,7 @@ class Invitation
   def to_notification_hash
     {
       id: id.to_s,
-      token: token, # ✅ ADDED
+      token: token,
       recipient_phone_number: recipient_phone_number,
       learner_names: learner_names_display,
       school_name: school_name,
@@ -368,7 +411,6 @@ class Invitation
     }
   end
 
-  # ✅ NEW: Simple method to check if magic link was sent
   def magic_link_sent?
     magic_link_sent_at.present?
   end
@@ -419,8 +461,7 @@ class Invitation
   def validate_phone_number_format
     return if recipient_phone_number.blank?
 
-    # South African phone number validation
-    unless recipient_phone_number.match?(/\A27\d{9}\z/) # 27 + 9 digits
+    unless recipient_phone_number.match?(/\A27\d{9}\z/)
       errors.add(:recipient_phone_number, "must be a valid South African number (27XXXXXXXXX)")
     end
   end

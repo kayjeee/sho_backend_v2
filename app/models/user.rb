@@ -14,6 +14,11 @@ class User
   field :last_login,           type: Time
   field :phone,                type: String
   field :phone_number,         type: String
+  field :department,           type: String
+  field :position,             type: String
+  field :title,                type: String
+  field :first_name,           type: String
+  field :surname,              type: String
   field :onboarding_completed, type: Boolean, default: false
   field :onboarding_progress,  type: Float,   default: 0.0
 
@@ -426,6 +431,12 @@ class User
       roles: roles,
       school_ids: school_ids&.map(&:to_s),
       status: status,
+      department: department,
+      position: position,
+      title: title,
+      first_name: first_name,
+      surname: surname,
+      display_name: display_name,
       last_login: last_login&.iso8601,
       created_at: created_at&.iso8601,
       updated_at: updated_at&.iso8601
@@ -568,7 +579,11 @@ class User
   end
 
   def display_name
-    name.presence || email.split('@').first
+    if first_name.present?
+      "#{title} #{first_name} #{surname}".strip
+    else
+      name.presence || email
+    end
   end
 
   def full_name

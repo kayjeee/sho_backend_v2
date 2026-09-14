@@ -132,7 +132,7 @@ class Api::V1::InvitationsController < ApplicationController
     ).call
 
     if result.success?
-      link_parent_to_learners(result.learners, result.invitation)
+      link_parent_to_learners(result.learners, result.invitation, auth0_id)
 
       render json: {
         success: true,
@@ -208,7 +208,7 @@ class Api::V1::InvitationsController < ApplicationController
       ).call
 
       if result.success?
-        link_parent_to_learners(result.learners, result.invitation)
+        link_parent_to_learners(result.learners, result.invitation, parent_user)
         matched_invitations_serialized << safe_invitation_hash(result.invitation)
       else
         Rails.logger.warn "⚠️ Failed to process invitation #{invitation.id} in match_by_phone: #{result.errors}"
@@ -299,6 +299,11 @@ class Api::V1::InvitationsController < ApplicationController
     end
 
     invitations_scope = Invitation.by_school(school_id)
+
+    role_param = params[:role] || params[:roleId]
+    if role_param.present? && role_param != 'all'
+      invitations_scope = invitations_scope.by_role(role_param)
+    end
 
     status_param = params[:status] || params[:statusId]
     if status_param.present? && status_param != 'all'
@@ -405,7 +410,7 @@ class Api::V1::InvitationsController < ApplicationController
     ).call
 
     if result.success?
-      link_parent_to_learners(result.learners, result.invitation)
+      link_parent_to_learners(result.learners, result.invitation, parent_user)
 
       render json: {
         success: true,
@@ -462,6 +467,9 @@ class Api::V1::InvitationsController < ApplicationController
       role: params[:role],
       parent_name: params[:parent_name],
       grade_id: params[:grade_id],
+      assigned_grade_ids: params[:assigned_grade_ids] || params[:assigned_grades],
+      subject_ids: params[:subject_ids] || params[:subjects],
+      teacher_type: params[:teacher_type],
       invited_via: params[:invited_via],
       country_code: params[:country_code],
       country_name: params[:country_name]
@@ -710,8 +718,22 @@ class Api::V1::InvitationsController < ApplicationController
   end
 
   # Shared private method to apply grade-force-set logic for a list of learners and an invitation
-  def link_parent_to_learners(learners, invitation)
+  def link_parent_to_learners(learners, invitation, user_ref = nil)
     return if learners.blank? || invitation.blank?
+
+    target_user = user_ref.is_a?(User) ? user_ref : (@user || (user_ref.present? ? User.find_by(auth0_id: user_ref) : nil))
+    target_user ||= begin
+      auth0_id = params[:auth0_id].presence || params[:auth0Id]
+      User.find_by(auth0_id: auth0_id) if auth0_id.present?
+    end
+    target_user ||= begin
+      learners.map { |l| l.parents.first }.compact.first
+    end
+
+    if target_user.present?
+      target_user.add_to_set(roles: 'parent')
+      Rails.logger.info "👨‍👩‍👧‍👦 [link_parent_to_learners] Added 'parent' role to user #{target_user.auth0_id}"
+    end
 
     if invitation.grade_id.present?
       learners.each do |learner|
