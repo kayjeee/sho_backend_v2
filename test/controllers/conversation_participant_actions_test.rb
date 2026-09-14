@@ -50,9 +50,8 @@ class ConversationParticipantActionsTest < ActionDispatch::IntegrationTest
 
   test "admin can remove a participant from group conversation" do
     post "/api/v1/conversations/#{@conversation.id}/remove_participant", params: {
-      user_id: @admin.auth0_id,
       target_user_id: @parent.id.to_s
-    }, as: :json
+    }, headers: auth_headers_for(@admin), as: :json
 
     assert_response :success
     json = JSON.parse(response.body)
@@ -62,8 +61,8 @@ class ConversationParticipantActionsTest < ActionDispatch::IntegrationTest
     @conversation.reload
     assert_nil @conversation.participant_ids.find { |id| id == @parent.id.to_s }
 
-    # Verify parent no longer sees conversation in GET /api/v1/conversations?user_id=...
-    get "/api/v1/conversations", params: { user_id: @parent.auth0_id }
+    # Verify parent no longer sees conversation in GET /api/v1/conversations
+    get "/api/v1/conversations", headers: auth_headers_for(@parent)
     assert_response :success
     json_list = JSON.parse(response.body)
     assert_equal 0, json_list["total"]
@@ -71,9 +70,8 @@ class ConversationParticipantActionsTest < ActionDispatch::IntegrationTest
 
   test "non-admin attempting remove_participant is rejected with 403 forbidden" do
     post "/api/v1/conversations/#{@conversation.id}/remove_participant", params: {
-      user_id: @teacher.auth0_id,
       target_user_id: @parent.id.to_s
-    }, as: :json
+    }, headers: auth_headers_for(@teacher), as: :json
 
     assert_response :forbidden
     json = JSON.parse(response.body)
@@ -87,9 +85,8 @@ class ConversationParticipantActionsTest < ActionDispatch::IntegrationTest
 
   test "remove_participant rejects target_user who is not a participant" do
     post "/api/v1/conversations/#{@conversation.id}/remove_participant", params: {
-      user_id: @admin.auth0_id,
       target_user_id: @outside_user.id.to_s
-    }, as: :json
+    }, headers: auth_headers_for(@admin), as: :json
 
     assert_response :unprocessable_entity
     json = JSON.parse(response.body)
@@ -98,9 +95,7 @@ class ConversationParticipantActionsTest < ActionDispatch::IntegrationTest
   end
 
   test "participant can leave a conversation" do
-    post "/api/v1/conversations/#{@conversation.id}/leave", params: {
-      user_id: @parent.auth0_id
-    }, as: :json
+    post "/api/v1/conversations/#{@conversation.id}/leave", headers: auth_headers_for(@parent), as: :json
 
     assert_response :success
     json = JSON.parse(response.body)
@@ -110,17 +105,15 @@ class ConversationParticipantActionsTest < ActionDispatch::IntegrationTest
     @conversation.reload
     assert_nil @conversation.participant_ids.find { |id| id == @parent.id.to_s || id == @parent.auth0_id }
 
-    # Verify parent no longer sees conversation in GET /api/v1/conversations?user_id=...
-    get "/api/v1/conversations", params: { user_id: @parent.auth0_id }
+    # Verify parent no longer sees conversation in GET /api/v1/conversations
+    get "/api/v1/conversations", headers: auth_headers_for(@parent)
     assert_response :success
     json_list = JSON.parse(response.body)
     assert_equal 0, json_list["total"]
   end
 
   test "leave rejects non-participant attempting to leave" do
-    post "/api/v1/conversations/#{@conversation.id}/leave", params: {
-      user_id: @outside_user.auth0_id
-    }, as: :json
+    post "/api/v1/conversations/#{@conversation.id}/leave", headers: auth_headers_for(@outside_user), as: :json
 
     assert_response :unprocessable_entity
     json = JSON.parse(response.body)

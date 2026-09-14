@@ -31,9 +31,8 @@ class SelfConversationTest < ActionDispatch::IntegrationTest
   test "POST /api/v1/conversations with scope_type 'self' and auth0_id user_id creates self conversation with 1 participant" do
     post "/api/v1/conversations", params: {
       school_id: @school.id.to_s,
-      user_id: @user.auth0_id,
       scope_type: "self"
-    }, as: :json
+    }, headers: auth_headers_for(@user), as: :json
 
     assert_response :created
     json = JSON.parse(response.body)

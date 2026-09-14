@@ -1,12 +1,12 @@
 module Api
   module V1
     class MessagesController < ApplicationController
+      before_action :authenticate_user!
       before_action :set_conversation, only: [:index, :create]
 
       # GET /api/v1/conversations/:conversation_id/messages
       def index
-        requesting_user_id = params[:requesting_user_id] || params[:user_id] || params[:userId]
-        if requesting_user_id.present? && !@conversation.participant?(requesting_user_id)
+        unless @conversation.participant?(@current_user)
           return render json: { success: false, error: "Forbidden: Not a participant in this conversation" }, status: :forbidden
         end
 
@@ -46,25 +46,15 @@ module Api
 
       # POST /api/v1/conversations/:conversation_id/messages
       def create
-        sender = find_sender
-        return unless sender
-
-        # Authorization check for group conversations
-        sender_user_id = sender.is_a?(User) ? sender.id.to_s : (sender.respond_to?(:auth0_id) ? sender.id.to_s : nil)
-        if sender_user_id.present? && !@conversation.participant?(sender_user_id)
+        unless @conversation.participant?(@current_user)
           return render json: { success: false, error: "Forbidden: Sender is not a participant in this conversation" }, status: :forbidden
         end
 
         message = @conversation.messages.build(message_params)
-
-        # Assign the sender to the message
-        message.user = sender if sender.is_a?(User)
-        message.school = sender if sender.is_a?(School)
+        message.user = @current_user
 
         if message.save
-          # Touch conversation to update timestamps
           @conversation.touch if @conversation.respond_to?(:touch)
-
           render json: { success: true, data: message, message: "Message created successfully." }, status: :created
         else
           render json: { success: false, errors: message.errors.full_messages }, status: :unprocessable_entity
@@ -73,31 +63,52 @@ module Api
 
       private
 
+      def authenticate_user!
+        authorize
+        return if performed?
+
+        auth0_sub = nil
+        if @decoded_token && @decoded_token.respond_to?(:token) && @decoded_token.token.is_a?(Array) && @decoded_token.token[0].is_a?(Hash)
+          auth0_sub = @decoded_token.token[0]['sub'] || @decoded_token.token[0][:sub]
+        elsif @decoded_token.is_a?(Hash)
+          auth0_sub = @decoded_token['sub'] || @decoded_token[:sub]
+        end
+
+        if auth0_sub.blank?
+          render json: { success: false, error: "Unauthorized: Missing token subject" }, status: :unauthorized
+          return
+        end
+
+        @current_user = find_user(auth0_sub)
+        if @current_user.nil?
+          render json: { success: false, error: "Unauthorized: User not found for token subject" }, status: :unauthorized
+          return
+        end
+      end
+
       def set_conversation
         @conversation = Conversation.find_by(id: params[:conversation_id])
         render json: { success: false, error: "Conversation not found" }, status: :not_found unless @conversation
       end
 
-      def find_sender
-        user_id = params.dig(:message, :user_id) || params[:user_id]
-        school_id = params.dig(:message, :school_id) || params[:school_id]
+      def find_user(identifier)
+        return nil if identifier.blank?
 
-        sender = User.find_by(id: user_id) if user_id.present? && object_id?(user_id)
-        sender ||= User.find_by(auth0_id: user_id) if user_id.present?
-        sender ||= School.find_by(id: school_id) if school_id.present?
+        ident_str = identifier.to_s.strip
 
-        return sender if sender.present?
+        if BSON::ObjectId.legal?(ident_str)
+          u = User.where(_id: BSON::ObjectId.from_string(ident_str)).first
+          return u if u
+        end
 
-        render json: { success: false, error: "Sender information is missing" }, status: :bad_request
-        nil
-      end
-
-      def object_id?(value)
-        value.to_s.match?(/\A[0-9a-f]{24}\z/i)
+        User.where(auth0_id: ident_str).first
+      rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId, Mongoid::Errors::InvalidFind
+        User.where(auth0_id: identifier.to_s).first
       end
 
       def message_params
-        params.require(:message).permit(:content, :user_id, :school_id, :name, :schoolName)
+        raw_msg = params[:message] || params
+        raw_msg.permit(:content, :name, :schoolName)
       end
     end
   end
