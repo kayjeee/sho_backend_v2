@@ -376,6 +376,10 @@ Rails.application.routes.draw do
       # CONVERSATIONS
       # =========================================================
       resources :conversations, only: [:index, :show, :create] do
+        member do
+          post :remove_participant
+          post :leave
+        end
         resources :messages, only: [:create, :index]
       end
 

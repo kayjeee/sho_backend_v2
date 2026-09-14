@@ -1,7 +1,7 @@
 module Api
   module V1
     class ConversationsController < ApplicationController
-      before_action :set_conversation, only: [:show, :destroy]
+      before_action :set_conversation, only: [:show, :destroy, :remove_participant, :leave]
 
       # GET /api/v1/conversations
       def index
@@ -149,6 +149,78 @@ module Api
         end
       end
 
+      # POST /api/v1/conversations/:id/remove_participant
+      def remove_participant
+        raw_payload = begin
+          params.to_unsafe_h
+        rescue
+          params.to_h
+        end
+
+        requester_id = raw_payload[:user_id] || raw_payload["user_id"] || raw_payload[:userId] || raw_payload["userId"] || raw_payload[:requester_id]
+        target_id    = raw_payload[:target_user_id] || raw_payload["target_user_id"] || raw_payload[:targetUserId] || raw_payload["targetUserId"] || raw_payload[:target_id]
+
+        if requester_id.blank?
+          return render json: { success: false, error: "Missing parameter: user_id (requester) is required" }, status: :bad_request
+        end
+
+        if target_id.blank?
+          return render json: { success: false, error: "Missing parameter: target_user_id is required" }, status: :bad_request
+        end
+
+        requester = find_user(requester_id)
+        unless school_admin?(requester, @conversation.school_id)
+          return render json: { success: false, error: "Forbidden: Requester is not an admin for this school" }, status: :forbidden
+        end
+
+        target_user = find_user(target_id)
+        target_uids = [target_user&.id&.to_s, target_user&.auth0_id, target_id.to_s].compact.uniq
+
+        unless target_uids.any? { |uid| @conversation.participant?(uid) }
+          return render json: { success: false, error: "Target user is not a participant in this conversation" }, status: :unprocessable_entity
+        end
+
+        @conversation.pull_all(participant_ids: target_uids)
+        @conversation.reload
+
+        broadcast_conversation_update(@conversation, "participant_removed", target_user&.id&.to_s || target_id.to_s)
+
+        render json: { success: true, message: "Participant removed successfully", data: @conversation.as_json }, status: :ok
+      rescue => e
+        render_exception("ConversationsController#remove_participant", e)
+      end
+
+      # POST /api/v1/conversations/:id/leave
+      def leave
+        raw_payload = begin
+          params.to_unsafe_h
+        rescue
+          params.to_h
+        end
+
+        user_ident = raw_payload[:user_id] || raw_payload["user_id"] || raw_payload[:userId] || raw_payload["userId"]
+
+        if user_ident.blank?
+          return render json: { success: false, error: "Missing parameter: user_id is required" }, status: :bad_request
+        end
+
+        user = find_user(user_ident)
+        user_uids = [user&.id&.to_s, user&.auth0_id, user_ident.to_s].compact.uniq
+
+        unless user_uids.any? { |uid| @conversation.participant?(uid) }
+          return render json: { success: false, error: "User is not a participant in this conversation" }, status: :unprocessable_entity
+        end
+
+        @conversation.pull_all(participant_ids: user_uids)
+        @conversation.reload
+
+        broadcast_conversation_update(@conversation, "participant_left", user&.id&.to_s || user_ident.to_s)
+
+        render json: { success: true, message: "Successfully left the conversation", data: @conversation.as_json }, status: :ok
+      rescue => e
+        render_exception("ConversationsController#leave", e)
+      end
+
       private
 
       def set_conversation
@@ -171,6 +243,45 @@ module Api
         User.where(auth0_id: ident_str).first
       rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId, Mongoid::Errors::InvalidFind
         User.where(auth0_id: identifier.to_s).first
+      end
+
+      def school_admin?(user, school_id)
+        return false unless user.present?
+        roles_lower = Array(user.roles).map(&:to_s).map(&:downcase)
+        return false unless roles_lower.include?('admin')
+
+        s_str = school_id.to_s
+        user_school_ids = Array(user.school_ids).map(&:to_s)
+        return true if user_school_ids.include?(s_str)
+
+        s_bson = BSON::ObjectId.legal?(s_str) ? BSON::ObjectId.from_string(s_str) : nil
+        school = School.where(:id.in => [s_str, s_bson].compact).first
+        return false unless school
+
+        return true if school.user_id.to_s == user.id.to_s || school.school_created_by.to_s == user.id.to_s
+
+        if school.adminUsers.present? && school.adminUsers.is_a?(Array)
+          admin_emails = school.adminUsers.map { |a| a[:email] || a['email'] }.compact
+          return true if admin_emails.include?(user.email)
+        end
+
+        false
+      end
+
+      def broadcast_conversation_update(conversation, event, target_user_id)
+        channel_name = "conversation_#{conversation.id}"
+        payload = {
+          event: event,
+          conversation_id: conversation.id.to_s,
+          target_user_id: target_user_id,
+          participant_ids: conversation.participant_ids,
+          updated_at: Time.current.iso8601
+        }
+        if defined?(ActionCable) && ActionCable.respond_to?(:server) && ActionCable.server.present?
+          ActionCable.server.broadcast(channel_name, payload)
+        end
+      rescue => e
+        Rails.logger.warn "⚠️ ActionCable broadcast failed: #{e.message}"
       end
 
       def generate_group_title(scope_type, scope_id, term)
