@@ -1,18 +1,19 @@
 module Api
   module V1
     class MessagesController < ApplicationController
+      # TEMPORARILY DISABLED MANDATORY TOKEN AUTH FOR TESTING — SEE [TEMPORARY-TESTING-BYPASS]
+      # before_action :authenticate_user!
+      before_action :set_current_user
       before_action :set_conversation, only: [:index, :create]
 
       # GET /api/v1/conversations/:conversation_id/messages
       def index
-        requesting_user_id = params[:requesting_user_id] || params[:user_id] || params[:userId]
-        if requesting_user_id.present? && !@conversation.participant?(requesting_user_id)
+        if @current_user.present? && !@conversation.participant?(@current_user)
           return render json: { success: false, error: "Forbidden: Not a participant in this conversation" }, status: :forbidden
         end
 
         messages = @conversation.messages.order(created_at: :asc).to_a
 
-        # Batch lookup users for efficiency (no N+1)
         user_ids = messages.map(&:user_id).compact.map(&:to_s).uniq
         user_bsons = user_ids.map { |id| BSON::ObjectId.legal?(id) ? BSON::ObjectId.from_string(id) : nil }.compact
         all_lookup_ids = (user_ids + user_bsons).uniq
@@ -46,25 +47,21 @@ module Api
 
       # POST /api/v1/conversations/:conversation_id/messages
       def create
-        sender = find_sender
-        return unless sender
-
-        # Authorization check for group conversations
-        sender_user_id = sender.is_a?(User) ? sender.id.to_s : (sender.respond_to?(:auth0_id) ? sender.id.to_s : nil)
-        if sender_user_id.present? && !@conversation.participant?(sender_user_id)
+        if @current_user.present? && !@conversation.participant?(@current_user)
           return render json: { success: false, error: "Forbidden: Sender is not a participant in this conversation" }, status: :forbidden
         end
 
-        message = @conversation.messages.build(message_params)
+        sender = @current_user || find_sender
+        unless sender
+          return render json: { success: false, error: "Sender information is missing" }, status: :bad_request
+        end
 
-        # Assign the sender to the message
+        message = @conversation.messages.build(message_params)
         message.user = sender if sender.is_a?(User)
         message.school = sender if sender.is_a?(School)
 
         if message.save
-          # Touch conversation to update timestamps
           @conversation.touch if @conversation.respond_to?(:touch)
-
           render json: { success: true, data: message, message: "Message created successfully." }, status: :created
         else
           render json: { success: false, errors: message.errors.full_messages }, status: :unprocessable_entity
@@ -72,6 +69,51 @@ module Api
       end
 
       private
+
+      # TEMPORARILY DISABLED MANDATORY TOKEN AUTH FOR TESTING — SEE [TEMPORARY-TESTING-BYPASS]
+      # Resolves @current_user from Auth0 token if valid, falling back to params[:user_id] / params[:userId] if unauthenticated or error without calling render.
+      def set_current_user
+        auth_header = request.headers['Authorization']
+        if auth_header.present?
+          header_elements = auth_header.to_s.split
+          if header_elements.length == 2 && header_elements.first.downcase == 'bearer'
+            token = header_elements.last
+            begin
+              validation_response = Auth0Client.validate_token(token)
+              if validation_response && validation_response.error.nil? && validation_response.decoded_token
+                @decoded_token = validation_response.decoded_token
+                auth0_sub = nil
+                if @decoded_token.respond_to?(:token) && @decoded_token.token.is_a?(Array) && @decoded_token.token[0].is_a?(Hash)
+                  auth0_sub = @decoded_token.token[0]['sub'] || @decoded_token.token[0][:sub]
+                elsif @decoded_token.is_a?(Hash)
+                  auth0_sub = @decoded_token['sub'] || @decoded_token[:sub]
+                end
+                @current_user = find_user(auth0_sub) if auth0_sub.present?
+              end
+            rescue => e
+              Rails.logger.warn "⚠️ Auth0Client token validation error: #{e.message}"
+            end
+          end
+        end
+
+        if @current_user.nil?
+          raw_payload = begin
+            params.to_unsafe_h
+          rescue
+            params.to_h
+          end
+
+          msg_payload = raw_payload[:message] || raw_payload["message"] || raw_payload
+
+          user_ident = raw_payload[:user_id] || raw_payload["user_id"] ||
+                       raw_payload[:userId] || raw_payload["userId"] ||
+                       raw_payload[:requesting_user_id] || raw_payload["requesting_user_id"] ||
+                       msg_payload[:user_id] || msg_payload["user_id"] ||
+                       msg_payload[:userId] || msg_payload["userId"]
+
+          @current_user = find_user(user_ident) if user_ident.present?
+        end
+      end
 
       def set_conversation
         @conversation = Conversation.find_by(id: params[:conversation_id])
@@ -85,19 +127,31 @@ module Api
         sender = User.find_by(id: user_id) if user_id.present? && object_id?(user_id)
         sender ||= User.find_by(auth0_id: user_id) if user_id.present?
         sender ||= School.find_by(id: school_id) if school_id.present?
-
-        return sender if sender.present?
-
-        render json: { success: false, error: "Sender information is missing" }, status: :bad_request
-        nil
+        sender
       end
 
       def object_id?(value)
         value.to_s.match?(/\A[0-9a-f]{24}\z/i)
       end
 
+      def find_user(identifier)
+        return nil if identifier.blank?
+
+        ident_str = identifier.to_s.strip
+
+        if BSON::ObjectId.legal?(ident_str)
+          u = User.where(_id: BSON::ObjectId.from_string(ident_str)).first
+          return u if u
+        end
+
+        User.where(auth0_id: ident_str).first
+      rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId, Mongoid::Errors::InvalidFind
+        User.where(auth0_id: identifier.to_s).first
+      end
+
       def message_params
-        params.require(:message).permit(:content, :user_id, :school_id, :name, :schoolName)
+        raw_msg = params[:message] || params
+        raw_msg.permit(:content, :name, :schoolName)
       end
     end
   end

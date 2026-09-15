@@ -38,7 +38,7 @@ class MessagesControllerIndexTest < ActionDispatch::IntegrationTest
   end
 
   test "GET /api/v1/conversations/:conversation_id/messages includes resolved sender email and name" do
-    get "/api/v1/conversations/#{@conversation.id}/messages", params: { requesting_user_id: @user1.id.to_s }
+    get "/api/v1/conversations/#{@conversation.id}/messages", headers: auth_headers_for(@user1)
 
     assert_response :success
     json = JSON.parse(response.body)
