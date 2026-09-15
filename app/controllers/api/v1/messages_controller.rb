@@ -71,22 +71,28 @@ module Api
       private
 
       # TEMPORARILY DISABLED MANDATORY TOKEN AUTH FOR TESTING — SEE [TEMPORARY-TESTING-BYPASS]
-      # Resolves @current_user from Auth0 token if valid, falling back to params[:user_id] / params[:userId] if unauthenticated.
+      # Resolves @current_user from Auth0 token if valid, falling back to params[:user_id] / params[:userId] if unauthenticated or error without calling render.
       def set_current_user
-        if request.headers['Authorization'].present?
-          begin
-            authorize
-            if @decoded_token
-              auth0_sub = nil
-              if @decoded_token.respond_to?(:token) && @decoded_token.token.is_a?(Array) && @decoded_token.token[0].is_a?(Hash)
-                auth0_sub = @decoded_token.token[0]['sub'] || @decoded_token.token[0][:sub]
-              elsif @decoded_token.is_a?(Hash)
-                auth0_sub = @decoded_token['sub'] || @decoded_token[:sub]
+        auth_header = request.headers['Authorization']
+        if auth_header.present?
+          header_elements = auth_header.to_s.split
+          if header_elements.length == 2 && header_elements.first.downcase == 'bearer'
+            token = header_elements.last
+            begin
+              validation_response = Auth0Client.validate_token(token)
+              if validation_response && validation_response.error.nil? && validation_response.decoded_token
+                @decoded_token = validation_response.decoded_token
+                auth0_sub = nil
+                if @decoded_token.respond_to?(:token) && @decoded_token.token.is_a?(Array) && @decoded_token.token[0].is_a?(Hash)
+                  auth0_sub = @decoded_token.token[0]['sub'] || @decoded_token.token[0][:sub]
+                elsif @decoded_token.is_a?(Hash)
+                  auth0_sub = @decoded_token['sub'] || @decoded_token[:sub]
+                end
+                @current_user = find_user(auth0_sub) if auth0_sub.present?
               end
-              @current_user = find_user(auth0_sub) if auth0_sub.present?
+            rescue => e
+              Rails.logger.warn "⚠️ Auth0Client token validation error: #{e.message}"
             end
-          rescue => e
-            Rails.logger.warn "⚠️ Token authorization fallback triggered: #{e.message}"
           end
         end
 

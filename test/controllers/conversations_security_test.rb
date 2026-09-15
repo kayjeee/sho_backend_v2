@@ -250,4 +250,16 @@ class ConversationsSecurityTest < ActionDispatch::IntegrationTest
     assert_equal "Parent B", p_b["name"]
     assert_equal "parentb@sec.org", p_b["email"]
   end
+
+  test "9. Requests with garbage Bearer token fall back gracefully to user_id parameter without 401 halt" do
+    post "/api/v1/conversations", params: {
+      school_id: @school.id.to_s,
+      user_id: @parent_a.auth0_id,
+      scope_type: "individual"
+    }, headers: { "Authorization" => "Bearer garbage_expired_or_malformed_token_123" }, as: :json
+
+    assert_response :success
+    json = JSON.parse(response.body)
+    assert_equal true, json["success"]
+  end
 end
