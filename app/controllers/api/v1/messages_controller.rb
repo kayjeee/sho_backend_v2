@@ -38,6 +38,7 @@ module Api
             content: msg.content,
             created_at: msg.created_at&.iso8601,
             user_id: u_id_str,
+            sent_as_role: msg.sent_as_role,
             sender: sender_info
           }
         end
@@ -56,9 +57,32 @@ module Api
           return render json: { success: false, error: "Sender information is missing" }, status: :bad_request
         end
 
+        raw_payload = begin
+          params.to_unsafe_h
+        rescue
+          params.to_h
+        end
+        msg_payload = raw_payload[:message] || raw_payload["message"] || raw_payload
+
+        claimed_role = msg_payload[:sent_as_role] || msg_payload["sent_as_role"] ||
+                       msg_payload[:sentAsRole] || msg_payload["sentAsRole"] ||
+                       raw_payload[:sent_as_role] || raw_payload["sent_as_role"] ||
+                       raw_payload[:sentAsRole] || raw_payload["sentAsRole"]
+
+        if claimed_role.present? && sender.is_a?(User)
+          user_roles = Array(sender.roles).map(&:to_s).map(&:downcase)
+          unless user_roles.include?(claimed_role.to_s.downcase)
+            return render json: {
+              success: false,
+              error: "Invalid sent_as_role: sender does not possess the claimed role '#{claimed_role}'"
+            }, status: :unprocessable_entity
+          end
+        end
+
         message = @conversation.messages.build(message_params)
         message.user = sender if sender.is_a?(User)
         message.school = sender if sender.is_a?(School)
+        message.sent_as_role = claimed_role.to_s.downcase if claimed_role.present?
 
         if message.save
           @conversation.touch if @conversation.respond_to?(:touch)
@@ -151,7 +175,7 @@ module Api
 
       def message_params
         raw_msg = params[:message] || params
-        raw_msg.permit(:content, :name, :schoolName)
+        raw_msg.permit(:content, :name, :schoolName, :sent_as_role, :sentAsRole)
       end
     end
   end
