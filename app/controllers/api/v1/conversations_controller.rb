@@ -8,6 +8,11 @@ module Api
 
       # GET /api/v1/conversations
       def index
+        # When @current_user cannot be resolved, return an empty result set rather than an unscoped school query
+        if @current_user.nil?
+          return render json: { success: true, total: 0, data: [] }, status: :ok
+        end
+
         raw_params = begin
           params.to_unsafe_h
         rescue
@@ -27,20 +32,16 @@ module Api
           scope = scope.where(school_id: s_bson)
         end
 
-        if @current_user.present?
-          u_bson = @current_user.id
-          u_str = @current_user.id.to_s
-          u_auth0 = @current_user.auth0_id
-          user_uids = [u_str, u_auth0].compact.uniq
+        u_bson = @current_user.id
+        u_str = @current_user.id.to_s
+        u_auth0 = @current_user.auth0_id
+        user_uids = [u_str, u_auth0].compact.uniq
 
-          # Membership rule: strictly participant_ids membership (or legacy 1:1 where user_id == @current_user.id)
-          scope = scope.any_of(
-            { :participant_ids.in => user_uids },
-            { scope_type: 'individual', user_id: u_bson }
-          )
-        elsif school_id.blank? && scope_type.blank?
-          return render json: { success: false, error: "Missing school_id or user_id" }, status: :bad_request
-        end
+        # Membership rule: strictly participant_ids membership (or legacy 1:1 where user_id == @current_user.id)
+        scope = scope.any_of(
+          { :participant_ids.in => user_uids },
+          { scope_type: 'individual', user_id: u_bson }
+        )
 
         scope = scope.by_scope_type(scope_type) if scope_type.present?
         scope = scope.by_scope_id(scope_id) if scope_id.present?

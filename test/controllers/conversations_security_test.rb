@@ -262,4 +262,33 @@ class ConversationsSecurityTest < ActionDispatch::IntegrationTest
     json = JSON.parse(response.body)
     assert_equal true, json["success"]
   end
+
+  test "10. GET conversations with school_id but no user_id or garbage user_id returns empty array" do
+    # Request with school_id but no user_id parameter and no token
+    get "/api/v1/conversations", params: { school_id: @school.id.to_s }
+
+    assert_response :success
+    json1 = JSON.parse(response.body)
+    assert_equal true, json1["success"]
+    assert_equal 0, json1["total"]
+    assert_equal [], json1["data"]
+
+    # Request with school_id and garbage non-existent user_id
+    get "/api/v1/conversations", params: { school_id: @school.id.to_s, user_id: "nonexistent_garbage_user_123" }
+
+    assert_response :success
+    json2 = JSON.parse(response.body)
+    assert_equal true, json2["success"]
+    assert_equal 0, json2["total"]
+    assert_equal [], json2["data"]
+
+    # Request with real parent_b user_id returns parent_b's conversations
+    get "/api/v1/conversations", params: { school_id: @school.id.to_s, user_id: @parent_b.auth0_id }
+
+    assert_response :success
+    json3 = JSON.parse(response.body)
+    assert_equal true, json3["success"]
+    assert_equal 1, json3["total"]
+    assert_equal @conv_b.id.to_s, json3["data"].first["id"]
+  end
 end
