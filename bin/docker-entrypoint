@@ -6,9 +6,5 @@ if [ -z "${LD_PRELOAD+x}" ]; then
     export LD_PRELOAD
 fi
 
-# If running the rails server, generate Mongoid database indexes
-if [ "${@: -2:1}" == "./bin/rails" ] && [ "${@: -1:1}" == "server" ]; then
-    ./bin/rails db:mongoid:create_indexes
-fi
-
+# Execute the container's main process (e.g., bundle exec puma -C config/puma.rb)
 exec "${@}"
