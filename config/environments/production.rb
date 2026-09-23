@@ -25,11 +25,9 @@ Rails.application.configure do
   # config.active_storage.service = :local
 
   # Assume all access to the app is happening through a SSL-terminating reverse proxy.
-  # Render provides SSL termination, so this can remain true
   config.assume_ssl = true
 
   # Force all access to the app over SSL, use Strict-Transport-Security, and use secure cookies.
-  # Set to false initially for testing, then enable after everything works
   config.force_ssl = true
   
   # Skip http-to-https redirect for the default health check endpoint.
@@ -54,42 +52,27 @@ Rails.application.configure do
   # Use async adapter for Active Job or comment out if not using background jobs
   config.active_job.queue_adapter = :async
 
-  # Ignore bad email addresses and do not raise email delivery errors.
-  # Set this to true and configure the email server for immediate delivery to raise delivery errors.
-  # config.action_mailer.raise_delivery_errors = false
-
   # Set host to be used by links generated in mailer templates.
-  # Update this to your actual Render URL after deployment
-  config.action_mailer.default_url_options = { host: ENV.fetch('RENDER_EXTERNAL_HOSTNAME', 'localhost:3000') }
+  config.action_mailer.default_url_options = { host: ENV.fetch('RAILWAY_PUBLIC_DOMAIN', 'shobackendv2-production.up.railway.app') }
 
-  # Specify outgoing SMTP server. Remember to add smtp/* credentials via rails credentials:edit.
-  # config.action_mailer.smtp_settings = {
-  #   user_name: Rails.application.credentials.dig(:smtp, :user_name),
-  #   password: Rails.application.credentials.dig(:smtp, :password),
-  #   address: "smtp.example.com",
-  #   port: 587,
-  #   authentication: :plain
-  # }
-
-  # Enable locale fallbacks for I18n (makes lookups for any locale fall back to
-  # the I18n.default_locale when a translation cannot be found).
+  # Enable locale fallbacks for I18n
   config.i18n.fallbacks = true
 
-  # Do not dump schema after migrations.
-  # Since we're using MongoDB, this ActiveRecord setting may not apply
-  # config.active_record.dump_schema_after_migration = false
+  # Allow Railway domain, Railway wildcard subdomains, and localhost
+  config.hosts << "shobackendv2-production.up.railway.app"
+  config.hosts << /.*\.up\.railway\.app/
+  config.hosts << /.*\.onrender\.com/ # Kept in case you cross-deploy
 
-  # Only use :id for inspections in production.
-  # This is ActiveRecord-specific, may not apply to MongoDB
-  # config.active_record.attributes_for_inspect = [ :id ]
+  if ENV["ALLOWED_HOSTS"].present?
+    config.hosts.concat(ENV["ALLOWED_HOSTS"].split(","))
+  end
 
-  # Enable DNS rebinding protection and other `Host` header attacks.
-  # Allow Render's domain and any subdomains
-  config.hosts << /.*\.onrender\.com/
+  # Enable ActionCable allowed request origins for Railway WebSockets
+  config.action_cable.allowed_request_origins = [
+    /https?:\/\/.*\.up\.railway\.app/,
+    /https?:\/\/localhost:.*/
+  ]
 
   # Ensure assets are served
   config.public_file_server.enabled = true
-
-  # Skip DNS rebinding protection for the default health check endpoint.
-  # config.host_authorization = { exclude: ->(request) { request.path == "/up" } }
 end
