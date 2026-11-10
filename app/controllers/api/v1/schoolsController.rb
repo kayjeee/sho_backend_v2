@@ -1,8 +1,6 @@
 module Api
   module V1
     class SchoolsController < ApplicationController
-      include SchoolResolver
-
       before_action :set_school, only: [:show, :update, :destroy, :admins, :teachers, :parents, :global_search]
 
       # =========================
@@ -106,29 +104,9 @@ module Api
       end
 
       # =========================
-      # GET /api/v1/schools/search
-      # Handles both:
-      # 1. q=<partial name> for parent-facing autocomplete search
-      # 2. query=Name for original school availability check
+      # GET /api/v1/schools/search?query=Name
       # =========================
       def search
-        if params[:q].present? || params.key?(:q)
-          q = params[:q]
-          if q.blank? || q.to_s.strip.length < 2
-            return render json: { success: false, message: "Query parameter 'q' must be at least 2 characters long." }, status: :bad_request
-          end
-
-          schools = School.where(schoolName: /#{Regexp.escape(q.to_s.strip)}/i).limit(10)
-          serialized_schools = schools.map do |school|
-            { id: school.id.to_s, name: school.schoolName }
-          end
-
-          return render json: {
-            success: true,
-            schools: serialized_schools
-          }, status: :ok
-        end
-
         query = params[:query]
         return render json: { success: false, message: "Query parameter is missing." }, status: :bad_request if query.blank?
 
@@ -146,7 +124,6 @@ module Api
       # POST /api/v1/schools
       # =========================
       def create
-        source = params[:school].presence || params
         @school = School.new(school_params.except(:adminUsers, :theme))
 
         # Set default values
@@ -155,16 +132,15 @@ module Api
         @school.status ||= "active"
 
         # Handle theme
-        if source[:theme].is_a?(Hash) || source[:theme].is_a?(ActionController::Parameters)
-          theme_data = source[:theme].respond_to?(:with_indifferent_access) ? source[:theme].with_indifferent_access : source[:theme]
-          @school.theme = theme_data[:mode] || theme_data["mode"]
-        elsif source[:theme].present?
-          @school.theme = source[:theme]
+        if params[:school][:theme].is_a?(Hash)
+          @school.theme = params[:school][:theme][:mode] || params[:school][:theme]["mode"]
+        elsif params[:school][:theme].present?
+          @school.theme = params[:school][:theme]
         end
 
         # Handle adminUsers
-        if source[:adminUsers].present?
-          @school.adminUsers = source[:adminUsers].map do |admin|
+        if params[:school][:adminUsers].present?
+          @school.adminUsers = params[:school][:adminUsers].map do |admin|
             {
               id: admin[:id] || BSON::ObjectId.new.to_s,
               name: admin[:name],
@@ -175,18 +151,18 @@ module Api
           end
         end
 
-        # Handle invites
-        if source[:invites].present?
-          @school.invites = source[:invites].map do |invite|
-            {
-              id: invite[:id] || BSON::ObjectId.new.to_s,
-              email: invite[:email],
-              role: invite[:role] || "Staff",
-              status: invite[:status] || "pending",
-              invitedAt: invite[:invitedAt] || Time.current
-            }
-          end
-        end
+          # Handle invites
+  if params[:school][:invites].present?
+    @school.invites = params[:school][:invites].map do |invite|
+      {
+        id: invite[:id] || BSON::ObjectId.new.to_s,
+        email: invite[:email],
+        role: invite[:role] || "Staff",
+        status: invite[:status] || "pending",
+        invitedAt: invite[:invitedAt] || Time.current
+      }
+    end
+  end
 
         if @school.save
           # Associate user with school if user_id provided
@@ -214,19 +190,16 @@ module Api
       # PATCH/PUT /api/v1/schools/:id
       # =========================
       def update
-        source = params[:school].presence || params
-
         # Handle theme
-        if source[:theme].is_a?(Hash) || source[:theme].is_a?(ActionController::Parameters)
-          theme_data = source[:theme].respond_to?(:with_indifferent_access) ? source[:theme].with_indifferent_access : source[:theme]
-          @school.theme = theme_data[:mode] || theme_data["mode"]
-        elsif source[:theme].present?
-          @school.theme = source[:theme]
+        if params[:school] && params[:school][:theme].is_a?(Hash)
+          @school.theme = params[:school][:theme][:mode] || params[:school][:theme]["mode"]
+        elsif params[:school] && params[:school][:theme].present?
+          @school.theme = params[:school][:theme]
         end
 
         # Handle adminUsers
-        if source[:adminUsers].present?
-          @school.adminUsers = source[:adminUsers].map do |admin|
+        if params[:school] && params[:school][:adminUsers].present?
+          @school.adminUsers = params[:school][:adminUsers].map do |admin|
             {
               id: admin[:id] || BSON::ObjectId.new.to_s,
               name: admin[:name],
@@ -255,17 +228,7 @@ module Api
       private
 
       def set_school
-        @school = find_school_by_id_or_slug(params[:id])
-        if @school.nil?
-          return render json: { success: false, message: "School not found" }, status: :not_found
-        end
-      rescue SchoolResolver::AmbiguousSchoolError => e
-        schools_info = e.matching_schools.map { |s| { id: s.id.to_s, name: s.schoolName } }
-        render json: {
-          success: false,
-          message: "Multiple schools match this name — a specific school id is required.",
-          schools: schools_info
-        }, status: :conflict
+        @school = School.find(params[:id])
       rescue BSON::Error::InvalidObjectId, Mongoid::Errors::DocumentNotFound
         render json: { success: false, message: "School not found" }, status: :not_found
       end
@@ -284,8 +247,7 @@ module Api
       end
 
       def school_params
-        source = params[:school].presence || params
-        source.permit(
+        params.require(:school).permit(
           :schoolName, :schoolEmail, :country, :city, :province,
           :latitude, :longitude, :facebook, :linkedin, :tiktok,
           :website, :logo, :status, :line1, :line2, :postalCode,

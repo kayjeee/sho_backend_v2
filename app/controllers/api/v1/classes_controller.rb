@@ -75,9 +75,9 @@ module Api
 
       # POST /api/v1/schools/:school_id/grades/:grade_id/classes/:id/assign_teacher
       def assign_teacher
-        teacher_id = params[:teacher_id] || params[:teacherId]
+        teacher_id = params[:teacher_id]
         role = params[:role] # 'class_teacher' or 'subject_teacher'
-        subject_id = params[:subject_id] || params[:subjectId] # Required for subject_teacher
+        subject_id = params[:subject_id] # Required for subject_teacher
 
         case role
         when 'class_teacher'
@@ -104,7 +104,7 @@ module Api
         render json: {
           success: true,
           message: message,
-          class: class_json(@school_class, detailed: true)
+          class: class_json(@school_class)
         }
       end
 
@@ -117,15 +117,21 @@ module Api
           return render json: { success: false, error: "Learner identifier (learner_id) is missing." }, status: :bad_request
         end
 
+        # Find learner
         begin
           @learner = Learner.find(learner_id)
         rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId, Mongoid::Errors::InvalidFind
           return render json: { success: false, error: "Learner with ID #{learner_id} not found." }, status: :not_found
         end
 
-        learner_id_str = learner_id.to_s
-        bson_learner_id = BSON::ObjectId.legal?(learner_id_str) ? BSON::ObjectId.from_string(learner_id_str) : nil
+        bson_learner_id = BSON::ObjectId.from_string(learner_id.to_s) rescue nil
+        if bson_learner_id.nil?
+          return render json: { success: false, error: "Invalid learner ID format" }, status: :bad_request
+        end
 
+        # Determine source and target classes
+        # Mode A: Payload contains target_class_id -> URL :id is the source
+        # Mode B: Payload has NO target_class_id -> URL :id is the target, source is inferred from learner
         if payload_target_class_id.present?
           source_class = @school_class
           begin
@@ -146,26 +152,23 @@ module Api
                         status: :unprocessable_entity
         end
 
-        if source_class
-          existing_ids = source_class.learner_ids.map(&:to_s)
-          unless existing_ids.include?(learner_id_str)
-            return render json: { success: false, error: "Learner not found in source class" },
-                          status: :unprocessable_entity
-          end
+        # Validate learner exists in source class (if source class is known)
+        if source_class && !source_class.learner_ids.include?(bson_learner_id)
+          return render json: { success: false, error: "Learner not found in source class" },
+                        status: :unprocessable_entity
         end
 
+        # Check capacity in target class
         if target_class.full?
           return render json: { success: false, error: "Target class is at full capacity" },
                         status: :unprocessable_entity
         end
 
-        if source_class
-          source_class.pull(learner_ids: bson_learner_id || learner_id_str)
-          source_class.pull(learner_ids: learner_id_str)
-        end
+        # Atomic move operation
+        source_class.pull(learner_ids: bson_learner_id) if source_class
+        target_class.add_to_set(learner_ids: bson_learner_id)
 
-        target_class.add_to_set(learner_ids: learner_id_str)
-
+        # Update learner's grade and class references
         @learner.update(
           grade_id: @grade.id.to_s,
           school_class_id: target_class.id.to_s
@@ -174,22 +177,14 @@ module Api
         render json: {
           success: true,
           message: "Learner moved successfully",
-          source_class: source_class ? class_json(source_class.reload, detailed: true) : nil,
-          target_class: class_json(target_class.reload, detailed: true)
+          source_class: source_class ? class_json(source_class.reload) : nil,
+          target_class: class_json(target_class.reload)
         }
       end
 
       # GET /api/v1/schools/:school_id/grades/:grade_id/classes/:id/learners
       def learners
-        raw_learner_ids = Array(@school_class.learner_ids).map(&:to_s)
-        learner_bsons = raw_learner_ids.map { |id| BSON::ObjectId.legal?(id) ? BSON::ObjectId.from_string(id) : nil }.compact
-
-        docs = Learner.collection.find(
-          "_id" => { "$in" => (raw_learner_ids + learner_bsons).uniq }
-        ).to_a
-
-        learners = docs.map { |d| Learner.instantiate(d) }
-
+        learners = Learner.where(id: { "$in" => @school_class.learner_ids })
         render json: {
           success: true,
           total: learners.count,
@@ -218,9 +213,9 @@ module Api
       private
 
       def set_school
-        school_param = params[:school_id] || params[:schoolId]
-        @school = find_school_by_id_or_slug(school_param)
+        @school = find_school_by_id_or_slug(params[:school_id])
 
+        # Derive from grade_id if school missing
         if @school.nil? && params[:grade_id].present?
           begin
             @grade = Grade.find(params[:grade_id])
@@ -233,22 +228,13 @@ module Api
         unless @school
           render json: { success: false, error: "School not found" }, status: :not_found and return
         end
-      rescue AmbiguousSchoolError => e
-        render json: {
-          success: false,
-          error: e.message,
-          matching_schools: e.matching_schools.map { |s| { id: s.id.to_s, name: s.schoolName } }
-        }, status: :conflict and return
       rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId
         render json: { success: false, error: "School not found" }, status: :not_found and return
       end
 
       def set_grade
         return unless @school
-        @grade = Grade.find(params[:grade_id])
-        if @grade.school_id.to_s != @school.id.to_s
-          render json: { success: false, error: "Grade not found" }, status: :not_found and return
-        end
+        @grade = @school.grades.find(params[:grade_id])
       rescue Mongoid::Errors::DocumentNotFound, BSON::Error::InvalidObjectId
         render json: { success: false, error: "Grade not found" }, status: :not_found and return
       end
@@ -261,33 +247,9 @@ module Api
       end
 
       def class_params
-        source = params[:class].presence || params
-        source.permit(:name, :capacity, :class_teacher_id).tap do |p|
+        params.require(:class).permit(:name, :capacity, :class_teacher_id).tap do |p|
           p[:class_teacher_id] = nil if p[:class_teacher_id].blank?
-          p[:capacity] = 40 if p[:capacity].blank?
         end
-      end
-
-      def resolve_teacher_name(teacher_id)
-        return nil if teacher_id.blank?
-
-        t_str = teacher_id.to_s
-        t_bson = BSON::ObjectId.legal?(t_str) ? BSON::ObjectId.from_string(t_str) : nil
-
-        u_doc = User.collection.find(
-          "$or" => [
-            { "_id" => { "$in" => [t_str, t_bson].compact } },
-            { "auth0_id" => t_str }
-          ]
-        ).first
-
-        return nil unless u_doc
-
-        user = User.instantiate(u_doc)
-        user.try(:full_name) || user.try(:name) || "#{u_doc['name'] || u_doc['display_name']}".strip
-      rescue => e
-        Rails.logger.error "❌ Error resolving teacher_name for teacher #{teacher_id}: #{e.message}"
-        nil
       end
 
       def class_json(school_class, detailed: false)
@@ -299,7 +261,6 @@ module Api
         json = {
           id: school_class.id.to_s,
           name: school_class.name,
-          grade_name: @grade&.name || school_class.grade&.name,
           capacity: school_class.capacity,
           current_learners: school_class.learner_ids.count,
           utilization: "#{school_class.learner_ids.count}/#{school_class.capacity}",
@@ -308,10 +269,10 @@ module Api
 
         if detailed
           json[:class_teacher_id] = school_class.class_teacher_id
-          json[:class_teacher_name] = resolve_teacher_name(school_class.class_teacher_id)
           json[:subject_teachers] = school_class.subject_teacher_ids
           json[:learner_ids] = school_class.learner_ids.map(&:to_s)
-          json[:school_name] = @school&.schoolName
+          json[:grade_name] = @grade.name
+          json[:school_name] = @school.schoolName
         end
 
         json
