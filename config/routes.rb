@@ -99,16 +99,10 @@ Rails.application.routes.draw do
       end
 
       # Invitations Routes (NEW - for POST /api/v1/invitations)
-      resources :invitations, param: :token, only: [:create, :index] do
+      resources :invitations, param: :token, only: [:create] do
         collection do
           post :verify
           post :bulk_create
-          post :match_by_phone
-        end
-        member do
-          post :resend
-          post :cancel
-          post :admin_accept
         end
       end
 
@@ -161,7 +155,7 @@ Rails.application.routes.draw do
         end
 
         collection do
-          get :search # Handles both query-based validation and autocomplete parent search
+          get :search
         end
 
         # Nested resources for school-specific operations
@@ -183,11 +177,7 @@ Rails.application.routes.draw do
             get :stats
           end
         end
-        resources :learners, only: [:index] do
-          collection do
-            post :promote
-          end
-        end
+        resources :learners, only: [:index]
         resources :transactions, only: [:index, :show, :create, :update, :destroy] do
           collection do
             get :pending
@@ -253,7 +243,6 @@ Rails.application.routes.draw do
           get :search
           get :export
           get :statistics
-          post :promote
         end
 
         member do
@@ -277,16 +266,6 @@ Rails.application.routes.draw do
           patch :deactivate
         end
       end
-
-      resources :attendance, only: [] do
-        collection do
-          post :bulk_mark
-          get :register
-          get :summary
-        end
-      end
-
-      resources :timetable_entries, only: [:index, :show, :create, :update, :destroy]
 
       resources :assessments, only: [:index, :show, :create, :update, :destroy] do
         collection do
@@ -314,8 +293,6 @@ Rails.application.routes.draw do
 
       resources :results, only: [:index, :show, :create, :update, :destroy] do
         collection do
-          post :bulk_record
-          get :report_card
           post :bulk_upload
           get :search
           get :statistics
@@ -325,24 +302,6 @@ Rails.application.routes.draw do
         member do
           patch :approve
           patch :reject
-        end
-      end
-
-      resources :supply_requests, only: [:index, :create] do
-        collection do
-          get :summary
-        end
-
-        member do
-          patch :approve
-          patch :reject
-          patch :fulfill
-        end
-      end
-
-      resources :terms, only: [:index, :show, :create, :update, :destroy] do
-        collection do
-          get :current
         end
       end
 
@@ -376,10 +335,6 @@ Rails.application.routes.draw do
       # CONVERSATIONS
       # =========================================================
       resources :conversations, only: [:index, :show, :create] do
-        member do
-          post :remove_participant
-          post :leave
-        end
         resources :messages, only: [:create, :index]
       end
 
@@ -470,6 +425,23 @@ Rails.application.routes.draw do
 
       # HEALTH
       get 'health', to: 'home#health'
+
+      # =========================================================
+      # SCHOOL SHOP (Catalog Items & Orders)
+      # =========================================================
+      resources :schools, only: [] do
+        resources :catalog_items, only: [:index, :create]
+        resources :orders, only: [:index]
+      end
+
+      resources :catalog_items, only: [:show, :update, :destroy]
+
+      resources :orders, only: [:index, :show, :create] do
+        member do
+          post :cancel
+          patch :status
+        end
+      end
     end
 
     # Future versioning

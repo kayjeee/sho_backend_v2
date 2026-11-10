@@ -2,7 +2,6 @@ module Api
   module Admin
     class BaseController < ActionController::API
       include Secured
-      wrap_parameters false
       include SchoolResolver
 
       rescue_from StandardError, with: :handle_unexpected_api_crash
