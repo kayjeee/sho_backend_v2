@@ -156,6 +156,7 @@ Rails.application.routes.draw do
 
         collection do
           get :search
+          get :suggest # public school lookup for autocomplete (id + public fields only)
         end
 
         # Nested resources for school-specific operations

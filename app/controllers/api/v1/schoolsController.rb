@@ -121,6 +121,51 @@ module Api
       end
 
       # =========================
+      # GET /api/v1/schools/suggest?q=Name
+      # Public school lookup for autocomplete (e.g. parent onboarding).
+      # Returns ONLY public fields. Accepts `query` as an alias for `q`.
+      # =========================
+      SUGGEST_MIN_LENGTH = 2
+      SUGGEST_LIMIT = 10
+
+      def suggest
+        text = (params[:q].presence || params[:query].presence).to_s.strip
+        if text.length < SUGGEST_MIN_LENGTH
+          return render json: { success: true, schools: [] }, status: :ok
+        end
+
+        escaped = Regexp.escape(text)
+        active = { :status.in => ['active', nil] }
+
+        prefix_matches = School.where(active).where(schoolName: /^#{escaped}/i)
+                               .order_by(schoolName: :asc).limit(SUGGEST_LIMIT).to_a
+        matches = prefix_matches
+        if matches.length < SUGGEST_LIMIT
+          contains_matches = School.where(active).where(schoolName: /#{escaped}/i)
+                                   .where(:id.nin => prefix_matches.map(&:id))
+                                   .order_by(schoolName: :asc)
+                                   .limit(SUGGEST_LIMIT - matches.length).to_a
+          matches += contains_matches
+        end
+
+        schools = matches.map do |school|
+          {
+            id: school.id.to_s,
+            schoolName: school.schoolName,
+            city: school.city,
+            province: school.province,
+            logo: school.logo
+          }
+        end
+
+        render json: { success: true, schools: schools }, status: :ok
+      rescue StandardError => e
+        Rails.logger.error("[schools#suggest] #{e.class}: #{e.message}")
+        render json: { success: false, message: 'Unable to search schools right now.' },
+               status: :internal_server_error
+      end
+
+      # =========================
       # POST /api/v1/schools
       # =========================
       def create
