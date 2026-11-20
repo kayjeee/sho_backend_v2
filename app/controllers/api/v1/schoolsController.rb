@@ -3,6 +3,10 @@ module Api
     class SchoolsController < ApplicationController
       before_action :set_school, only: [:show, :update, :destroy, :admins, :teachers, :parents, :global_search]
 
+      # Autocomplete settings (used by #suggest, which #search delegates to for ?q=)
+      SUGGEST_MIN_LENGTH = 2
+      SUGGEST_LIMIT = 10
+
       # =========================
       # GET /api/v1/schools
       # =========================
@@ -104,9 +108,14 @@ module Api
       end
 
       # =========================
-      # GET /api/v1/schools/search?query=Name
+      # GET /api/v1/schools/search?query=Name   (school-name availability check)
+      # GET /api/v1/schools/search?q=Name       (parent autocomplete, see #suggest)
       # =========================
       def search
+        # ?q= is the parent-facing autocomplete (returns a list of schools).
+        # ?query= stays the school-name availability check used by the admin create-school page.
+        return suggest if params.key?(:q)
+
         query = params[:query]
         return render json: { success: false, message: "Query parameter is missing." }, status: :bad_request if query.blank?
 
@@ -124,10 +133,8 @@ module Api
       # GET /api/v1/schools/suggest?q=Name
       # Public school lookup for autocomplete (e.g. parent onboarding).
       # Returns ONLY public fields. Accepts `query` as an alias for `q`.
+      # Fewer than 2 characters returns an empty list (not a 400).
       # =========================
-      SUGGEST_MIN_LENGTH = 2
-      SUGGEST_LIMIT = 10
-
       def suggest
         text = (params[:q].presence || params[:query].presence).to_s.strip
         if text.length < SUGGEST_MIN_LENGTH
@@ -151,6 +158,7 @@ module Api
         schools = matches.map do |school|
           {
             id: school.id.to_s,
+            name: school.schoolName,
             schoolName: school.schoolName,
             city: school.city,
             province: school.province,
@@ -196,18 +204,18 @@ module Api
           end
         end
 
-          # Handle invites
-  if params[:school][:invites].present?
-    @school.invites = params[:school][:invites].map do |invite|
-      {
-        id: invite[:id] || BSON::ObjectId.new.to_s,
-        email: invite[:email],
-        role: invite[:role] || "Staff",
-        status: invite[:status] || "pending",
-        invitedAt: invite[:invitedAt] || Time.current
-      }
-    end
-  end
+        # Handle invites
+        if params[:school][:invites].present?
+          @school.invites = params[:school][:invites].map do |invite|
+            {
+              id: invite[:id] || BSON::ObjectId.new.to_s,
+              email: invite[:email],
+              role: invite[:role] || "Staff",
+              status: invite[:status] || "pending",
+              invitedAt: invite[:invitedAt] || Time.current
+            }
+          end
+        end
 
         if @school.save
           # Associate user with school if user_id provided
