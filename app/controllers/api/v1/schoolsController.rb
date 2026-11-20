@@ -1,9 +1,11 @@
 module Api
   module V1
     class SchoolsController < ApplicationController
-      include SchoolResolver
-
       before_action :set_school, only: [:show, :update, :destroy, :admins, :teachers, :parents, :global_search]
+
+      # Autocomplete settings (used by #suggest, which #search delegates to for ?q=)
+      SUGGEST_MIN_LENGTH = 2
+      SUGGEST_LIMIT = 10
 
       # =========================
       # GET /api/v1/schools
@@ -106,28 +108,13 @@ module Api
       end
 
       # =========================
-      # GET /api/v1/schools/search
-      # Handles both:
-      # 1. q=<partial name> for parent-facing autocomplete search
-      # 2. query=Name for original school availability check
+      # GET /api/v1/schools/search?query=Name   (school-name availability check)
+      # GET /api/v1/schools/search?q=Name       (parent autocomplete, see #suggest)
       # =========================
       def search
-        if params[:q].present? || params.key?(:q)
-          q = params[:q]
-          if q.blank? || q.to_s.strip.length < 2
-            return render json: { success: false, message: "Query parameter 'q' must be at least 2 characters long." }, status: :bad_request
-          end
-
-          schools = School.where(schoolName: /#{Regexp.escape(q.to_s.strip)}/i).limit(10)
-          serialized_schools = schools.map do |school|
-            { id: school.id.to_s, name: school.schoolName }
-          end
-
-          return render json: {
-            success: true,
-            schools: serialized_schools
-          }, status: :ok
-        end
+        # ?q= is the parent-facing autocomplete (returns a list of schools).
+        # ?query= stays the school-name availability check used by the admin create-school page.
+        return suggest if params.key?(:q)
 
         query = params[:query]
         return render json: { success: false, message: "Query parameter is missing." }, status: :bad_request if query.blank?
@@ -143,10 +130,53 @@ module Api
       end
 
       # =========================
+      # GET /api/v1/schools/suggest?q=Name
+      # Public school lookup for autocomplete (e.g. parent onboarding).
+      # Returns ONLY public fields. Accepts `query` as an alias for `q`.
+      # Fewer than 2 characters returns an empty list (not a 400).
+      # =========================
+      def suggest
+        text = (params[:q].presence || params[:query].presence).to_s.strip
+        if text.length < SUGGEST_MIN_LENGTH
+          return render json: { success: true, schools: [] }, status: :ok
+        end
+
+        escaped = Regexp.escape(text)
+        active = { :status.in => ['active', nil] }
+
+        prefix_matches = School.where(active).where(schoolName: /^#{escaped}/i)
+                               .order_by(schoolName: :asc).limit(SUGGEST_LIMIT).to_a
+        matches = prefix_matches
+        if matches.length < SUGGEST_LIMIT
+          contains_matches = School.where(active).where(schoolName: /#{escaped}/i)
+                                   .where(:id.nin => prefix_matches.map(&:id))
+                                   .order_by(schoolName: :asc)
+                                   .limit(SUGGEST_LIMIT - matches.length).to_a
+          matches += contains_matches
+        end
+
+        schools = matches.map do |school|
+          {
+            id: school.id.to_s,
+            name: school.schoolName,
+            schoolName: school.schoolName,
+            city: school.city,
+            province: school.province,
+            logo: school.logo
+          }
+        end
+
+        render json: { success: true, schools: schools }, status: :ok
+      rescue StandardError => e
+        Rails.logger.error("[schools#suggest] #{e.class}: #{e.message}")
+        render json: { success: false, message: 'Unable to search schools right now.' },
+               status: :internal_server_error
+      end
+
+      # =========================
       # POST /api/v1/schools
       # =========================
       def create
-        source = params[:school].presence || params
         @school = School.new(school_params.except(:adminUsers, :theme))
 
         # Set default values
@@ -155,16 +185,15 @@ module Api
         @school.status ||= "active"
 
         # Handle theme
-        if source[:theme].is_a?(Hash) || source[:theme].is_a?(ActionController::Parameters)
-          theme_data = source[:theme].respond_to?(:with_indifferent_access) ? source[:theme].with_indifferent_access : source[:theme]
-          @school.theme = theme_data[:mode] || theme_data["mode"]
-        elsif source[:theme].present?
-          @school.theme = source[:theme]
+        if params[:school][:theme].is_a?(Hash)
+          @school.theme = params[:school][:theme][:mode] || params[:school][:theme]["mode"]
+        elsif params[:school][:theme].present?
+          @school.theme = params[:school][:theme]
         end
 
         # Handle adminUsers
-        if source[:adminUsers].present?
-          @school.adminUsers = source[:adminUsers].map do |admin|
+        if params[:school][:adminUsers].present?
+          @school.adminUsers = params[:school][:adminUsers].map do |admin|
             {
               id: admin[:id] || BSON::ObjectId.new.to_s,
               name: admin[:name],
@@ -176,8 +205,8 @@ module Api
         end
 
         # Handle invites
-        if source[:invites].present?
-          @school.invites = source[:invites].map do |invite|
+        if params[:school][:invites].present?
+          @school.invites = params[:school][:invites].map do |invite|
             {
               id: invite[:id] || BSON::ObjectId.new.to_s,
               email: invite[:email],
@@ -214,19 +243,16 @@ module Api
       # PATCH/PUT /api/v1/schools/:id
       # =========================
       def update
-        source = params[:school].presence || params
-
         # Handle theme
-        if source[:theme].is_a?(Hash) || source[:theme].is_a?(ActionController::Parameters)
-          theme_data = source[:theme].respond_to?(:with_indifferent_access) ? source[:theme].with_indifferent_access : source[:theme]
-          @school.theme = theme_data[:mode] || theme_data["mode"]
-        elsif source[:theme].present?
-          @school.theme = source[:theme]
+        if params[:school] && params[:school][:theme].is_a?(Hash)
+          @school.theme = params[:school][:theme][:mode] || params[:school][:theme]["mode"]
+        elsif params[:school] && params[:school][:theme].present?
+          @school.theme = params[:school][:theme]
         end
 
         # Handle adminUsers
-        if source[:adminUsers].present?
-          @school.adminUsers = source[:adminUsers].map do |admin|
+        if params[:school] && params[:school][:adminUsers].present?
+          @school.adminUsers = params[:school][:adminUsers].map do |admin|
             {
               id: admin[:id] || BSON::ObjectId.new.to_s,
               name: admin[:name],
@@ -255,17 +281,7 @@ module Api
       private
 
       def set_school
-        @school = find_school_by_id_or_slug(params[:id])
-        if @school.nil?
-          return render json: { success: false, message: "School not found" }, status: :not_found
-        end
-      rescue SchoolResolver::AmbiguousSchoolError => e
-        schools_info = e.matching_schools.map { |s| { id: s.id.to_s, name: s.schoolName } }
-        render json: {
-          success: false,
-          message: "Multiple schools match this name — a specific school id is required.",
-          schools: schools_info
-        }, status: :conflict
+        @school = School.find(params[:id])
       rescue BSON::Error::InvalidObjectId, Mongoid::Errors::DocumentNotFound
         render json: { success: false, message: "School not found" }, status: :not_found
       end
@@ -284,8 +300,7 @@ module Api
       end
 
       def school_params
-        source = params[:school].presence || params
-        source.permit(
+        params.require(:school).permit(
           :schoolName, :schoolEmail, :country, :city, :province,
           :latitude, :longitude, :facebook, :linkedin, :tiktok,
           :website, :logo, :status, :line1, :line2, :postalCode,
