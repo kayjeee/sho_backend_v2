@@ -45,7 +45,7 @@ class ConversationsAndMessagesControllerTest < ActionDispatch::IntegrationTest
     post "/api/v1/conversations", params: {
       school_id: @school.id.to_s,
       user_id: @parent.auth0_id
-    }, as: :json
+    }, headers: auth_headers_for(@parent), as: :json
 
     assert_response :success
     json = JSON.parse(response.body)
@@ -67,11 +67,10 @@ class ConversationsAndMessagesControllerTest < ActionDispatch::IntegrationTest
     post "/api/v1/conversations", params: {
       conversation: {
         school_id: @school.id.to_s,
-        user_id: @admin.auth0_id,
         scope_type: "class",
         scope_id: @school_class.id.to_s
       }
-    }, as: :json
+    }, headers: auth_headers_for(@admin), as: :json
 
     assert_response :created
     json = JSON.parse(response.body)
@@ -93,11 +92,11 @@ class ConversationsAndMessagesControllerTest < ActionDispatch::IntegrationTest
     )
 
     # Allowed participant
-    get "/api/v1/conversations/#{conv.id}", params: { requesting_user_id: @parent.id.to_s }
+    get "/api/v1/conversations/#{conv.id}", headers: auth_headers_for(@parent)
     assert_response :success
 
     # Forbidden unrelated user
-    get "/api/v1/conversations/#{conv.id}", params: { requesting_user_id: @unrelated_user.id.to_s }
+    get "/api/v1/conversations/#{conv.id}", headers: auth_headers_for(@unrelated_user)
     assert_response :forbidden
 
     # Forbidden messaging attempt
@@ -106,7 +105,7 @@ class ConversationsAndMessagesControllerTest < ActionDispatch::IntegrationTest
         content: "Unauthorized hello",
         user_id: @unrelated_user.id.to_s
       }
-    }, as: :json
+    }, headers: auth_headers_for(@unrelated_user), as: :json
     assert_response :forbidden
   end
 end

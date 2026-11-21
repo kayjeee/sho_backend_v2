@@ -472,6 +472,13 @@ module Api
           parentId: learner.try(:parent_id)&.to_s || nil,
           status: learner.try(:status) || "active",
           phone: learner.try(:phone),
+          contact: {
+            phone: learner.attributes["phone"].presence,
+            whatsapp: learner.attributes["whatsapp"].presence,
+            tel_home: (learner.attributes["tel_home"] || learner.attributes["telHome"]).presence,
+            tel_emergency: (learner.attributes["tel_emergency"] || learner.attributes["telEmergency"]).presence,
+            telegram: learner.attributes["telegram"].presence
+          },
           createdAt: learner.created_at,
           updatedAt: learner.updated_at
         }

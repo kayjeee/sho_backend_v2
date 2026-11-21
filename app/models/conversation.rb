@@ -84,6 +84,38 @@ class Conversation
     resolved_participant_ids.include?(uid_str)
   end
 
+  def participants
+    p_ids = resolved_participant_ids
+    return [] if p_ids.empty?
+
+    p_bsons = p_ids.map { |id| BSON::ObjectId.legal?(id) ? BSON::ObjectId.from_string(id) : nil }.compact
+    all_lookup = (p_ids + p_bsons).uniq
+
+    users = User.where(:id.in => all_lookup)
+    users_by_id = users.each_with_object({}) do |u, h|
+      h[u.id.to_s] = u
+      h[u.auth0_id] = u if u.auth0_id.present?
+    end
+
+    p_ids.map do |pid|
+      u = users_by_id[pid]
+      if u
+        {
+          id: u.id.to_s,
+          auth0_id: u.auth0_id,
+          name: u.display_name.presence || u.name.presence || u.email,
+          email: u.email
+        }
+      else
+        {
+          id: pid,
+          name: "Unknown User",
+          email: nil
+        }
+      end
+    end
+  end
+
   def to_api_hash
     {
       id: id.to_s,
@@ -92,11 +124,16 @@ class Conversation
       scope_type: scope_type,
       scope_id: scope_id,
       participant_ids: resolved_participant_ids,
+      participants: participants,
       academic_year: academic_year,
       term_id: term_id,
       title: title,
       created_at: created_at&.iso8601,
       updated_at: updated_at&.iso8601
     }
+  end
+
+  def as_json(options = {})
+    to_api_hash.as_json(options)
   end
 end
